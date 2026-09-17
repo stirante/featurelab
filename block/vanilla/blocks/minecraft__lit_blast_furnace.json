@@ -1,0 +1,39 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:lit_blast_furnace"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "blast_furnace_top",
+        "down": "blast_furnace_top",
+        "north": "blast_furnace_side",
+        "south": "blast_furnace_side",
+        "west": "blast_furnace_side",
+        "east": "blast_furnace_front_on"
+      },
+      "sound": "stone"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "STONE",
+      "rgb": [
+        112,
+        112,
+        112
+      ]
+    }
+  }
+}

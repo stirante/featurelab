@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:log_litter_run" },
+    "places_feature": "wiki:log_leaf_litter",
+    "distribution": {
+      "iterations": 7,
+      "x": { "distribution": "fixed_grid", "extent": [-3, 3] },
+      "y": 0,
+      "z": 0
+    }
+  }
+}

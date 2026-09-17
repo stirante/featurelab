@@ -1,0 +1,41 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:melon_block"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "melon_top",
+        "down": "melon_side",
+        "side": "melon_side"
+      },
+      "sound": "wood"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "COLOR_LIGHT_GREEN",
+      "rgb": [
+        127,
+        204,
+        25
+      ],
+      "ambiguous": true,
+      "ambiguous_candidates": [
+        "COLOR_LIGHT_GREEN",
+        "PLANT"
+      ]
+    }
+  }
+}

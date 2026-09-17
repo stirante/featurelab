@@ -1,0 +1,15 @@
+{
+  "format_version": "1.21.100",
+  "minecraft:block": {
+    "description": { "identifier": "myaddon:sculpted_lamp" },
+    "components": {
+      "minecraft:geometry": {
+        "identifier": "geometry.myaddon.sculpted_lamp",
+        "bone_visibility": { "shade": true }
+      },
+      "minecraft:material_instances": {
+        "*": { "texture": "myaddon:slate", "render_method": "alpha_test_single_sided_to_opaque" }
+      }
+    }
+  }
+}

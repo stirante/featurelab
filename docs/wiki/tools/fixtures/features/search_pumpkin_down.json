@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:search_feature": {
+    "description": { "identifier": "wiki:search_pumpkin_down" },
+    "places_feature": "wiki:pumpkin_patch_block",
+    "search_volume": { "min": [0, -10, 0], "max": [0, 0, 0] },
+    "search_axis": "-y",
+    "required_successes": 1
+  }
+}

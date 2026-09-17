@@ -1,0 +1,78 @@
+﻿*.bak
+
+# Go build output, and the copy apps/vscode/scripts/build-binary.mjs drops into
+# apps/vscode/bin/ for packaging -- never commit a built featurelab binary anywhere.
+bin/
+# `go build ./cmd/featurelab` from the repo root drops the binary HERE, not in bin/, and a 13 MB
+# featurelab.exe has already appeared in the root once this way. The ignore is the guard, not the
+# habit: git add is not scoped to the paths you name -- it adds to a shared index someone else may
+# have staged into -- so an unignored 13 MB artifact is one absent-minded commit away from history
+# that cannot be rewritten. No binary is tracked anywhere in this repo, so this masks nothing.
+*.exe
+*.dll
+*.so
+/.tmp/
+
+# Node / frontend / apps/vscode build output -- never commit built artifacts,
+# packaging fetches or builds them (see frontend/ and apps/vscode/ READMEs).
+node_modules/
+dist/
+out/
+*.vsix
+*.tsbuildinfo
+
+# apps/desktop (Wails) build output -- `wails build`'s own bin/ output is already covered by
+# the bin/ rule above; package.json.md5 is a Wails-internal cache file it drops next to
+# frontend/package.json to skip `npm install` when nothing changed.
+package.json.md5
+.scratch/
+
+# Agent worktrees: `.claude/worktrees/<id>` is a git worktree an assistant session creates to
+# work on an isolated copy of this repo. It is scratch by definition -- it holds a second
+# checkout, sometimes with deliberately broken code in it -- and must never be committed or
+# scanned by repo-wide tooling (a `gofmt -l .` here would report whatever a worktree currently
+# has half-written).
+.claude/worktrees/
+
+# Working artefacts that keep getting swept up by a repo-wide `git add -A`, twice now.
+# Both are REGENERATABLE and neither may ship:
+#   apps/vscode/docs/verification/ -- manual UI verification screenshots, taken against whatever
+#     pack happened to be open. The committed panel-*.png files beside this directory are the
+#     shippable set; screenshots meant to ship are captured against the wiki's own fixture pack
+#     (see apps/vscode/scripts/).
+#   docs/wiki.zip -- a packaged copy of docs/wiki/, i.e. a second copy of files already in git.
+apps/vscode/docs/verification/
+docs/wiki.zip
+
+# Python bytecode from ad-hoc analysis scripts run against research/ notes.
+__pycache__/
+
+# Stray editor backups. One of these sat in goldentest/ for three weeks.
+*.bak
+*.orig
+
+# Local working notes -- never tracked, never published.
+#
+# This directory holds the project's own derivations, its running handoff, and
+# the tooling that audits the tree before a release. None of it is part of the
+# product and none of it may be published.
+#
+# Ignoring it rather than deleting it is deliberate: the notes are expensive to
+# reproduce, and a tracked copy is one absent-minded `git add -A` from being
+# published. Nothing in the build, the tests or CI reads anything under here.
+#
+# Back it up outside the repo. Git protects none of it: `git clean -xdf` deletes
+# the lot.
+/research/
+
+# Local-only tests that need an external pack (set via $FEATURELAB_PACK_DIR)
+# and a baseline generated from it. They are not part of the repository.
+#
+# The tracked baseline runs anywhere: goldentest/fixture_test.go against
+# docs/wiki/tools/fixtures. goldentest/harness.go reads the pack directory
+# from $FEATURELAB_PACK_DIR.
+/goldentest/testdata/feature_placement_digest.json
+/goldentest/golden_test.go
+/goldentest/bench_test.go
+/cmd/featurelab/serve_realpack_test.go
+/session/profiler_realpack_test.go

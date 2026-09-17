@@ -1,0 +1,19 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:feature_rules": {
+    "description": {
+      "identifier": "wiki:rng_rule_b.fr",
+      "places_feature": "wiki:rng_marker"
+    },
+    "conditions": {
+      "placement_pass": "surface_pass",
+      "minecraft:biome_filter": {}
+    },
+    "distribution": {
+      "iterations": 8,
+      "x": { "distribution": "uniform", "extent": [0, 15] },
+      "y": 0,
+      "z": { "distribution": "uniform", "extent": [0, 15] }
+    }
+  }
+}

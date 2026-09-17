@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:fallen_log_with_litter" },
+    "features": [ "wiki:fallen_log_run", "wiki:log_litter_run" ]
+  }
+}

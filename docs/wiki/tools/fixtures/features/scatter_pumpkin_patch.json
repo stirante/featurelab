@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:pumpkin_patch" },
+    "places_feature": "wiki:pumpkin_patch_block",
+    "distribution": {
+      "iterations": 14,
+      "x": { "distribution": "uniform", "extent": [-8, 8] },
+      "y": 0,
+      "z": { "distribution": "uniform", "extent": [-8, 8] }
+    }
+  }
+}

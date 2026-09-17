@@ -1,0 +1,79 @@
+// diagnostics.ts -- projects the engine's Diagnostic[] (level/fileId/message, see
+// featurelab/session's Diagnostic) onto VS Code's own Diagnostics API for the file
+// currently being previewed. The webview's own Diagnostics section (frontend/src/ui/panel.ts)
+// shows the full list unfiltered; this narrows to the one file VS Code diagnostics can
+// meaningfully attach to.
+import * as vscode from 'vscode'
+
+/** identifier/typeId/chain/count are optional here purely so this file tolerates a response
+ * from an engine build that predates them (the old {level,fileId,message}-only Diagnostic) --
+ * see updateDiagnostics's own use of them below and featurelab-frontend's protocol.ts
+ * DiagnosticWire doc comment for the full contract these mirror. */
+export interface DiagnosticWireLike {
+  level: string
+  fileId: string
+  identifier?: string
+  typeId?: string
+  chain?: string[]
+  count?: number
+  message: string
+}
+
+export function createDiagnosticCollection(): vscode.DiagnosticCollection {
+  return vscode.languages.createDiagnosticCollection('featurelab')
+}
+
+/** Sets (replacing any previous set) the VS Code diagnostics for `document` from the
+ * engine's diagnostics whose `fileId` matches any of `fileIds`. The engine reports no
+ * line/column, so every diagnostic spans the whole document -- still enough for VS Code's
+ * Problems panel and editor squiggles to surface it, which is the point: making a generation
+ * error visible without the user having to open the webview at all.
+ *
+ * `fileIds` is a LIST because the engine populates fileId two different ways, and matching only
+ * one of them silently hid an entire class of diagnostic:
+ *
+ *   - build/parse-time diagnostics carry the pack loader's file id, i.e. the basename
+ *     ("poplar_tree.json");
+ *   - placement-time diagnostics carry the IDENTIFIER of whatever the caller asked to run
+ *     ("wiki:pumpkin_patch", "wiki:floating_isle.main") -- see featurelab/session's Diagnostic.FileID
+ *     doc comment, which is explicit that this is the root request, not the failing file.
+ *
+ * Passing only the basename therefore matched build-time problems and dropped every
+ * placement-time one, so a run that legitimately placed nothing showed an EMPTY Problems panel
+ * -- exactly the case where the user most needs the explanation. Pass both the basename and the
+ * requested identifier. */
+export function updateDiagnostics(
+  collection: vscode.DiagnosticCollection,
+  document: vscode.TextDocument,
+  fileIds: readonly string[],
+  diagnostics: readonly DiagnosticWireLike[],
+): void {
+  const accepted = new Set(fileIds.filter((id) => id.length > 0))
+  const relevant = diagnostics.filter((d) => accepted.has(d.fileId))
+  if (relevant.length === 0) {
+    collection.delete(document.uri)
+    return
+  }
+  const lastLine = Math.max(0, document.lineCount - 1)
+  const range = new vscode.Range(0, 0, lastLine, document.lineAt(lastLine).text.length)
+  const vsDiagnostics = relevant.map((d) => {
+    const severity = d.level === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
+    const diag = new vscode.Diagnostic(range, formatMessage(d), severity)
+    diag.source = 'featurelab'
+    return diag
+  })
+  collection.set(document.uri, vsDiagnostics)
+}
+
+/** Prefixes a Problems-panel message with the CHAIN down to the feature that actually failed
+ * (root-first, e.g. "wiki:floating_isle.main › wiki:floating_isle.waterfall") whenever that's known
+ * and actually differs from the plain message -- otherwise this file's Problems-panel entry
+ * would repeat the bug the webview panel already avoids: it named this document's own
+ * file, not the (possibly nested) feature the failure actually happened in. Falls back to the
+ * bare message for a response that predates chain/identifier (see DiagnosticWireLike's own doc
+ * comment), and appends a "(x count)" suffix once a diagnostic fired more than once this run. */
+function formatMessage(d: DiagnosticWireLike): string {
+  const chain = d.chain && d.chain.length > 1 ? d.chain.join(' › ') : d.identifier && d.identifier.length > 0 ? d.identifier : null
+  const withTypeAndChain = chain ? (d.typeId ? `${chain} (${d.typeId}): ${d.message}` : `${chain}: ${d.message}`) : d.message
+  return d.count && d.count > 1 ? `${withTypeAndChain} (×${d.count})` : withTypeAndChain
+}

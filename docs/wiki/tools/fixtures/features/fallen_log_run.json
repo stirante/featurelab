@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:fallen_log_run" },
+    "places_feature": "wiki:fallen_log_block",
+    "distribution": {
+      "iterations": 7,
+      "x": { "distribution": "fixed_grid", "extent": [-3, 3] },
+      "y": 0,
+      "z": 0
+    }
+  }
+}

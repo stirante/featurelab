@@ -1,0 +1,65 @@
+# Feature Lab — desktop app
+
+A standalone window around the same voxel viewer the VS Code extension uses.
+Point it at a behaviour pack directory, pick a feature, and see what it places.
+
+It is the same tool with a different front door: use the extension when you are
+editing the JSON, and this when you want a preview window that is not tied to an
+editor — on a second monitor beside whatever you are actually working in.
+
+## Running it
+
+```
+wails dev            # from this directory, for development
+wails build          # produces build/bin/
+```
+
+The Wails CLI must be **v2.13.0** — the version this repo pins. Older CLIs fail
+against this Go toolchain with `internal error: package "context" without types
+was imported`.
+
+```
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+```
+
+Release builds go through `scripts/release/build-desktop.sh`, which the release
+workflow runs once per OS. That script's header comment carries the
+platform-specific details, including the Linux WebKitGTK build tag.
+
+## How it differs from the extension
+
+Same viewer, same engine, three real differences:
+
+- **In-process.** The extension spawns the `featurelab` binary and talks JSON
+  over a pipe; this app links the engine's packages directly. There is no
+  subprocess and no protocol between the window and the generator.
+- **It watches the directory, not the editor.** The extension re-renders when
+  *you* save a file; this app watches the pack root with a file watcher, so it
+  also notices files changed by anything else — a build step, a generator, a
+  file deleted in Explorer. Changes are debounced, and a batch it can account
+  for reloads only the files that changed; anything else falls back to reloading
+  the whole pack.
+- **It opens a directory, not a document.** There is no "current file", so the
+  feature you are previewing is always chosen in the panel.
+
+Everything about the panel itself — the sections, the diagnostics, the budgets,
+the view controls — is shared with the extension and described in
+[`apps/vscode/README.md`](../vscode/README.md).
+
+## What a preview is, and is not
+
+This is a bench, not the game. It places one feature into a world generated for
+the purpose, so it can show a feature in isolation and say why a placement
+failed. It does not generate a real chunk: nothing else runs beside your
+feature, and nothing here proves the same JSON behaves identically in Minecraft.
+Where the two are known to differ, the tool says so — in a diagnostic when the
+difference affects your file, and in this project's documentation set otherwise.
+
+## Layout
+
+| Path | What it is |
+|---|---|
+| `main.go` | the Wails entry point and window options |
+| `app.go` | every method the frontend can call, and the one loaded pack they share |
+| `watcher.go` | the debounced pack-directory watcher and the change batches it reports |
+| `frontend/` | the built shared viewer, embedded into the binary |

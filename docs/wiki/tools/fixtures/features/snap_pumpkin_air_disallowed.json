@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:snap_to_surface_feature": {
+    "description": { "identifier": "wiki:snap_pumpkin_air_disallowed" },
+    "feature_to_snap": "wiki:pumpkin_patch_block",
+    "surface": "floor",
+    "vertical_search_range": 12,
+    "allow_air_placement": false
+  }
+}

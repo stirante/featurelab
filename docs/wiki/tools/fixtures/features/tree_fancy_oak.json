@@ -1,0 +1,49 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": { "identifier": "wiki:fancy_oak_tree" },
+    "fancy_trunk": {
+      "trunk_height": {
+        "base": 5,
+        "variance": 12,
+        "scale": 0.618
+      },
+      "trunk_width": 1,
+      "trunk_block": {
+        "name": "minecraft:log",
+        "states": { "old_log_type": "oak" }
+      },
+      "branches": {
+        "slope": 0.381,
+        "density": 1.0,
+        "min_altitude_factor": 0.2
+      },
+      "width_scale": 1.0,
+      "foliage_altitude_factor": 0.3
+    },
+    "fancy_canopy": {
+      "height": 4,
+      "radius": 3,
+      "leaf_block": {
+        "name": "minecraft:leaves",
+        "states": { "old_leaf_type": "oak" }
+      }
+    },
+    "base_block": ["minecraft:dirt"],
+    "may_grow_on": [
+      "minecraft:dirt",
+      "minecraft:grass_block",
+      "minecraft:podzol"
+    ],
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:leaves"
+    ],
+    "may_grow_through": [
+      "minecraft:air",
+      "minecraft:grass",
+      "minecraft:dirt",
+      "minecraft:grass_block"
+    ]
+  }
+}

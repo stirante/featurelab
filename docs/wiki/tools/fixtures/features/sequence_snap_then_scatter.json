@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:sequence_feature": {
+    "description": { "identifier": "wiki:sequence_snap_then_scatter" },
+    "features": ["wiki:snap_pumpkin_to_floor", "wiki:pumpkin_patch"]
+  }
+}

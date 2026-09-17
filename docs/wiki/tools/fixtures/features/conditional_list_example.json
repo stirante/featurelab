@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:conditional_list": {
+    "description": { "identifier": "wiki:conditional_list_example" },
+    "conditional_features": [
+      { "places_feature": "wiki:weighted_pick_alt", "condition": "variable.worldx > 100" },
+      { "places_feature": "wiki:pumpkin_patch", "condition": 1 }
+    ]
+  }
+}

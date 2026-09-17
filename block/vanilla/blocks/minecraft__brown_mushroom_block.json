@@ -1,0 +1,39 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:brown_mushroom_block"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "mushroom_brown_top",
+        "down": "mushroom_brown_bottom",
+        "north": "mushroom_brown_north",
+        "south": "mushroom_brown_south",
+        "west": "mushroom_brown_west",
+        "east": "mushroom_brown_east"
+      },
+      "sound": "wood"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "DIRT",
+      "rgb": [
+        151,
+        109,
+        77
+      ]
+    }
+  }
+}

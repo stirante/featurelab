@@ -1,0 +1,15 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "FeatureLab generated vanilla blocks",
+    "description": "Generated vanilla block catalogue; map colours are explicitly untrusted",
+    "uuid": "97884781-dca4-4ec9-8ec3-58c783f92f2c",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 70]
+  },
+  "modules": [{
+    "type": "data",
+    "uuid": "38848d35-bf0b-4da6-8bed-301b47912ed9",
+    "version": [1, 0, 0]
+  }]
+}

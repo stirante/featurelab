@@ -1,0 +1,18 @@
+{
+  "format_version": "1.21.100",
+  "minecraft:block": {
+    "description": { "identifier": "myaddon:fern" },
+    "components": {
+      "minecraft:geometry": "minecraft:geometry.cross",
+      "minecraft:material_instances": {
+        "*": {
+          "texture": "myaddon:fern",
+          "render_method": "alpha_test",
+          "tint_method": "grass",
+          "face_dimming": false,
+          "ambient_occlusion": false
+        }
+      }
+    }
+  }
+}

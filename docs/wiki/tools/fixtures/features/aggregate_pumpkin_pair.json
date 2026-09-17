@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:aggregate_pumpkin_pair" },
+    "features": ["wiki:pumpkin_patch_block", "wiki:pumpkin_patch"]
+  }
+}

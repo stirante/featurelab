@@ -1,0 +1,39 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:sweet_berry_bush"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "sweet_berry_bush_1",
+        "down": "sweet_berry_bush_0",
+        "north": "sweet_berry_bush_2",
+        "south": "sweet_berry_bush_3",
+        "west": "sweet_berry_bush_3",
+        "east": "sweet_berry_bush_3"
+      },
+      "sound": "sweet_berry_bush"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "PLANT",
+      "rgb": [
+        0,
+        124,
+        0
+      ]
+    }
+  }
+}

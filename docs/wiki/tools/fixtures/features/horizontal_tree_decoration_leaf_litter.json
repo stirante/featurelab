@@ -1,0 +1,8 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:horizontal_tree_decoration_feature": {
+    "description": { "identifier": "wiki:log_leaf_litter" },
+    "places_block": "minecraft:leaf_litter",
+    "bark_side_only": true
+  }
+}

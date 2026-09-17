@@ -1,0 +1,30 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": { "identifier": "wiki:plain_trunk_tree" },
+    "trunk": {
+      "trunk_height": { "range_min": 8, "range_max": 12 },
+      "height_modifier": { "range_min": 0, "range_max": 3 },
+      "trunk_block": "minecraft:oak_log",
+      "can_be_submerged": { "max_depth": 1 },
+      "trunk_decoration": {
+        "decoration_block": "minecraft:vine",
+        "decoration_chance": { "numerator": 1, "denominator": 3 }
+      }
+    },
+    "canopy": {
+      "canopy_offset": { "min": -3, "max": 0 },
+      "leaf_block": "minecraft:oak_leaves",
+      "variation_chance": [
+        { "numerator": 1, "denominator": 2 },
+        { "numerator": 1, "denominator": 2 },
+        { "numerator": 1, "denominator": 2 },
+        { "numerator": 1, "denominator": 1 }
+      ]
+    },
+    "base_block": ["minecraft:dirt"],
+    "may_grow_on": ["minecraft:dirt", "minecraft:grass_block", "minecraft:podzol"],
+    "may_replace": ["minecraft:air", "minecraft:oak_leaves"],
+    "may_grow_through": ["minecraft:air", "minecraft:grass_block", "minecraft:dirt"]
+  }
+}

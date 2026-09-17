@@ -1,0 +1,39 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:smithing_table"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "smithing_table_top",
+        "down": "smithing_table_bottom",
+        "north": "smithing_table_front",
+        "south": "smithing_table_front",
+        "west": "smithing_table_side",
+        "east": "smithing_table_side"
+      },
+      "sound": "wood"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "WOOD",
+      "rgb": [
+        143,
+        119,
+        72
+      ]
+    }
+  }
+}

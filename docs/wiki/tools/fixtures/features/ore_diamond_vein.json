@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:ore_feature": {
+    "description": { "identifier": "wiki:diamond_vein" },
+    "count": 9,
+    "discard_chance_on_air_exposure": 0.5,
+    "replace_rules": [
+      {
+        "places_block": "minecraft:diamond_ore",
+        "may_replace": ["minecraft:stone"]
+      }
+    ]
+  }
+}

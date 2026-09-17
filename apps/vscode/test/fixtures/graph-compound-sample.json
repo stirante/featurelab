@@ -1,0 +1,54 @@
+{
+  "nodes": [
+    {
+      "id": "demo:vine_block",
+      "unresolved": true
+    },
+    {
+      "id": "demo:vine_column",
+      "typeId": "minecraft:scatter_feature",
+      "file": "vine_column.json",
+      "formatVersion": "1.21.110",
+      "coverage": "implemented",
+      "coverageNote": "Scatters a delegated feature over a volume, one `distribution` per axis. Two engine behaviours are worth knowing if you write Molang here, because both surprise people and this tool reproduces them: variable.originx/y/z hold the scatter origin, while variable.worldx/y/z are filled in ONE AXIS AT A TIME as each coordinate is resolved, each holding that axis's absolute world coordinate -- so an expression for a later axis can read an earlier axis's result, and `iterations` and `scatter_chance` see whatever world* already held. And the iteration index counts DOWN, which is what sets the visit order for the grid distributions. BOTH SCHEMA SHAPES ARE SUPPORTED: a file declaring a format_version below 1.21.10 writes the parameters as flat keys on the feature body (`iterations`, `x`, `y`, `z`, `scatter_chance`, `coordinate_eval_order`) rather than inside `distribution`, and that shape is read here too. The two are mutually exclusive, as in the game: writing `distribution` in an older-versioned file, or the flat keys in a newer one, is reported rather than quietly accepted.",
+      "fields": {
+        "description": {
+          "identifier": "demo:vine_column"
+        },
+        "distribution": {
+          "iterations": "v.level = -1; v.vine_column__min = 0; v.vine_column__max = 6; v.vine_column__iterations = v.vine_column__max - v.vine_column__min; return v.vine_column__iterations;",
+          "x": "v.level = v.level + 1; return 0;",
+          "y": "v.vine_column__min + v.level",
+          "z": 0
+        }
+      },
+      "annotations": [
+        {
+          "name": "idiom",
+          "args": [
+            "column"
+          ],
+          "text": "{\"places\":\"demo:vine_block\",\"maxY\":\"6\",\"order\":\"bottom-up\",\"levelVariable\":\"v.level\"}",
+          "jsonPath": "$.minecraft:scatter_feature",
+          "line": 3,
+          "offset": 39,
+          "endOffset": 63
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "demo:vine_column",
+      "to": "demo:vine_block",
+      "kind": "scatter",
+      "jsonPath": "$.minecraft:scatter_feature.places_feature",
+      "ordinal": 0,
+      "iterations": "v.level = -1; v.vine_column__min = 0; v.vine_column__max = 6; v.vine_column__iterations = v.vine_column__max - v.vine_column__min; return v.vine_column__iterations;",
+      "required": true
+    }
+  ],
+  "roots": [
+    "demo:vine_column"
+  ]
+}

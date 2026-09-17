@@ -1,0 +1,13 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "A different add-on's resources",
+    "description": "a resource pack MyAddon_bp does not depend on -- must not be picked",
+    "uuid": "33333333-3333-4333-8333-333333333333",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 80]
+  },
+  "modules": [
+    {"type": "resources", "uuid": "33333333-3333-4333-8333-333333333334", "version": [1, 0, 0]}
+  ]
+}

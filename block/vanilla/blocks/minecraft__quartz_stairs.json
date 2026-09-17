@@ -1,0 +1,35 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:quartz_stairs"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "stair_quartz_block_top",
+        "down": "stair_quartz_block_bottom",
+        "side": "stair_quartz_block_side"
+      }
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "QUARTZ",
+      "rgb": [
+        255,
+        252,
+        245
+      ]
+    }
+  }
+}

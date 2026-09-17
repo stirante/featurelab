@@ -1,0 +1,31 @@
+{
+  "name": "featurelab-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-contained three.js voxel viewer for Feature Lab's Go engine output. Input is the JSON featurelab's generate/serve emit.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./panel.css": "./dist/ui/panel.css"
+  },
+  "scripts": {
+    "generate:colors": "node scripts/generate-block-colors.mjs",
+    "build": "npm run generate:colors && tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/generate-block-colors.mjs --check && vitest run"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.169.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:single_block_feature": {
+    "description": { "identifier": "wiki:ceiling_slab_block" },
+    "enforce_placement_rules": false,
+    "enforce_survivability_rules": false,
+    "places_block": "minecraft:stone",
+    "may_replace": ["minecraft:air"]
+  }
+}
