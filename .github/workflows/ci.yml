@@ -1,0 +1,194 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+
+jobs:
+  go:
+    name: Go (build, vet, test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # apps/desktop (Wails v2) links against GTK+WebKitGTK via cgo on Linux. Ubuntu 24.04
+      # (ubuntu-latest) dropped the webkit2gtk-4.0 package Wails defaults to, so this installs
+      # the 4.1 dev package and every go command below passes -tags webkit2_41 to select
+      # Wails' 4.1 cgo bindings (see wails/v2's pkg/assetserver/webview/webkit2_40+.go). This
+      # exact step is unverified on a real runner as of this workflow's introduction -- it was
+      # developed on Windows, where apps/desktop builds natively without any of this.
+      - name: Install Linux GTK/WebKitGTK dev headers (apps/desktop's Wails cgo backend)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      # apps/desktop embeds `all:frontend/dist`, the Vite build output, which is not committed. With
+      # no directory there `go:embed` fails the whole `go build ./...`. This job checks the Go side,
+      # so an empty placeholder is enough; the Frontend job builds the real dist, and the release
+      # workflow's `wails build` builds it before embedding.
+      - name: Placeholder for apps/desktop's embedded frontend
+        run: mkdir -p apps/desktop/frontend/dist && touch apps/desktop/frontend/dist/.gitkeep
+
+      - name: go build ./...
+        run: go build -tags webkit2_41 ./...
+
+      - name: go vet ./...
+        run: go vet -tags webkit2_41 ./...
+
+      # gofmt is not a style preference here, it is a diff-noise control: this repo carries very
+      # long explanatory comments, and one misformatted file turns a later real change into a
+      # reformat of everything around it. It is checked separately from `go build` because the
+      # failure mode is silent -- an unformatted file compiles, tests, and vets perfectly well,
+      # so nothing else in this job would ever notice. (.gitattributes pins *.go to eol=lf for
+      # the same reason: against CRLF, gofmt reports every line of every file as changed, which
+      # is what made this check worth having.)
+      - name: gofmt -l .
+        run: |
+          # `gofmt -l .` walks everything, including any agent worktree under .claude/ that
+          # happens to exist locally -- harmless in CI, where the checkout has none, and worth
+          # excluding anyway so the same command means the same thing when run by hand.
+          unformatted="$(gofmt -l . | grep -v '^\.claude/' || true)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            echo "Run: gofmt -w ." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: go test ./...
+        run: |
+          set -o pipefail
+          go test -tags webkit2_41 -v ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+
+      # The placement baseline. TestFixtureDigest runs the digest comparison over the
+      # committed fixture pack at docs/wiki/tools/fixtures, so a write/draw/position/scope
+      # divergence fails HERE and names the chain that moved.
+      #
+      # It is run as its own step, and with `if: always()` so it still runs (and still fails)
+      # when the broad `go test ./...` above has already failed for some unrelated reason --
+      # otherwise a placement regression would be hidden behind whichever test happened to
+      # fail first. `go test ./...` runs it too; this step exists to give it a name in the
+      # checks list rather than to add coverage.
+      #
+      # Its corpus is small (the test prints its per-type coverage in -v output, which is
+      # why -v is on). Green here is a floor, not a full guarantee.
+      - name: Placement baseline (public fixture pack)
+        if: always()
+        run: go test -tags webkit2_41 -count=1 -v -run 'TestFixtureDigest' ./goldentest/
+
+      # Tests that need an external pack set via FEATURELAB_PACK_DIR skip on CI runners.
+      # This step always runs (even if go test failed) and lists exactly which suites were
+      # skipped, in the job summary and as a workflow warning annotation, so a green check is
+      # not mistaken for coverage it did not have -- it never fails the build itself.
+      - name: Report external-pack test coverage
+        if: always()
+        run: bash .github/scripts/report-realpack-skips.sh "$RUNNER_TEMP/go-test.log"
+
+  frontend:
+    name: Frontend (shared viewer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run --workspace frontend typecheck
+
+      - name: Build (tsc + copy-assets)
+        run: npm run --workspace frontend build
+
+      - name: Test (vitest)
+        run: npm run --workspace frontend test
+
+      # apps/desktop's frontend was the one workspace nothing here checked. Its Go side is
+      # covered -- the Linux job installs GTK/WebKitGTK headers so `go build ./...` reaches the
+      # Wails backend -- but its TypeScript was never typechecked or built by CI, and it sat
+      # broken for long enough that the breakage was reported as a curiosity rather than as a
+      # failure. It consumed a wire field (buildsSea) that had been added on the Go side and
+      # never forwarded, which is exactly the class of drift a typecheck catches for free.
+      #
+      # It runs after the shared `frontend` build above for the same reason apps/vscode's steps
+      # do: it depends on that workspace, and typechecking against a stale or absent dist is
+      # worse than not checking at all.
+      - name: Typecheck (apps/desktop frontend)
+        run: npm run --workspace apps/desktop/frontend typecheck
+
+      - name: Build (apps/desktop frontend)
+        run: npm run --workspace apps/desktop/frontend build
+
+      # The wiki's 276 relative links are checked here rather than in a job of their own because
+      # this job already has Node and a checkout, and the check takes milliseconds. A broken
+      # anchor is invisible in review -- the prose still reads right and the link still looks
+      # like a link; it just lands on the top of the page. See the script's own header for the
+      # slug rule, which is subtler than it looks.
+      - name: Check docs/wiki links and anchors
+        run: node docs/wiki/tools/check-links.mjs
+
+  vscode-extension:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # Needed by `npm run package`'s build:binary step, which runs `go build ./cmd/featurelab`
+      # against the host runner -- exercised here as this job's packaging smoke test.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: npm ci
+        run: npm ci
+
+      # The shared viewer is a workspace dependency of the extension (featurelab-frontend) --
+      # build it first so apps/vscode's typecheck/compile/test/package steps see real
+      # .d.ts/.js output, not a missing dist/.
+      - name: Build frontend workspace dependency
+        run: npm run --workspace frontend build
+
+      - name: Typecheck
+        run: npm run --workspace apps/vscode typecheck
+
+      - name: Compile (esbuild)
+        run: npm run --workspace apps/vscode compile
+
+      # Much of this suite drives a real Chromium through Playwright (the node inspector, the
+      # palette, the graph render and every journey), and a GitHub runner ships the npm package
+      # without the browser it downloads at install time. Without this step every one of those
+      # files fails at launch with "Executable doesn't exist".
+      - name: Install Playwright's Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/vscode
+
+      - name: Test (vitest)
+        run: npm run --workspace apps/vscode test
+
+      - name: Package a dev VSIX (host binary) as a packaging smoke test
+        run: npm run --workspace apps/vscode package

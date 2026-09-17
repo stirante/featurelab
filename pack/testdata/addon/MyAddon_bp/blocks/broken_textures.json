@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.100",
+  "minecraft:block": {
+    "description": { "identifier": "myaddon:broken_textures" },
+    "components": {
+      "minecraft:block_shape": "block",
+      "minecraft:material_instances": {
+        "up": { "texture": "myaddon:missing_image" },
+        "side": { "texture": "myaddon:never_declared" },
+        "down": { "texture": "myaddon:slate" }
+      }
+    }
+  }
+}

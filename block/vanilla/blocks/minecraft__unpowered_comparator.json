@@ -1,0 +1,32 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:unpowered_comparator"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "comparator_up",
+        "down": "comparator_stone_slab",
+        "side": "comparator_stone_slab"
+      },
+      "sound": "wood"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "NONE",
+      "rgb_unavailable": true
+    }
+  }
+}

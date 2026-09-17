@@ -1,0 +1,44 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:pumpkin"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "pumpkin_top",
+        "down": "pumpkin_top",
+        "north": "pumpkin_side",
+        "south": "pumpkin_face",
+        "west": "pumpkin_side",
+        "east": "pumpkin_side"
+      },
+      "sound": "wood"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "COLOR_ORANGE",
+      "rgb": [
+        216,
+        127,
+        51
+      ],
+      "ambiguous": true,
+      "ambiguous_candidates": [
+        "COLOR_LIGHT_GREEN",
+        "COLOR_ORANGE"
+      ]
+    }
+  }
+}

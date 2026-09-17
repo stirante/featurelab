@@ -1,0 +1,18 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:ore_feature": {
+    "description": { "identifier": "wiki:surface_clay_vein" },
+    "count": 12,
+    "discard_chance_on_air_exposure": 0.5,
+    "replace_rules": [
+      {
+        "places_block": "minecraft:clay",
+        "may_replace": ["minecraft:dirt", "minecraft:grass_block"]
+      },
+      {
+        "places_block": "minecraft:gravel",
+        "may_replace": ["minecraft:dirt", "minecraft:grass_block"]
+      }
+    ]
+  }
+}

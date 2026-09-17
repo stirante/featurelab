@@ -1,0 +1,28 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:mangrove_leaves"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "plant",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "LEAVES",
+      "rgb": [
+        138,
+        138,
+        138
+      ]
+    }
+  }
+}

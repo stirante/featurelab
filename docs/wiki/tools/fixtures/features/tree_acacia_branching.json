@@ -1,0 +1,62 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": { "identifier": "wiki:acacia_branching_tree" },
+    "acacia_trunk": {
+      "trunk_width": 1,
+      "trunk_height": {
+        "base": 5,
+        "intervals": [3, 3],
+        "min_height_for_canopy": 3
+      },
+      "trunk_block": {
+        "name": "minecraft:log2",
+        "states": { "new_log_type": "acacia" }
+      },
+      "trunk_lean": {
+        "allow_diagonal_growth": true,
+        "lean_height": { "range_min": 1, "range_max": 5 },
+        "lean_steps": { "range_min": 1, "range_max": 4 }
+      },
+      "branches": {
+        "branch_chance": 100.0,
+        "branch_length": { "range_min": 4, "range_max": 6 },
+        "branch_position": { "range_min": 1, "range_max": 3 },
+        "branch_canopy": {
+          "acacia_canopy": {
+            "canopy_size": 1,
+            "leaf_block": {
+              "name": "minecraft:leaves2",
+              "states": { "new_leaf_type": "acacia" }
+            },
+            "simplify_canopy": true
+          }
+        }
+      }
+    },
+    "acacia_canopy": {
+      "canopy_size": 2,
+      "leaf_block": {
+        "name": "minecraft:leaves2",
+        "states": { "new_leaf_type": "acacia" }
+      },
+      "simplify_canopy": true
+    },
+    "base_block": ["minecraft:dirt"],
+    "may_grow_on": [
+      "minecraft:dirt",
+      "minecraft:grass_block",
+      "minecraft:podzol"
+    ],
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:leaves2"
+    ],
+    "may_grow_through": [
+      "minecraft:air",
+      "minecraft:grass",
+      "minecraft:dirt",
+      "minecraft:grass_block"
+    ]
+  }
+}

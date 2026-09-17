@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:vegetation_patch_ceiling_demo" },
+    "features": ["wiki:ceiling_slab_scatter", "wiki:vegetation_patch_ceiling"]
+  }
+}

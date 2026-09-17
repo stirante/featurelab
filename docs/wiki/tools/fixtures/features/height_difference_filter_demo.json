@@ -1,0 +1,9 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:height_difference_filter_feature": {
+    "description": { "identifier": "wiki:height_diff_gate" },
+    "places_feature": "wiki:pumpkin_patch_block",
+    "search_radius": 4,
+    "min_required_upward_height_diff": 3
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:red_mushroom_block"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "mushroom_red_top",
+        "down": "mushroom_red_bottom",
+        "north": "mushroom_red_north",
+        "south": "mushroom_red_south",
+        "west": "mushroom_red_west",
+        "east": "mushroom_red_east"
+      },
+      "sound": "wood"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "COLOR_RED",
+      "rgb": [
+        153,
+        51,
+        51
+      ]
+    }
+  }
+}

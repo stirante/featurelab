@@ -1,0 +1,32 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:darkoak_wall_sign"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": "darkoak_sign",
+      "sound": "wood"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "COLOR_BROWN",
+      "rgb": [
+        102,
+        76,
+        51
+      ]
+    }
+  }
+}

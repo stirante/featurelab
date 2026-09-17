@@ -1,0 +1,39 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:chain_command_block"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "command_block_chain_conditional_side",
+        "down": "command_block_chain_conditional_side",
+        "north": "command_block_chain_front",
+        "south": "command_block_chain_back",
+        "west": "command_block_chain_side",
+        "east": "command_block_chain_side"
+      },
+      "sound": "metal"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "COLOR_GREEN",
+      "rgb": [
+        102,
+        127,
+        51
+      ]
+    }
+  }
+}

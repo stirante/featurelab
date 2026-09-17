@@ -1,0 +1,1886 @@
+/* graph.css -- styling for src/graph/render.ts's feature-delegation canvas.
+
+   THEMING FOLLOWS frontend/src/ui/panel.css EXACTLY, and for the same reasons -- see that
+   file's header comment for the full rationale. In short:
+
+     1. Every `--flg-*` semantic variable is declared ONCE, on `.flg-graph`, as
+        `var(--vscode-<name>, <fallback>)`. Inside a VS Code webview the host injects every
+        `--vscode-*` property and updates them live when the user switches theme, so the canvas
+        follows the theme with no JavaScript and no reload. Outside a webview (a test harness, a
+        screenshot script, this file opened standalone) none of them exist and each falls back
+        to the literal default instead.
+     2. Every rule below this variable block reads ONLY `--flg-*`, never `--vscode-*` directly.
+        That indirection is the single point a second host would have to touch.
+     3. NO RAW COLOUR APPEARS BELOW THE VARIABLE BLOCKS. Not one. `transparent`, `none` and
+        `currentColor` are keywords, not colours, and are the only literals permitted -- the
+        test suite enforces this by scanning this file, because "themed correctly" is not
+        something a screenshot of one theme can demonstrate. A tint is written as
+        `color-mix(in srgb, var(--flg-...) N%, var(--flg-...))`, which mixes two THEMED colours
+        and so stays themed; a hand-picked translucent grey would not.
+
+   The light-mode fallback block at the bottom is what keeps the non-webview hosts from being
+   stuck with a dark palette on a light-mode OS; inside VS Code it is inert, because there the
+   `--vscode-*` values always resolve and the fallbacks never apply.
+
+   ---------------------------------------------------------------------------------------------
+   WHAT THE CANVAS IS TRYING TO SAY, AND HOW
+
+   A node is a CARD, not a slab: a tinted header carrying the IDENTIFIER -- the thing a person is
+   actually looking for, the string the rest of the pack delegates by -- over a body carrying the
+   type, the fan-in/fan-out and the state badges. The first version of this file emphasised the
+   type and left the id as a thin grey line, which is backwards: `scatter_feature` is context,
+   `example:oak_on_grass` is the answer.
+
+   COLOUR CARRIES CATEGORY, AND NEVER CARRIES IT ALONE. A node's hue comes from the kind of
+   delegation it performs (render.ts's summariseNodes derives it from the node's own outgoing
+   edge kinds, so it is read off the frozen contract rather than guessed from a list of type
+   names), which means a card and the edges leaving it share one hue and a chain reads as a
+   chain. Every hue is also stated as a glyph beside the id, as the type name written out in the
+   body, and as the edge kind named in words on the fan-out line. Roughly one man in twelve
+   cannot separate the red/green pair and a high-contrast theme flattens the palette outright;
+   the consequence of reading a `sequence` edge as an `aggregate` is a silently different
+   generated world, so colour here is the fastest signal and never the only one.
+
+   EDGE KINDS get a colour, a stroke dash pattern, a stroke width and a chip whose text says what
+   the kind means. `sequence` additionally gets a SHAPE nothing else has (a round pill carrying a
+   bold number); `aggregate` deliberately shows no number at all.
+
+   STATES get a shape as well as a colour: an unresolved node is hatched and dashed, a node the
+   GAME provides is filled and quiet with a double left edge, a node in a cycle wears a dashed
+   ring outside its box, and a type this tool does not implement gets a coloured right edge --
+   each of them with the word on a badge underneath. The first two of those matter most:
+   they are opposite claims about the same missing file, and telling them apart is what keeps a
+   pack whose every unresolved reference is a working one from wearing thirteen wrong errors.
+
+   NOTHING MOVES ON HOVER OR SELECTION. Emphasis is ring, tint and opacity only. A canvas where
+   picking something up nudges it is a canvas whose mental map has to be rebuilt every click.
+   The single thing that does move is a card the user is DRAGGING, which is the point of the
+   gesture -- it lifts out of the stack while it is being carried and settles back flat on
+   release (see `.flg-dragging`), and the dashed alignment guides it snaps to are the only other
+   marks on the canvas that come and go.
+
+   CONNECTING TWO NODES gets a control of its own rather than a modifier, because the two primary
+   gestures are already spent (card drags, background pans) and a third one on the same button
+   would need a mode. `.flg-node-port` is that control: a dot on the card's right border, where
+   its outgoing edges already attach, transparent until the card is hovered or focused. While a
+   connection is in flight the line follows the pointer (`.flg-link-line`), the card under it says
+   yes or no by ring AND by hatch, and `.flg-link-tip` says which in words -- all of it before the
+   button comes up, because an illegal drop that only reports itself afterwards is a report about
+   work already done. */
+
+.flg-graph {
+  --flg-bg: var(--vscode-editor-background, #1e1e1e);
+  --flg-fg: var(--vscode-editor-foreground, var(--vscode-foreground, #cccccc));
+  --flg-fg-muted: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+  --flg-surface: var(--vscode-editorWidget-background, #252526);
+  --flg-surface-hover: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+  --flg-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  --flg-focus: var(--vscode-focusBorder, #007fd4);
+  --flg-selected-bg: var(--vscode-list-activeSelectionBackground, #04395e);
+  --flg-selected-fg: var(--vscode-list-activeSelectionForeground, #ffffff);
+  --flg-badge-bg: var(--vscode-badge-background, #4d4d4d);
+  --flg-badge-fg: var(--vscode-badge-foreground, #ffffff);
+  --flg-warning-fg: var(--vscode-editorWarning-foreground, #cca700);
+  --flg-error-fg: var(--vscode-editorError-foreground, #f14c4c);
+  --flg-code-fg: var(--vscode-textPreformat-foreground, #ce9178);
+  --flg-code-bg: var(--vscode-textCodeBlock-background, rgba(255, 255, 255, 0.06));
+  --flg-grid: var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, 0.18));
+  --flg-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+
+  /* Per-kind accents. `--vscode-charts-*` is VS Code's own categorical palette: every shipped
+     theme defines all of it, and (unlike picking hues ourselves) each value is already chosen to
+     read against that theme's editor background in both light and dark. */
+  --flg-kind-rule: var(--vscode-charts-blue, #4e94ce);
+  --flg-kind-sequence: var(--vscode-charts-orange, #d18616);
+  --flg-kind-aggregate: var(--vscode-charts-green, #89d185);
+  --flg-kind-weighted: var(--vscode-charts-purple, #b180d7);
+  --flg-kind-conditional: var(--vscode-charts-yellow, #cca700);
+  /* NOT red. It was `charts-red`, whose fallback is the very same #f14c4c as editorError and as
+     the unresolved kind below -- so a perfectly valid scatter was drawn in the error colour with
+     an × beside its name, next to a diagnostics system that uses red to mean "this file is
+     broken". An author reported their new scatter as broken for exactly that reason, and it was
+     fine. Red belongs to errors on this canvas and to nothing else.
+     The six chart hues are all spoken for, so this takes the terminal's cyan: still supplied by
+     the theme, still tuned by it for both backgrounds, and outside the error palette entirely. */
+  --flg-kind-scatter: var(--vscode-terminal-ansiCyan, #29b8db);
+  /* The two neutral kinds are the six hues' leftovers, and which gets which is not arbitrary. A
+     `filter` is a real decision -- the parent chooses WHETHER to delegate and WHERE -- so it
+     takes the brighter neutral. A `child` carries no data of its own and is the most common edge
+     in a real pack, so it takes `charts-lines`, which every theme keeps dim because it is meant
+     for axis rules. Having these the other way round made a wrapping type's card read as the
+     dimmest thing on the canvas. */
+  --flg-kind-filter: var(--vscode-charts-foreground, var(--vscode-editor-foreground, #cccccc));
+  --flg-kind-child: var(--vscode-charts-lines, rgba(150, 150, 150, 0.8));
+  --flg-kind-unknown: var(--vscode-editorError-foreground, #f14c4c);
+  /* A leaf -- a node with no outgoing edges -- is the thing that finally places blocks, and on a
+     real pack it is most of the boxes. Deliberately the quietest accent there is: if the
+     majority category shouted, nothing else could. */
+  --flg-kind-leaf: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+
+  --flg-font: var(--vscode-font-family, -apple-system, 'Segoe UI', system-ui, sans-serif);
+  --flg-mono: var(--vscode-editor-font-family, ui-monospace, 'SF Mono', Consolas, monospace);
+  --flg-font-size: var(--vscode-font-size, 13px);
+
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--flg-font);
+  font-size: var(--flg-font-size);
+  line-height: 1.3;
+  color: var(--flg-fg);
+  background-color: var(--flg-bg);
+  /* A faint world grid, so a pan on an empty region still reads as movement rather than as a
+     frozen view. Painted on the static host, not on the transformed world layer, so it costs
+     nothing per frame. */
+  background-image: linear-gradient(to right, var(--flg-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--flg-grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+  cursor: grab;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.flg-graph:focus-visible {
+  outline: 1px solid var(--flg-focus);
+  outline-offset: -1px;
+}
+
+.flg-graph.flg-panning {
+  cursor: grabbing;
+}
+
+/* The ONE element pan/zoom moves -- see render.ts's applyCamera(). Everything drawn is a child,
+   so a camera change is a single transform write and never a re-layout of the scene. */
+.flg-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.flg-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* Layout modules are free to emit negative coordinates; without this, anything above or left
+     of the origin would be clipped away by the svg's own box. */
+  overflow: visible;
+  pointer-events: none;
+}
+
+.flg-nodes,
+.flg-chips {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The alignment guides a dragged card snaps to -- see render.ts's snapToNeighbours. Between the
+   edges and the cards, so a guide is visible over the lines it is helping line up and can never
+   be mistaken for one of them. */
+.flg-guides {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.flg-guide {
+  stroke: var(--flg-focus);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  /* The guide is a hairline at every zoom. It is a statement about alignment, not a thing in the
+     drawing, and a 1px rule scaled to 4px at zoom 4 starts to look like an edge. */
+  vector-effect: non-scaling-stroke;
+  display: none;
+}
+
+.flg-guide.flg-guide-on {
+  display: inline;
+}
+
+/* -- the connection being dragged -----------------------------------------
+
+   The line the user is pulling out of a node's connector handle, drawn by the same router the
+   finished edges are (render.ts's routedGeometry) so it leaves its port at the same angle the
+   delegation will. Above the cards, because it is the thing in the user's hand.
+
+   `pointer-events: none` is load-bearing rather than tidy: the gesture finds its drop target with
+   `elementFromPoint`, and a layer that answered for itself would report "you are over the line
+   you are dragging" for the whole gesture and no drop would ever land. */
+.flg-links {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.flg-link-line {
+  fill: none;
+  stroke: var(--flg-focus);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  /* A hairline at every zoom, like the alignment guides: this is a statement about a gesture,
+     not a thing in the drawing. */
+  vector-effect: non-scaling-stroke;
+}
+
+.flg-link-arrow {
+  fill: var(--flg-focus);
+  stroke: none;
+}
+
+/* AN ILLEGAL DROP LOOKS ILLEGAL BEFORE THE BUTTON COMES UP. Colour says it first, and the dash
+   says it in a high-contrast theme where the focus colour and the error colour may be the same
+   value -- a solid line becomes a broken one, which is the same sentence without the hue. */
+.flg-link-line.flg-link-bad {
+  stroke: var(--flg-error-fg);
+  stroke-dasharray: 5 4;
+}
+
+.flg-link-arrow.flg-link-bad {
+  fill: var(--flg-error-fg);
+}
+
+/* ---------------------------------------------------------------- nodes -- */
+
+/* The two numbers here are GRAPH_NODE_WIDTH / GRAPH_NODE_HEIGHT in src/graph/render.ts, which
+   exports them so the layout module can place boxes it does not render. They must move
+   together: a mismatch puts every edge endpoint slightly off its box.
+
+   The card is a fixed 232x86 and the row heights below are budgeted to fit five rows inside it
+   -- header, type, fan line, badges, coverage note -- with a few pixels spare. A row added here
+   without taking one away overflows the box, which on this canvas does not clip tidily: it
+   lands on top of the node underneath. */
+.flg-node {
+  --flg-node-accent: var(--flg-kind-leaf);
+  /* The header wash. Low enough that 12.5px text at 600 weight still clears contrast against it
+     in every theme, high enough to name the category at a glance. */
+  --flg-node-tint: color-mix(in srgb, var(--flg-node-accent) 15%, var(--flg-surface));
+  position: absolute;
+  box-sizing: border-box;
+  width: 232px;
+  height: 86px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--flg-border);
+  /* The category stripe. Full height rather than a corner flash, because it is what makes a
+     column of cards scannable by kind without reading any of them. */
+  border-left: 4px solid var(--flg-node-accent);
+  border-radius: 6px;
+  background-color: var(--flg-surface);
+  color: var(--flg-fg);
+  box-shadow: 0 1px 3px var(--flg-shadow);
+  /* `grab`, not `pointer`. A card can be picked up and put somewhere, and on a canvas whose
+     automatic layout is only a starting guess that is the more important of the two things it
+     can do -- the background is `grab` for the same reason. Clickability is not lost with the
+     cursor: it is stated by the hover ring and the focus ring, and by the card visibly
+     responding to the press. */
+  cursor: grab;
+  pointer-events: auto;
+  outline: none;
+}
+
+/* Category -> accent. The categories are render.ts's NodeCategory, derived from a node's own
+   outgoing edge kinds, so `rule`/`sequence`/... here are the SAME hues the matching edges get
+   below: a sequence feature is orange and so are the lines leaving it. */
+.flg-node[data-category='rule'] { --flg-node-accent: var(--flg-kind-rule); }
+.flg-node[data-category='sequence'] { --flg-node-accent: var(--flg-kind-sequence); }
+.flg-node[data-category='aggregate'] { --flg-node-accent: var(--flg-kind-aggregate); }
+.flg-node[data-category='weighted'] { --flg-node-accent: var(--flg-kind-weighted); }
+.flg-node[data-category='conditional'] { --flg-node-accent: var(--flg-kind-conditional); }
+.flg-node[data-category='scatter'] { --flg-node-accent: var(--flg-kind-scatter); }
+.flg-node[data-category='filter'] { --flg-node-accent: var(--flg-kind-filter); }
+.flg-node[data-category='child'] { --flg-node-accent: var(--flg-kind-child); }
+.flg-node[data-category='leaf'] { --flg-node-accent: var(--flg-kind-leaf); }
+.flg-node[data-category='unresolved'] { --flg-node-accent: var(--flg-error-fg); }
+/* Provided by the game, not by this pack -- see `.flg-node-external` below for why this is the
+   quietest accent on the canvas rather than the loudest. */
+.flg-node[data-category='external'] { --flg-node-accent: var(--flg-fg-muted); }
+
+.flg-node-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 2px 7px;
+  border-bottom: 1px solid var(--flg-border);
+  background-color: var(--flg-node-tint);
+}
+
+/* The category glyph -- the half of "what kind of node is this" that survives a grayscale print
+   and a high-contrast theme. The same marks the matching edge chips use. */
+.flg-node-icon {
+  flex: 0 0 auto;
+  width: 11px;
+  text-align: center;
+  font-family: var(--flg-mono);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--flg-node-accent);
+}
+
+/* THE IDENTIFIER, and the loudest thing on the card. */
+.flg-node-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 12.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flg-node-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 7px 4px;
+  overflow: hidden;
+}
+
+.flg-node-type {
+  font-family: var(--flg-mono);
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--flg-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flg-node-type-absent {
+  color: var(--flg-error-fg);
+  font-style: italic;
+}
+
+/* What the card can say that its fields cannot: how many children and of what kind, and how many
+   things delegate to it. The second number is the one that matters on a real pack -- this
+   graph's shape is dozens of parents sharing a handful of children, so a high fan-in is how you
+   spot the box whose edit changes everything. */
+.flg-node-meta {
+  display: flex;
+  gap: 9px;
+  font-size: 10px;
+  line-height: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--flg-fg-muted);
+}
+
+/* In the node's own hue, because it is the same statement the stripe makes, spelled out: "3
+   sequence" next to an orange stripe and three orange lines. */
+.flg-node-fan-out {
+  color: var(--flg-node-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flg-node-fan-in {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+/* ONE RUN'S MEASUREMENTS, on the fan line -- not a row of their own.
+
+   The card is a fixed 232x86 whose five rows are budgeted to the pixel (see .flg-node above), so
+   a sixth would overflow. And a card that grew a row when a preview finished would change under
+   a pointer that had not moved, which is the canvas-jumps-under-the-cursor bug this editor has
+   already fixed once. The fan line is the row with spare width, so the run goes there, pushed to
+   the right by `margin-left: auto` and shrinking last -- the fan label beside it ellipsises
+   first, because a fan is derivable from the edges on screen and a measurement is not.
+
+   THREE NUMBERS, KEPT THREE. src/graph/nodeStats.ts's header is the argument: a wrapper that
+   delegates 900 000 times without writing a block and a leaf that writes 900 000 blocks are
+   different problems, and one blended "cost" would print them identically. Each has its own
+   mark, its own colour weight and its own tooltip.
+
+   Nothing here is drawn unless a run measured this node. A pack with no preview open, or a
+   preview with no profile, has no .flg-node-stats anywhere and every card is the card it was. */
+.flg-node-stats {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 6px;
+  /* Clear of the connector handle, which sits at right:3px, top:50% with a 16px hit area -- the
+     fan line runs straight through it. The handle is transparent until the card is hovered,
+     focused or selected, so without this the numbers read fine until you point at the card and
+     then have a dot through them. 21px = 3 + 16 + 2 of air. Paid on every card rather than only
+     on the hovered one, because a row that reflowed under the pointer would be worse than a row
+     that is 21px shorter. */
+  padding-right: 21px;
+  white-space: nowrap;
+  font-family: var(--flg-mono);
+  /* Muted by default: these are a measurement of one run, not a property of the feature, and the
+     card's own identity should not lose to them. The write count is the one that gets weight. */
+  color: var(--flg-fg-muted);
+}
+
+.flg-node-stat-writes {
+  font-weight: 600;
+  color: var(--flg-fg);
+}
+
+.flg-node-badges {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  margin-top: auto;
+  overflow: hidden;
+  max-height: 16px;
+}
+
+.flg-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  background-color: var(--flg-badge-bg);
+  color: var(--flg-badge-fg);
+}
+
+/* Coverage badges are outlined rather than filled, because a filled badge borrows
+   --flg-badge-fg for its text and no theme guarantees that reads against a warning/error hue.
+   An outline plus matching text needs no such guarantee. */
+.flg-coverage {
+  background-color: transparent;
+  font-weight: 600;
+}
+
+.flg-coverage-missing,
+.flg-coverage-unresolved {
+  border-color: var(--flg-error-fg);
+  color: var(--flg-error-fg);
+}
+
+.flg-coverage-out-of-scope {
+  border-color: var(--flg-border);
+  color: var(--flg-fg-muted);
+}
+
+.flg-badge-root {
+  background-color: transparent;
+  border-color: var(--flg-kind-rule);
+  color: var(--flg-kind-rule);
+}
+
+.flg-badge-stop {
+  background-color: transparent;
+  border-color: var(--flg-error-fg);
+  color: var(--flg-error-fg);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A node a run reached and that stopped before doing anything: the reason is on its badge. */
+.flg-node[data-stopped='yes'] {
+  outline: 1px dashed var(--flg-error-fg);
+  outline-offset: 2px;
+}
+
+/* An edge nothing went down because its parent stopped first. Dashed rather than recoloured
+   alone, so the state survives a theme where the error hue is close to the edge kind's. */
+.flg-edge-stopped .flg-edge-line {
+  stroke-dasharray: 3 4;
+  stroke: var(--flg-error-fg);
+}
+
+.flg-badge-cycle {
+  background-color: transparent;
+  border-color: var(--flg-kind-scatter);
+  color: var(--flg-kind-scatter);
+}
+
+.flg-badge-annotated {
+  background-color: transparent;
+  border-color: var(--flg-border);
+  color: var(--flg-fg-muted);
+  font-family: var(--flg-mono);
+}
+
+/* -- states ---------------------------------------------------------------
+
+   Each of the three is a SHAPE first and a colour second, because the whole point of flagging
+   them is that they are findable by someone who cannot separate two of the hues. */
+
+/* This tool's own implementation status, on the card's right edge -- the side nothing else uses.
+   A missing type previews nothing at all, which is not a detail that can live behind a hover. The
+   badge underneath says the word. A partial type gets nothing: see describeCoverage. */
+.flg-node[data-coverage='missing'] {
+  border-right: 3px solid var(--flg-error-fg);
+}
+
+.flg-node[data-coverage='out_of_scope'] {
+  border-right: 3px dashed var(--flg-fg-muted);
+}
+
+/* An unresolved node is a reference the pack does not define, and it is the single thing someone
+   is most likely to have opened this editor to find. Drawn as a present-but-HOLLOW box: dashed,
+   heavier, hatched rather than filled, so it reads as the outline of something that should be
+   here and is not -- while staying a real, clickable box that keeps its incoming edge visible,
+   which is the whole reason the contract materialises these at all. */
+.flg-node-unresolved {
+  border-style: dashed;
+  border-width: 2px;
+  border-left-width: 4px;
+  border-color: var(--flg-error-fg);
+  background-color: transparent;
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--flg-error-fg) 18%, transparent) 0 5px,
+    transparent 5px 11px
+  );
+  box-shadow: none;
+}
+
+.flg-node-unresolved .flg-node-head {
+  border-bottom-style: dashed;
+  border-bottom-color: var(--flg-error-fg);
+}
+
+/* A feature the GAME provides -- `minecraft:bush_feature` and its kin. The pack delegates to it
+   and does not define it, which is correct: it resolves when the world generates.
+
+   THIS IS NOT THE STATE ABOVE, AND MUST NOT LOOK LIKE IT. In a typical pack most unresolved
+   references are one of these, and drawing them all hatched, dashed and error-red meant a
+   screenful of wrong errors on a working pack -- which is how somebody learns to stop reading them. So an
+   external node is drawn as a node that is FINE: an ordinary filled card, no hatch, no red, at
+   the quietest accent there is, with a badge naming where it comes from.
+
+   Three signals tell it from an unresolved one, and none of them is colour:
+     - FILL. This card is filled; an unresolved one is hollow and hatched.
+     - BORDER TEXTURE. A DOUBLE left edge, a texture used nowhere else on this canvas, against an
+       unresolved node's dashed border and a cycle's dotted ring.
+     - WORDS. The type line reads "provided by the game" where the other reads "not defined in
+       this pack", and the badge says "from the game". */
+.flg-node-external {
+  border-left: 4px double var(--flg-fg-muted);
+  background-color: color-mix(in srgb, var(--flg-fg-muted) 7%, var(--flg-surface));
+}
+
+.flg-node-external .flg-node-id {
+  color: var(--flg-fg-muted);
+}
+
+/* The card's one line of prose, and on this card it is the whole explanation. Italic so it reads
+   as a note about the box rather than as the type name it stands in for. */
+.flg-node-type-external {
+  color: var(--flg-fg-muted);
+  font-style: italic;
+}
+
+.flg-coverage-external {
+  border-color: var(--flg-border);
+  color: var(--flg-fg-muted);
+  background-color: transparent;
+}
+
+/* A node in a delegation cycle. Cycles are legal -- the engine guards recursion at run time --
+   so this is a ring OUTSIDE the box rather than an error state inside it: it says "this comes
+   back to itself", not "this is broken". An outline, not a border, so it cannot change the box's
+   own geometry and nothing shifts when it appears. */
+.flg-node-cycle {
+  /* DOTTED, where an unresolved node's border is DASHED. Both are broken red outlines in most
+     themes -- `charts-red` and the error colour are frequently the same value -- so they are
+     separated by where they sit (a ring outside the box, versus the box's own border), by what
+     is inside them (an ordinary filled card, versus a hatch), and by texture as well. */
+  outline: 2px dotted var(--flg-kind-scatter);
+  outline-offset: 3px;
+}
+
+/* -- hover, focus, selection ----------------------------------------------
+
+   All three are rings and washes. Nothing here changes a box's size or position: the canvas is
+   read by remembering where things are. */
+.flg-node:hover {
+  background-color: var(--flg-surface-hover);
+  box-shadow: 0 0 0 1px var(--flg-focus), 0 3px 10px var(--flg-shadow);
+  z-index: 2;
+}
+
+.flg-node:focus-visible,
+.flg-node.flg-selected {
+  box-shadow: 0 0 0 2px var(--flg-focus), 0 4px 14px var(--flg-shadow);
+  z-index: 3;
+}
+
+/* -- being dragged --------------------------------------------------------
+
+   The one exception to "nothing moves" above, and the exception that proves it: this card is
+   moving because the user is moving it, and it is the only thing on the canvas that is. It
+   lifts -- a heavier shadow and a ring -- and it goes to the top of the stack, ABOVE the chip
+   layer as well as the other cards, so a card being carried is never dragged under a label.
+
+   z-index 4 rather than 3 so it also outranks its own selected/focused state, which it will
+   usually have: a press focuses the card it lands on. */
+.flg-node.flg-dragging {
+  cursor: grabbing;
+  z-index: 4;
+  box-shadow: 0 0 0 2px var(--flg-focus), 0 10px 24px var(--flg-shadow);
+}
+
+/* The cursor while a drag is in flight, wherever the pointer has got to. Pointer capture keeps
+   the events coming to the card, but not the cursor's shape -- without this, dragging a card
+   over the background shows the background's `grab` and the gesture looks like it was dropped. */
+.flg-graph.flg-dragging-node,
+.flg-graph.flg-dragging-node .flg-node {
+  cursor: grabbing;
+}
+
+/* A card being carried is never quieted, even when the selection is somewhere else entirely:
+   the user's hand is on it. */
+.flg-graph.flg-has-focus .flg-node.flg-dragging {
+  opacity: 1;
+}
+
+/* -- the connector handle -------------------------------------------------
+
+   The port a connection is dragged OUT of, on the right border where this node's outgoing edges
+   already attach. It is a real control -- focusable, answering Enter -- because that is what
+   makes dragging a connection available to somebody who is not holding a mouse.
+
+   It is TRANSPARENT until the card is hovered, focused or selected, and hit-testable the whole
+   time. Fifty-seven cards each wearing a permanent dot is fifty-seven marks on a canvas whose
+   whole problem is density; a dot that appears under the pointer is a dot exactly when it is
+   wanted. Its hit area is bigger than its paint for the same reason the edges have an invisible
+   fat stroke: an 8px target is not a target. */
+.flg-node-port {
+  position: absolute;
+  /* INSIDE the card's right border, not straddling it. A handle that hangs outside its own box
+     is hit-tested against whatever card happens to sit beside it -- and in a layered layout the
+     next column is exactly what sits beside it, so a press aimed at the handle landed on the
+     neighbour and dragged the wrong thing. Measured, not guessed: elementFromPoint at the
+     protruding version's centre returned the neighbouring `.flg-node`. Fully inside, the handle
+     is always the topmost thing at its own centre. */
+  right: 3px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 50%;
+  /* A SOLID dot with a ring in the card's own surface colour, not a small dot inside a transparent
+     border. The previous paint was 6px of --flg-focus -- which is the same blue as the card's
+     selection and focus outline, sitting 3px from that outline. On the card the author had just
+     clicked, the handle dissolved into the border it was next to, and connecting a scatter or a
+     rule meant hunting for it blind. Reported exactly that way. The ring is what separates it from
+     the outline; the size is what makes it a target you can see. */
+  background-color: var(--flg-focus);
+  border: 2px solid var(--flg-surface);
+  box-sizing: border-box;
+  opacity: 0;
+  cursor: crosshair;
+  z-index: 4;
+}
+
+.flg-node:hover .flg-node-port,
+.flg-node.flg-selected .flg-node-port,
+.flg-node:focus-within .flg-node-port,
+.flg-node-port:focus-visible {
+  opacity: 1;
+}
+
+.flg-node-port:hover {
+  border-width: 1px;
+}
+
+.flg-node-port:focus-visible {
+  outline: 2px solid var(--flg-focus);
+  outline-offset: 2px;
+}
+
+/* A handle on a node that holds no other feature -- a leaf, or a feature the game provides.
+
+   NOT SHOWN ON HOVER. It used to appear as a hollow ring under the pointer, which read as "you can
+   connect this onward" on exactly the nodes where you cannot; reported as a handle that should not
+   be there. The element is kept, and still answers a press with WHY and what to do instead (wrap
+   it) -- that explanation is the reason it exists at all, and a keyboard user reaches it through
+   focus, where it is drawn. A pointer user simply is not offered a connection that cannot happen. */
+.flg-node-port[data-refuses='true'] {
+  background-color: transparent;
+  border: 2px solid var(--flg-fg-muted);
+}
+.flg-node:hover .flg-node-port[data-refuses='true'],
+.flg-node.flg-selected .flg-node-port[data-refuses='true'] {
+  opacity: 0;
+}
+.flg-node-port[data-refuses='true']:focus-visible {
+  opacity: 1;
+}
+
+.flg-node-port.flg-node-port-refused {
+  border-color: var(--flg-error-fg);
+  opacity: 1;
+}
+/* The refusal flash has to beat the hover rule above that keeps a leaf's handle hidden -- same
+   specificity, and later in the file. Without this the press that refuses would light nothing up:
+   the pointer is over the card while it is being pressed, which is exactly when that rule applies. */
+.flg-node:hover .flg-node-port.flg-node-port-refused,
+.flg-node.flg-selected .flg-node-port.flg-node-port-refused {
+  opacity: 1;
+}
+
+/* While a connection is in flight the SOURCE card stays lit, whatever the selection is: the
+   user's hand is on it, exactly as with a card being dragged. */
+.flg-graph.flg-linking .flg-node.flg-link-source,
+.flg-graph.flg-has-focus.flg-linking .flg-node.flg-link-source {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--flg-focus), 0 4px 14px var(--flg-shadow);
+}
+
+.flg-graph.flg-linking .flg-node.flg-link-source .flg-node-port {
+  opacity: 1;
+}
+
+/* THE DROP TARGET, ANSWERED BEFORE THE RELEASE. A legal target is ringed and brought back to
+   full strength; an illegal one is struck through with a hatch and keeps its ring in the error
+   colour, so the two differ by TEXTURE as well as by hue. Neither moves: a target that jumped
+   under the cursor would be a target the pointer then missed. */
+.flg-graph.flg-linking .flg-node.flg-link-ok {
+  opacity: 1;
+  box-shadow: 0 0 0 3px var(--flg-focus), 0 6px 18px var(--flg-shadow);
+}
+
+.flg-graph.flg-linking .flg-node.flg-link-bad {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--flg-error-fg);
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--flg-error-fg) 22%, transparent) 0 4px,
+    transparent 4px 10px
+  );
+}
+
+/* An armed, keyboard-driven connection quiets everything it is NOT offering, the same way a
+   selection does -- otherwise the cards that cannot take what is being carried are just as loud
+   as the ones that can, and the marking says nothing. */
+.flg-graph.flg-linking-armed .flg-node {
+  opacity: 0.4;
+}
+
+.flg-graph.flg-linking-armed .flg-node.flg-link-ok,
+.flg-graph.flg-linking-armed .flg-node.flg-link-bad,
+.flg-graph.flg-linking-armed .flg-node.flg-link-source {
+  opacity: 1;
+}
+
+/* Quieter than the pointer's single drop target, because in this mode EVERY legal card is marked
+   at once -- and on a list type that is most of the pack. The heavy ring belongs to the one card
+   under the cursor; a canvas of them is just a canvas of rings. */
+.flg-graph.flg-linking-armed .flg-node.flg-link-ok {
+  box-shadow: 0 0 0 2px var(--flg-focus);
+}
+
+/* -- the verdict at the pointer -------------------------------------------
+
+   What the drop would do, or why it would not, IN WORDS, while the button is still down. An
+   error that arrives after the release is an error about work already done -- and on a canvas
+   where a drop can silently replace an existing delegation, "after" is too late.
+
+   Screen space on the static host, not in the transformed world: this is a label about the
+   gesture, so it must not scale with the camera. */
+.flg-link-tip {
+  position: absolute;
+  z-index: 10;
+  max-width: 320px;
+  padding: 5px 8px;
+  border: 1px solid var(--flg-focus);
+  border-radius: 4px;
+  background-color: var(--flg-surface);
+  color: var(--flg-fg);
+  box-shadow: 0 4px 14px var(--flg-shadow);
+  pointer-events: none;
+}
+
+.flg-link-tip-label {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.flg-link-tip-detail {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--flg-fg-muted);
+  /* Four lines at most: the sentence that matters is the first one, and a paragraph following
+     the cursor covers the canvas it is describing. */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Refused, and asked-about, get their own border rather than only their own words -- the label
+   is small and a border is legible from the corner of an eye. */
+.flg-link-tip.flg-link-tip-bad {
+  border-color: var(--flg-error-fg);
+}
+
+.flg-link-tip.flg-link-tip-bad .flg-link-tip-label {
+  color: var(--flg-error-fg);
+}
+
+.flg-link-tip.flg-link-tip-asks {
+  border-color: var(--flg-warning-fg);
+}
+
+.flg-link-tip.flg-link-tip-asks .flg-link-tip-label {
+  color: var(--flg-warning-fg);
+}
+
+/* The selected card's header goes to the theme's own selection colours -- the same pair VS
+   Code's lists use, so "this one is selected" reads identically to the rest of the editor. */
+.flg-node.flg-selected .flg-node-head {
+  background-color: var(--flg-selected-bg);
+  color: var(--flg-selected-fg);
+}
+
+.flg-node.flg-selected .flg-node-id,
+.flg-node.flg-selected .flg-node-icon {
+  color: var(--flg-selected-fg);
+}
+
+/* SELECTING A NODE QUIETS THE REST OF THE CANVAS.
+
+   This is the one thing that makes a converging graph followable, and it is not decoration. The
+   contract says features are shared by "namespace:id"; on this repo's own fixture pack forty
+   roots reach seventeen children and one child has eleven parents. Drawing those eleven lines
+   better does not help -- the problem is the thirty-nine other lines crossing them. Quieting
+   everything that does not touch the selected node turns "which of these is mine" into a
+   question the eye answers instantly.
+
+   Opacity only, and only on things that are still fully present, clickable and in the
+   accessibility tree: this hides nothing and removes nothing. */
+.flg-graph.flg-has-focus .flg-node {
+  opacity: 0.35;
+}
+
+.flg-graph.flg-has-focus .flg-node-focus {
+  opacity: 1;
+}
+
+.flg-graph.flg-has-focus .flg-edge,
+.flg-graph.flg-has-focus .flg-chip {
+  opacity: 0.12;
+}
+
+.flg-graph.flg-has-focus .flg-edge.flg-incident,
+.flg-graph.flg-has-focus .flg-chip.flg-incident {
+  opacity: 1;
+}
+
+/* A quieted thing is still reachable, so hovering or focusing one brings it back rather than
+   leaving the user prodding at something they cannot see. */
+.flg-graph.flg-has-focus .flg-node:hover,
+.flg-graph.flg-has-focus .flg-node:focus-visible,
+.flg-graph.flg-has-focus .flg-chip:hover,
+.flg-graph.flg-has-focus .flg-chip:focus-visible,
+.flg-graph.flg-has-focus .flg-edge:hover {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------- edges -- */
+
+/* The casing: each edge's own path, drawn first and wider, in the canvas colour. Where two edges
+   cross at a shallow angle -- most crossings, in a layered drawing -- two bare strokes fuse into
+   an X that cannot be traced through. A casing makes the later edge pass visibly OVER the
+   earlier one, the way an atlas draws a flyover. Partly transparent on purpose: at a node with
+   eleven ports the casings of neighbouring edges overlap, and an opaque one would erase its
+   neighbour instead of shading it. */
+.flg-edge-casing {
+  fill: none;
+  stroke: var(--flg-bg);
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+
+.flg-edge-line {
+  fill: none;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke: var(--flg-kind-filter);
+}
+
+.flg-edge-arrow {
+  stroke: var(--flg-bg);
+  stroke-width: 1;
+  /* Stroke UNDER fill, so the outline grows outward and the head keeps its full size while
+     still separating from whatever line it lands on top of. */
+  paint-order: stroke;
+  fill: var(--flg-kind-filter);
+}
+
+/* Invisible, fat, and the only part of an edge that takes a pointer -- a 2px line cannot be
+   clicked reliably and "select an edge" has to work without pixel hunting. */
+.flg-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.flg-edge:hover .flg-edge-line,
+.flg-edge.flg-selected .flg-edge-line {
+  stroke-width: 4;
+}
+
+/* A selected edge gets a focus-coloured halo out of its own casing -- the emphasis lands around
+   the line rather than replacing its colour, so the edge does not stop saying what KIND it is at
+   the moment you select it. */
+.flg-edge.flg-selected .flg-edge-casing {
+  stroke: var(--flg-focus);
+  stroke-width: 10;
+  opacity: 1;
+}
+
+/* Per kind: a colour, a dash signature and a width. Every pair of kinds differs in dash-and-width
+   alone, before any colour is involved -- the property the test suite pins, and the one that
+   survives a grayscale print, a high-contrast theme and a red/green colour deficiency. */
+.flg-edge-rule .flg-edge-line {
+  stroke: var(--flg-kind-rule);
+  stroke-width: 3.5;
+}
+.flg-edge-rule .flg-edge-arrow {
+  fill: var(--flg-kind-rule);
+}
+
+/* Sequence: solid and heavy. The ordinal on its chip decides execution order, and therefore
+   the generated world, so the line that carries it is the most prominent kind on the canvas. */
+.flg-edge-sequence .flg-edge-line {
+  stroke: var(--flg-kind-sequence);
+  stroke-width: 2.75;
+}
+.flg-edge-sequence .flg-edge-arrow {
+  fill: var(--flg-kind-sequence);
+}
+
+/* Aggregate: dashed, which is the theme-proof half of "these two must not look alike". */
+.flg-edge-aggregate .flg-edge-line {
+  stroke: var(--flg-kind-aggregate);
+  stroke-width: 2.5;
+  stroke-dasharray: 8 5;
+}
+.flg-edge-aggregate .flg-edge-arrow {
+  fill: var(--flg-kind-aggregate);
+}
+
+.flg-edge-weighted .flg-edge-line {
+  stroke: var(--flg-kind-weighted);
+  stroke-width: 2.5;
+  stroke-dasharray: 13 4 2 4;
+}
+.flg-edge-weighted .flg-edge-arrow {
+  fill: var(--flg-kind-weighted);
+}
+
+.flg-edge-conditional .flg-edge-line {
+  stroke: var(--flg-kind-conditional);
+  stroke-width: 2.25;
+  stroke-dasharray: 2 5;
+}
+.flg-edge-conditional .flg-edge-arrow {
+  fill: var(--flg-kind-conditional);
+}
+
+.flg-edge-scatter .flg-edge-line {
+  stroke: var(--flg-kind-scatter);
+  stroke-width: 3;
+  stroke-dasharray: 1 6;
+}
+.flg-edge-scatter .flg-edge-arrow {
+  fill: var(--flg-kind-scatter);
+}
+
+.flg-edge-filter .flg-edge-line {
+  stroke: var(--flg-kind-filter);
+  stroke-width: 2;
+  stroke-dasharray: 12 5;
+}
+.flg-edge-filter .flg-edge-arrow {
+  fill: var(--flg-kind-filter);
+}
+
+/* A named single-child slot. Deliberately the quietest kind on the canvas: it carries no data
+   of its own, and it is the most common edge in a real pack (5 of the 24 files in this repo's
+   vanilla-trees fixture reach their children this way), so making it loud would drown out the
+   kinds that actually decide something. Still its own dash signature, because "quiet" must not
+   mean "indistinguishable". */
+.flg-edge-child .flg-edge-line {
+  stroke: var(--flg-kind-child);
+  stroke-width: 2;
+  stroke-dasharray: 6 3 1 3;
+  opacity: 0.7;
+}
+.flg-edge-child .flg-edge-arrow {
+  fill: var(--flg-kind-child);
+  opacity: 0.7;
+}
+
+/* An edge into an unresolved node. Fading it toward the target is the visual sentence "this
+   goes nowhere" -- it stays fully drawn and fully selectable, which is the point. */
+.flg-edge-dangling .flg-edge-line,
+.flg-edge-dangling .flg-edge-arrow {
+  opacity: 0.55;
+}
+
+/* An edge into a feature the game provides. It RESOLVES -- so it is not faded toward its target
+   the way a broken one is, and keeps its own kind's colour and dash. The one thing it gets is a
+   slightly lighter stroke, saying the chain continues somewhere this drawing does not go. */
+.flg-edge-external .flg-edge-line {
+  stroke-width: 1.5;
+}
+
+.flg-edge-cycle .flg-edge-line {
+  stroke-width: 3.25;
+}
+
+/* ---------------------------------------------------------------- chips -- */
+
+.flg-chip {
+  --flg-chip-accent: var(--flg-kind-filter);
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 190px;
+  padding: 1px 7px;
+  border: 1px solid var(--flg-chip-accent);
+  border-radius: 4px;
+  /* Tinted with its own edge's hue rather than left flat: a chip floating over a bundle of lines
+     has to look like it BELONGS to one of them, or it reads as a label for whichever line
+     happens to pass nearest. */
+  background-color: color-mix(in srgb, var(--flg-chip-accent) 14%, var(--flg-surface));
+  box-shadow: 0 1px 3px var(--flg-shadow);
+  color: var(--flg-fg);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  outline: none;
+}
+
+.flg-chip:hover {
+  background-color: var(--flg-surface-hover);
+  box-shadow: 0 0 0 1px var(--flg-focus), 0 2px 8px var(--flg-shadow);
+  z-index: 2;
+}
+
+.flg-chip:focus-visible,
+.flg-chip.flg-selected {
+  border-color: var(--flg-focus);
+  box-shadow: 0 0 0 2px var(--flg-focus);
+  z-index: 3;
+}
+
+.flg-chip-mark {
+  font-family: var(--flg-mono);
+  color: var(--flg-chip-accent);
+}
+
+.flg-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flg-chip-detail {
+  font-size: 9.5px;
+  color: var(--flg-fg-muted);
+}
+
+.flg-chip-rule {
+  --flg-chip-accent: var(--flg-kind-rule);
+  color: var(--flg-kind-rule);
+  font-weight: 600;
+}
+
+/* SEQUENCE -- the one chip with a shape of its own. Round, heavy-bordered, and carrying a bold
+   number, so an ordered chain reads as 1-2-3 from across the canvas and cannot be mistaken for
+   the rectangular "unordered" chip an aggregate gets. Shape survives a high-contrast theme
+   flattening the palette; colour alone would not. */
+.flg-chip-sequence {
+  --flg-chip-accent: var(--flg-kind-sequence);
+  border-width: 2px;
+  border-radius: 999px;
+  padding: 0 8px;
+  min-width: 24px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.flg-chip-sequence .flg-chip-label {
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--flg-kind-sequence);
+}
+
+/* AGGREGATE -- square-cornered, muted, and showing no number whatsoever. Its ordinal is only
+   the order the keys happen to appear in the file (wire/graph.go); putting it on the chip is
+   exactly how someone comes to believe an aggregate runs in order. */
+.flg-chip-aggregate {
+  --flg-chip-accent: var(--flg-kind-aggregate);
+  border-radius: 2px;
+  color: var(--flg-fg-muted);
+  font-style: italic;
+}
+
+.flg-chip-weighted {
+  --flg-chip-accent: var(--flg-kind-weighted);
+  font-variant-numeric: tabular-nums;
+}
+
+.flg-chip-weighted .flg-chip-label {
+  font-weight: 600;
+  color: var(--flg-kind-weighted);
+}
+
+/* The share bar. A weight is meaningless on its own -- "5" is half the picks next to one other
+   5 and a twentieth next to a 95 -- so the chip carries the proportion as a shape as well as a
+   percentage; a column of bars is comparable at a glance in a way a column of numbers is not. */
+.flg-chip-bar {
+  display: inline-block;
+  width: 26px;
+  height: 5px;
+  border-radius: 3px;
+  background-color: var(--flg-code-bg);
+  overflow: hidden;
+}
+
+.flg-chip-bar-fill {
+  display: block;
+  height: 100%;
+  background-color: var(--flg-kind-weighted);
+}
+
+.flg-chip-conditional {
+  --flg-chip-accent: var(--flg-kind-conditional);
+}
+
+/* "No condition written" vs "a condition was written" are different edits to make, and the
+   contract keeps a nil Condition rather than synthesising "1.0" so that this difference is
+   renderable at all. Rendering both as code text would throw that away, so the always-true case
+   is set in the UI font, muted, dashed -- visibly an ABSENCE -- while a written condition below
+   is set in the code font, in the code colour, visibly a piece of Molang. */
+.flg-chip-always {
+  border-style: dashed;
+  font-family: var(--flg-font);
+  color: var(--flg-fg-muted);
+  font-style: italic;
+}
+
+.flg-chip-molang .flg-chip-label {
+  font-family: var(--flg-mono);
+  color: var(--flg-code-fg);
+}
+
+.flg-chip-scatter {
+  --flg-chip-accent: var(--flg-kind-scatter);
+}
+
+/* A scatter's `iterations` that is not a bare number is a Molang expression evaluated in a
+   scope shared with the child -- used as a condition and as a setup step in real packs. The
+   marker says so, so nobody reads it as a count. */
+.flg-chip-expression .flg-chip-detail {
+  color: var(--flg-code-fg);
+  font-family: var(--flg-mono);
+  font-style: italic;
+}
+
+.flg-chip-filter {
+  --flg-chip-accent: var(--flg-kind-filter);
+  color: var(--flg-fg-muted);
+}
+
+/* A child chip carries the JSON key it was written under, so it is set in the code font -- it
+   is a literal piece of the file, not a word this tool chose. */
+.flg-chip-child {
+  --flg-chip-accent: var(--flg-kind-child);
+  border-style: dotted;
+  color: var(--flg-fg-muted);
+}
+
+.flg-chip-child .flg-chip-label {
+  font-family: var(--flg-mono);
+}
+
+/* A weight the file did not write. The number shown is the engine's default, not the author's,
+   and the chip has to say so -- otherwise someone "corrects" a 1 that was never in the file and
+   opening a pack becomes a diff. Bracketed and muted: visibly supplied, not transcribed. */
+.flg-chip-defaulted .flg-chip-label {
+  opacity: 0.7;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.flg-chip-defaulted .flg-chip-label::before {
+  content: '(';
+}
+
+.flg-chip-defaulted .flg-chip-label::after {
+  content: ')';
+}
+
+/* A required edge cannot be removed without breaking the type that owns it, so the chip is
+   anchored with a solid tick on the side rather than looking like an optional list entry. */
+.flg-chip-required {
+  border-left-width: 3px;
+}
+
+/* Something the data says is self-contradictory -- a duplicated sequence ordinal, a
+   weighted group whose weights sum to zero. Not an error this renderer can fix; a flag so it is
+   noticed instead of quietly producing a world nobody predicted. */
+.flg-chip-suspect {
+  border-color: var(--flg-error-fg);
+  border-style: dashed;
+}
+
+.flg-chip-unknown {
+  --flg-chip-accent: var(--flg-kind-unknown);
+  color: var(--flg-kind-unknown);
+}
+
+.flg-chip-cycle {
+  border-style: double;
+  border-width: 3px;
+}
+
+/* ------------------------------------------------------- zoom-based LOD -- */
+
+/* Three bands, keyed off the attribute render.ts stamps during the camera update. A pure CSS
+   visibility switch -- no re-render, so zooming back in cannot lose anything, and panning a
+   large pack stays cheap. See ZOOM_BAND_FAR in render.ts for where the thresholds come from. */
+
+/* MID: the sentences go. A fan-out line and a coverage note are read, not glanced at, and at 60%
+   scale they are neither. The id, the type and the state badges stay. */
+.flg-graph[data-zoom-band='mid'] .flg-node-meta,
+.flg-graph[data-zoom-band='mid'] .flg-node-note {
+  display: none;
+}
+
+/* FAR: a fifty-seven-node pack framed in a panel puts a card at about thirty pixels wide. Every
+   label there is a smear, so the card stops pretending to be a card and becomes what it can
+   still honestly be at that size -- a SOLID BLOCK IN ITS CATEGORY'S COLOUR. The shape of the
+   pack (which layer, which hue, what connects to what) is the only question answerable from that
+   far out, and this is the view that answers it. Every block still has its full `title` on
+   hover, and one scroll brings the text back. */
+.flg-graph[data-zoom-band='far'] .flg-chips {
+  display: none;
+}
+
+.flg-graph[data-zoom-band='far'] .flg-node-body,
+.flg-graph[data-zoom-band='far'] .flg-node-icon,
+.flg-graph[data-zoom-band='far'] .flg-node-id {
+  display: none;
+}
+
+/* The connector handle goes too. Out here a card is about thirty screen pixels wide and the
+   handle is eighteen world units -- it would be most of the box, and a connection aimed at a
+   card this small is aimed at whichever of four overlapping cards the pointer happened to find.
+   Zooming in brings it back; nothing is lost, because nothing was drawn. */
+.flg-graph[data-zoom-band='far'] .flg-node-port {
+  display: none;
+}
+
+.flg-graph[data-zoom-band='far'] .flg-node {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+.flg-graph[data-zoom-band='far'] .flg-node-head {
+  height: 100%;
+  border-bottom: none;
+  background-color: color-mix(in srgb, var(--flg-node-accent) 55%, var(--flg-surface));
+}
+
+/* Except an unresolved one, which stays HOLLOW. Filling it would make it a solid red block --
+   and a `scatter` node is a solid red block, because the chart palette has six hues for eight
+   kinds. The hatch is what says "nothing is actually here", and out here it is the only thing
+   that can say it: a 2px dashed border is sub-pixel at this scale. */
+.flg-graph[data-zoom-band='far'] .flg-node-unresolved .flg-node-head {
+  background-color: transparent;
+}
+
+/* Strokes stop scaling with the camera, so an edge is the same two or three pixels wide whether
+   the pack is framed or filling the screen. Without this the lines that carry the pack's whole
+   structure are the first thing to vanish at exactly the zoom where structure is all there is: a
+   2.25px stroke at 0.12 scale is a quarter of a pixel. The dash signatures go to screen units
+   with them, so the kinds stay separable out here too. */
+.flg-graph[data-zoom-band='far'] .flg-edge-line,
+.flg-graph[data-zoom-band='far'] .flg-edge-arrow {
+  vector-effect: non-scaling-stroke;
+}
+
+/* The casing goes, though. It is there to make one edge pass over another where they cross at a
+   shallow angle -- and out here every edge crosses every other one at a shallow angle, in a band
+   a few pixels wide, so the casings stop separating the lines and start erasing them. Overlap is
+   the lesser evil at a zoom where no individual edge is traceable anyway. */
+.flg-graph[data-zoom-band='far'] .flg-edge-casing {
+  display: none;
+}
+
+/* -------------------------------------------------- reduced motion / HC -- */
+
+/* The only animation on the canvas: the wash that comes and goes when a node is selected.
+   Nothing MOVES -- this is opacity on elements that stay exactly where they are -- but a jump
+   from full to 35% is still a flash, and a short fade reads as the canvas quieting rather than
+   as the canvas flickering. */
+.flg-node,
+.flg-chip,
+.flg-edge {
+  transition: opacity 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flg-world {
+    will-change: auto;
+  }
+
+  .flg-node,
+  .flg-chip,
+  .flg-edge {
+    transition: none;
+  }
+}
+
+/* High-contrast themes flatten the chart palette toward the foreground colour, which is exactly
+   the case the dash patterns, chip shapes, node glyphs and state outlines above are there to
+   survive. Borders go up a notch so the boxes themselves stay separable from the background, and
+   the header rule under the identifier goes with them -- the header's tint is a colour-mix, and
+   a mix of a flattened palette flattens too. */
+@media (forced-colors: active) {
+  .flg-node,
+  .flg-chip {
+    border-width: 2px;
+  }
+
+  .flg-node-head {
+    border-bottom-width: 2px;
+  }
+
+  /* Forced-colors mode has a very small palette and opacity is one of the few signals left in
+     it, so the quieting stays -- but shallower, because there is no hue for the eye to fall back
+     on when a quieted thing is all it has. */
+  .flg-graph.flg-has-focus .flg-node,
+  .flg-graph.flg-has-focus .flg-edge,
+  .flg-graph.flg-has-focus .flg-chip {
+    opacity: 0.5;
+  }
+}
+
+/* Fallbacks for a host with no `--vscode-*` variables at all (a test harness, a screenshot
+   script, this file opened standalone) running on a light-mode OS, so those hosts are not stuck
+   with a dark palette on a light desktop.
+
+   EVERY DECLARATION HERE IS STILL `var(--vscode-<name>, <light literal>)`, NOT A BARE LITERAL,
+   and that is the whole subtlety of this block. It re-declares the same custom properties the
+   `.flg-graph` block above does, at the same specificity, later in the file -- so a bare
+   literal here WINS, unconditionally, over the `--vscode-*` value it was supposed to be a
+   fallback for. That is not theoretical: Chromium reports `prefers-color-scheme: light` by
+   default, so a bare-literal version of this block painted a real VS Code DARK theme's canvas
+   white, and the theme test in test/graphRender.test.ts caught exactly that. Keeping the
+   `var()` wrapper makes this block change only what it was meant to change: the FALLBACK. */
+@media (prefers-color-scheme: light) {
+  .flg-graph {
+    --flg-bg: var(--vscode-editor-background, #ffffff);
+    --flg-fg: var(--vscode-editor-foreground, var(--vscode-foreground, #1e1e1e));
+    --flg-fg-muted: var(--vscode-descriptionForeground, rgba(30, 30, 30, 0.65));
+    --flg-surface: var(--vscode-editorWidget-background, #f6f6f6);
+    --flg-surface-hover: var(--vscode-list-hoverBackground, rgba(0, 0, 0, 0.05));
+    --flg-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(0, 0, 0, 0.2)));
+    --flg-selected-bg: var(--vscode-list-activeSelectionBackground, #0060c0);
+    --flg-selected-fg: var(--vscode-list-activeSelectionForeground, #ffffff);
+    --flg-badge-bg: var(--vscode-badge-background, #dddddd);
+    --flg-badge-fg: var(--vscode-badge-foreground, #1e1e1e);
+    --flg-warning-fg: var(--vscode-editorWarning-foreground, #a06f00);
+    --flg-error-fg: var(--vscode-editorError-foreground, #b5200d);
+    --flg-code-fg: var(--vscode-textPreformat-foreground, #a31515);
+    --flg-code-bg: var(--vscode-textCodeBlock-background, rgba(0, 0, 0, 0.06));
+    --flg-grid: var(--vscode-editorIndentGuide-background, rgba(0, 0, 0, 0.07));
+    --flg-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.16));
+    --flg-kind-rule: var(--vscode-charts-blue, #1a6bb5);
+    --flg-kind-sequence: var(--vscode-charts-orange, #a35400);
+    --flg-kind-aggregate: var(--vscode-charts-green, #26794a);
+    --flg-kind-weighted: var(--vscode-charts-purple, #7a3fa8);
+    --flg-kind-conditional: var(--vscode-charts-yellow, #8a6d00);
+    --flg-kind-scatter: var(--vscode-charts-red, #b5200d);
+    --flg-kind-filter: var(--vscode-charts-foreground, var(--vscode-editor-foreground, #1e1e1e));
+    --flg-kind-child: var(--vscode-charts-lines, rgba(60, 60, 60, 0.8));
+    --flg-kind-unknown: var(--vscode-editorError-foreground, #b5200d);
+    --flg-kind-leaf: var(--vscode-descriptionForeground, rgba(30, 30, 30, 0.65));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The shell: toolbar, inspector and status bar.
+
+   Everything above styles the CANVAS -- nodes, edges, chips -- and is driven by
+   render.ts. These rules style the frame around it, which webview/graph.ts
+   builds. They are here rather than in the shell's own inline <style> because
+   that block is nonce-gated and kept to the bare layout skeleton: anything
+   beyond "where the three regions sit" belongs in the stylesheet, which is a
+   real resource and can be edited without touching a CSP.
+
+   Every colour is a --vscode-* custom property. The host stamps the user's
+   actual theme onto the root, so a panel that hard-coded its own greys would
+   look correct in exactly one theme and wrong in all the others.
+   --------------------------------------------------------------------------- */
+
+#flg-root {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+#flg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+  flex: 0 0 auto;
+}
+
+.flg-toolbar-label {
+  color: var(--vscode-descriptionForeground);
+  margin-right: 2px;
+}
+
+.flg-add,
+.flg-tool {
+  font: inherit;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 3px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.flg-add:hover,
+.flg-tool:hover { background: var(--vscode-list-hoverBackground); }
+
+.flg-add:focus-visible,
+.flg-tool:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+/* The compounds sit apart from the view controls: one group creates things,
+   the other only changes what you are looking at. */
+.flg-tool { margin-left: auto; }
+
+#flg-side {
+  border-left: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+  padding: 10px 12px;
+}
+
+.flg-heading {
+  margin: 0 0 2px;
+  font-size: 1.05em;
+  font-weight: 600;
+  /* An identifier is long and has no spaces, so it will not wrap on its own and
+     would otherwise push the whole panel wider than its column. */
+  overflow-wrap: anywhere;
+}
+
+.flg-subheading {
+  color: var(--vscode-textPreformat-foreground);
+  font-family: var(--vscode-editor-font-family);
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.flg-row {
+  padding: 6px 0;
+  border-top: 1px solid var(--vscode-widget-border);
+}
+
+.flg-label {
+  display: block;
+  font-weight: 600;
+  font-family: var(--vscode-editor-font-family);
+}
+
+.flg-value {
+  font-family: var(--vscode-editor-font-family);
+  color: var(--vscode-charts-blue);
+  overflow-wrap: anywhere;
+  min-height: 1.2em;
+}
+
+.flg-hint {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* WHAT ONE RUN MEASURED, in the inspector -- the long form of the card's three numbers.
+
+   Boxed and captioned rather than run in with the rest of the panel, because everything else
+   there describes the PACK (the file, its fields, what refuses to load) and this describes a
+   single placement at a single origin. A measurement that reads as a property is the one way
+   this panel can mislead, so the frame says "this run" before any number is read. */
+.flg-run {
+  /* Built like .flg-notice below, and against the same --vscode-* variables: the --flg-* set is
+     scoped to .flg-graph, which is the CANVAS, and this panel is outside it. A rule here written
+     in the canvas's vocabulary renders with no border and no background at all. */
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--vscode-descriptionForeground);
+  background: var(--vscode-textCodeBlock-background);
+  font-size: 0.95em;
+}
+
+.flg-run-head {
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 3px;
+  overflow-wrap: anywhere;
+}
+
+.flg-run-line {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* The first line is the answer; the rest are caveats and context, and they read as such. */
+.flg-run-line + .flg-run-line {
+  margin-top: 3px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* A required key is marked on the label rather than stated in prose beneath it:
+   the engine refuses the whole file when one is missing, so it has to be
+   visible while skimming, not only while reading. */
+.flg-required { color: var(--vscode-editorError-foreground); }
+
+.flg-notice {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--vscode-widget-border);
+  background: var(--vscode-textCodeBlock-background);
+  font-size: 0.95em;
+}
+
+.flg-notice-info { border-left-color: var(--vscode-charts-blue); }
+.flg-notice-warning { border-left-color: var(--vscode-editorWarning-foreground); }
+.flg-notice-error { border-left-color: var(--vscode-editorError-foreground); }
+
+#flg-status {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+}
+
+.flg-status-error { color: var(--vscode-editorError-foreground); }
+
+/* The compound panel: what a collapsed node IS, above the form for its settings.
+
+   Separated from the form by a border rather than by a heading, because what it says is about
+   the node's NATURE -- one thing standing for several features -- and not another group of
+   settings. */
+.flg-compound {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--vscode-focusBorder);
+  border-radius: 3px;
+  background: var(--vscode-textCodeBlock-background);
+}
+
+.flg-compound-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.flg-compound .flg-add { margin-top: 6px; }
+
+.flg-compound .flg-add:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The overview, shown while nothing is selected. It is the first thing anybody reads, so it is
+   laid out to be scanned rather than to fill the column. */
+
+.flg-overview { display: flex; flex-direction: column; gap: 2px; }
+
+/* A node id you can click to go to. Full width and left-aligned because these are a LIST of
+   names to scan down, not a row of actions -- and an identifier is long, so centring one would
+   put every name in a different place. */
+.flg-jump {
+  font: inherit;
+  font-family: var(--vscode-editor-font-family);
+  text-align: left;
+  color: var(--vscode-textLink-foreground, var(--vscode-charts-blue));
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.flg-jump:hover { background: var(--vscode-list-hoverBackground); }
+
+.flg-jump:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* A dangling reference is not a link to somewhere -- it is the problem itself. Coloured as the
+   error it is, and paired with the warning above it so the colour is never the only signal. */
+.flg-jump-unresolved { color: var(--vscode-editorError-foreground); }
+
+/* A section label inside the overview. Plain prose, unlike .flg-subheading, which is monospaced
+   and coloured like a type identifier -- using that for a heading made the words read as the name
+   of something in the pack. */
+.flg-section {
+  margin: 10px 0 2px;
+  color: var(--vscode-descriptionForeground);
+  text-transform: none;
+  font-weight: 600;
+}
+
+/* ---- The sidebar splitter ----------------------------------------------------------------
+   The same drag handle the preview panel has had since "the preview is tiny" was fixed --
+   frontend/src/ui/splitter.ts, drag clamp, collapse toggle, remembered width, and a live clamp
+   that keeps the canvas usable when the host itself is dragged narrow.
+   The class contract is that module's, deliberately: two panels that look and behave the same
+   under the same pointer, rather than a second splitter that drifts from the first. Duplicated
+   here rather than imported because this webview loads one stylesheet and panel.css carries a
+   whole panel system this view does not use. */
+.fl-splitter {
+  --fl-split-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  --fl-split-hover: var(--vscode-focusBorder, #007fd4);
+  --fl-split-fg: var(--vscode-foreground, #cccccc);
+  --fl-split-bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #1e1e1e));
+  flex: 0 0 auto;
+  width: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: transparent;
+  border-left: 1px solid var(--fl-split-border);
+  touch-action: none;
+  user-select: none;
+}
+.fl-splitter:hover,
+.fl-splitter.fl-splitter-dragging {
+  background: color-mix(in srgb, var(--fl-split-hover) 30%, transparent);
+}
+.fl-splitter.fl-splitter-collapsed {
+  cursor: default;
+  width: 18px;
+}
+.fl-splitter-toggle {
+  width: 16px;
+  height: 32px;
+  border-radius: 3px;
+  border: 1px solid var(--fl-split-border);
+  background: var(--fl-split-bg);
+  color: var(--fl-split-fg);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.fl-splitter-toggle:hover { filter: brightness(1.2); }
+.fl-splitter-toggle:focus-visible {
+  outline: 1px solid var(--fl-split-hover);
+  outline-offset: 1px;
+}
+
+/* -- feature groups ---------------------------------------------------------
+
+   An author-declared group of features (src/graph/groups.ts). Two drawings, one selection:
+   EXPANDED, a frame behind the members' cards with a header naming it; COLLAPSED, one card
+   standing where the members were. Both are in the focus colour rather than a category colour,
+   because a group is not a kind of feature -- it is the author's own bracket around several. */
+
+.flg-frames {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The frame body is INERT: a press on the empty space inside a group is a press on the canvas,
+   so panning and the marquee work there exactly as they do anywhere else. Only the header is a
+   control. Dashed, so it reads as a bracket around the cards rather than as a card itself. */
+.flg-frame {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed color-mix(in srgb, var(--flg-focus) 55%, var(--flg-border));
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--flg-focus) 6%, transparent);
+  pointer-events: none;
+}
+
+/* The header strip. render.ts's FRAME_HEAD is this height and they must move together. */
+.flg-frame-head {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  height: 24px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--flg-focus) 55%, var(--flg-border));
+  border-radius: 5px 5px 0 0;
+  background-color: color-mix(in srgb, var(--flg-focus) 14%, var(--flg-surface));
+  color: var(--flg-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.flg-frame-head:hover {
+  background-color: color-mix(in srgb, var(--flg-focus) 24%, var(--flg-surface));
+}
+
+.flg-frame-head:focus-visible,
+.flg-frame-head.flg-selected {
+  outline: 2px solid var(--flg-focus);
+  outline-offset: -2px;
+}
+
+/* A selected group's frame firms up around its members, so the selection is visible from any
+   card inside it and not only at the header. */
+.flg-frame:has(> .flg-frame-head.flg-selected) {
+  border-style: solid;
+  border-color: var(--flg-focus);
+}
+
+.flg-frame-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flg-frame-head.flg-dragging {
+  cursor: grabbing;
+}
+
+/* The chevron on a frame header and on a collapsed card: fold or unfold. A small square target
+   with its own hover, so it is findable without being a second card on every card. */
+.flg-group-chevron {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--flg-fg-muted);
+}
+
+.flg-group-chevron:hover {
+  background-color: var(--flg-surface-hover);
+  color: var(--flg-fg);
+}
+
+.flg-group-chevron:focus-visible {
+  outline: 1px solid var(--flg-focus);
+  outline-offset: -1px;
+}
+
+/* A collapsed group's card. The same box as a feature card -- it sits in the same layout and
+   takes the same edges -- but STACKED: two offset sheets behind it say "several", which is the
+   one fact about it that a feature card's shape would deny. */
+.flg-node-group {
+  --flg-node-accent: var(--flg-focus);
+  box-shadow:
+    3px 3px 0 -1px var(--flg-surface),
+    3px 3px 0 0 var(--flg-border),
+    6px 6px 0 -1px var(--flg-surface),
+    6px 6px 0 0 color-mix(in srgb, var(--flg-border) 65%, transparent),
+    0 1px 3px var(--flg-shadow);
+}
+
+.flg-node-group:hover {
+  box-shadow:
+    0 0 0 1px var(--flg-focus),
+    3px 3px 0 -1px var(--flg-surface),
+    3px 3px 0 0 var(--flg-border),
+    6px 6px 0 -1px var(--flg-surface),
+    6px 6px 0 0 color-mix(in srgb, var(--flg-border) 65%, transparent),
+    0 3px 10px var(--flg-shadow);
+}
+
+.flg-node-group:focus-visible,
+.flg-node-group.flg-selected {
+  box-shadow:
+    0 0 0 2px var(--flg-focus),
+    3px 3px 0 -1px var(--flg-surface),
+    3px 3px 0 0 var(--flg-border),
+    6px 6px 0 -1px var(--flg-surface),
+    6px 6px 0 0 color-mix(in srgb, var(--flg-border) 65%, transparent),
+    0 4px 14px var(--flg-shadow);
+}
+
+.flg-node-group .flg-group-chevron {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+}
+
+.flg-node-group-count {
+  font-family: var(--flg-font);
+  font-style: italic;
+}
+
+/* The shift+drag selection rectangle, in screen space over the canvas. */
+.flg-marquee {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--flg-focus);
+  background-color: color-mix(in srgb, var(--flg-focus) 12%, transparent);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.flg-graph.flg-marqueeing {
+  cursor: crosshair;
+}

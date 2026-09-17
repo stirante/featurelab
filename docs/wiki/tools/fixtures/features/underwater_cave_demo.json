@@ -1,0 +1,15 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:underwater_cave_carver_feature": {
+    "description": { "identifier": "wiki:underwater_cave_demo" },
+    "fill_with": "minecraft:water",
+    "replace_air_with": "minecraft:water",
+    "width_modifier": 0.0,
+    "height_limit": 128,
+    "skip_carve_chance": 1,
+    "y_scale": { "range_min": 1.0, "range_max": 1.0 },
+    "horizontal_radius_multiplier": { "range_min": 1.0, "range_max": 1.0 },
+    "vertical_radius_multiplier": { "range_min": 0.7, "range_max": 1.4 },
+    "floor_level": { "range_min": -1.0, "range_max": -0.7 }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "featurelab-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "description": "npm workspace root tying together frontend/ (shared viewer) and apps/vscode/ (the VS Code extension) -- both consume the Go engine's JSON, neither vendors it.",
+  "scripts": {
+    "release": "node apps/vscode/scripts/release.mjs"
+  },
+  "workspaces": [
+    "frontend",
+    "apps/vscode",
+    "apps/desktop/frontend"
+  ]
+}

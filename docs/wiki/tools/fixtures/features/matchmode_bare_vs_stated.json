@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:matchmode_bare_vs_stated" },
+    "features": ["wiki:matchmode_stated_log", "wiki:matchmode_bare_may_replace"]
+  }
+}

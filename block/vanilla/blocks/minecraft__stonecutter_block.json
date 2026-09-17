@@ -1,0 +1,39 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:stonecutter_block"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "stonecutter2_top",
+        "down": "stonecutter2_bottom",
+        "north": "stonecutter2_side",
+        "south": "stonecutter2_side",
+        "west": "stonecutter2_saw",
+        "east": "stonecutter2_saw"
+      },
+      "sound": "stone"
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "STONE",
+      "rgb": [
+        112,
+        112,
+        112
+      ]
+    }
+  }
+}

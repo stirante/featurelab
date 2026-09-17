@@ -1,0 +1,15 @@
+{
+  "format_version": "1.21.100",
+  "minecraft:block": {
+    "description": { "identifier": "myaddon:slate" },
+    "components": {
+      "minecraft:geometry": "minecraft:geometry.full_block",
+      "minecraft:material_instances": {
+        "sides": { "texture": "myaddon:slate", "render_method": "opaque" },
+        "*": "sides",
+        "up": { "texture": "myaddon:slate_top" },
+        "down": "up"
+      }
+    }
+  }
+}

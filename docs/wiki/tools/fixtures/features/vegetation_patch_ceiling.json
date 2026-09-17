@@ -1,0 +1,17 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:vegetation_patch_feature": {
+    "description": { "identifier": "wiki:vegetation_patch_ceiling" },
+    "replaceable_blocks": ["minecraft:stone"],
+    "ground_block": "minecraft:moss_block",
+    "vegetation_feature": "wiki:hanging_roots_ceiling_block",
+    "depth": 1,
+    "extra_deep_block_chance": 0.1,
+    "vertical_range": 6,
+    "vegetation_chance": 0.8,
+    "horizontal_radius": 4,
+    "extra_edge_column_chance": 0.3,
+    "waterlogged": false,
+    "surface": "ceiling"
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "summary": {
+    "total": 29,
+    "implemented": 22,
+    "partial": 5,
+    "missing": 0,
+    "outOfScope": 2
+  },
+  "types": [
+    {
+      "typeId": "minecraft:aggregate_feature",
+      "status": "implemented",
+      "note": ""
+    },
+    {
+      "typeId": "minecraft:sequence_feature",
+      "status": "implemented",
+      "note": ""
+    },
+    {
+      "typeId": "minecraft:conditional_list",
+      "status": "implemented",
+      "note": "Chooses between features by Molang condition. `conditional_features` is required, and each entry needs `places_feature`; its `condition` is optional (as of game version 1.26.50), and an absent condition is simply always true. `early_out_scheme` is optional and defaults to `none` (game version 1.26.40 defaulted to `condition_success`) -- a file that relied on the older default behaves differently now. Under `none` every entry whose condition passes places, and the list reports the last placement that succeeded. `condition_success` stops at the first entry whose condition passes, whether or not that entry placed anything. `placement_success` keeps walking past entries that failed to place until one succeeds. If an entry's `places_feature` cannot be resolved -- or the recursion guard refuses it -- the whole list ABORTS there, and whatever earlier entries already placed stays placed. Conditions evaluate in the `world_gen` Molang namespace, with variable.originx/y/z and variable.worldx/y/z both published, holding the same values."
+    },
+    {
+      "typeId": "minecraft:ore_feature",
+      "status": "implemented",
+      "note": "Ore vein placer. `count` and each `replace_rules[].places_block` are required; `replace_rules` itself, `discard_chance_on_air_exposure` and `replace_rules[].may_replace` are optional. WORTH KNOWING: omitting `replace_rules` is legal and the file loads, but the feature then places NOTHING. It is not free, though -- the emptiness check happens AFTER the angle draw and both Y-bound draws, so a rules-less vein still spends three values from the feature's random stream and shifts whatever is placed after it in the same chain. This tool warns about the missing rules instead of reporting a load error, because the game reports no error either; the feature just silently does nothing. ONE REMAINING GAP: the sine and cosine that set the vein's axis and its radius curve are computed at full precision here, where the game reads them from a coarse lookup table -- a difference of roughly one part in ten thousand in the angle, which can move a boundary cell. Several other feature types share that lookup, so it is being closed once rather than separately here. The gap this note used to disclose -- vein geometry computed in 64-bit floating point where the game uses 32-bit -- is CLOSED."
+    },
+    {
+      "typeId": "minecraft:scan_surface",
+      "status": "implemented",
+      "note": ""
+    },
+    {
+      "typeId": "minecraft:scatter_feature",
+      "status": "implemented",
+      "note": "Scatters a delegated feature over a volume, one `distribution` per axis. Two engine behaviours are worth knowing if you write Molang here, because both surprise people and this tool reproduces them: variable.originx/y/z hold the scatter origin, while variable.worldx/y/z are filled in ONE AXIS AT A TIME as each coordinate is resolved, each holding that axis's absolute world coordinate -- so an expression for a later axis can read an earlier axis's result, and `iterations` and `scatter_chance` see whatever world* already held. And the iteration index counts DOWN, which is what sets the visit order for the grid distributions. BOTH SCHEMA SHAPES ARE SUPPORTED: a file declaring a format_version below 1.21.10 writes the parameters as flat keys on the feature body (`iterations`, `x`, `y`, `z`, `scatter_chance`, `coordinate_eval_order`) rather than inside `distribution`, and that shape is read here too. The two are mutually exclusive, as in the game: writing `distribution` in an older-versioned file, or the flat keys in a newer one, is reported rather than quietly accepted."
+    },
+    {
+      "typeId": "minecraft:search_feature",
+      "status": "implemented",
+      "note": ""
+    },
+    {
+      "typeId": "minecraft:single_block_feature",
+      "status": "partial",
+      "note": "Places a single block, subject to attachment and rotation rules. Implemented in full: `enforce_placement_rules` and `enforce_survivability_rules` (both REQUIRED by the schema, and both no-ops during world generation -- the engine's own checks always pass there), `randomize_rotation`, `may_attach_to` including its `all`/`sides`/`diagonal` group keys and `auto_rotate` (which defaults to TRUE), and `may_not_attach_to`. How attachment actually works: top, bottom and the diagonals are hard gates checked individually, and only the four CARDINAL sides are counted against `min_sides_must_attach`, an integer whose default is 4; a direction you did not configure counts as attached for free. ROTATION NOW ROTATES. When a rotation fires the bench rewrites the placed block's own directional state the way the game does, for all sixteen state families the engine handles -- block_face, cardinal_direction, facing_direction, pillar_axis, portal_axis, rail, torch, lever, stairs, coral, sign, vine and multiface bits, and jigsaw orientation. Two things about that are worth knowing before you read a preview. First, the rewrite is an absolute SET, not a turn: the state you wrote in `places_block` is discarded, and the direction the rotation names replaces it. A block you wrote as `pillar_axis: y` comes out `x` or `z`. Second, with a bare `may_attach_to: {}` all four sides match for free and the LAST one wins, so the block always comes out facing west -- writing four files that differ only in the state they place gets you four identical results, in the game as much as here. WHY THIS IS STILL PARTIAL, and it is a narrower gap than it was: the game decides whether to rewrite a state by asking the block's TYPE whether it can ever carry that state, while this bench can only see the states your `places_block` actually spells out. So `places_block: \"minecraft:torch\"` with no states is placed unrotated here where the game would turn it, and there is no way to close that without a per-block state registry this tool does not have. Write the state out if you want the preview to be right. Separately, for ten of the sixteen families the direction the game picks is exact but the NAME that direction is written under is taken from vanilla block definitions rather than from a table the game documents; those ten warn at load time when you use them. The three families packs most often rotate -- block_face, cardinal_direction, pillar_axis -- are not among them and do not warn. Because `auto_rotate` defaults to TRUE, any file that writes `may_attach_to` (even a bare {}) is rotated by the game. THE OLDER SCHEMA SHAPE IS NOW ENFORCED: in a file declaring a format_version below 1.21.40, places_block is a single block reference rather than a weighted list, and randomize_rotation, may_not_attach_to and may_attach_to.diagonal do not exist at all. Writing the weighted array there is an error here, as it is in the game (the key is required, and an array cannot satisfy it); the three younger keys are reported and dropped, so an old-version file behaves here the way it behaves in the game rather than better."
+    },
+    {
+      "typeId": "minecraft:snap_to_surface_feature",
+      "status": "partial",
+      "note": "Scans for a surface and delegates to another feature at the snapped position. Two things to know before writing one. First, `vertical_search_range` was RENAMED to `search_range`, and which name your file must use depends on the format_version it declares: below 1.26.50 only the old name is accepted, at 1.26.50 and above only the new one, and the wrong name for your version is rejected rather than quietly honoured. Second, if you omit `surface` the default is FLOOR, not ceiling -- this tool said ceiling until 2026-08-15 and was wrong about it in every build, so a pack that relied on the old behaviour will snap the other way now. New in 1.26.50.24: `surface: \"wall\"` tries the four horizontal directions in a random order, and `allow_non_air_placement` lets a snap that starts inside a solid block escape outwards instead of failing. The scan reaches a surface at exactly `search_range` blocks, and a range below 2 checks the block next to the origin rather than the origin itself. With no `allowed_surface_blocks` the surface test is now the real per-face one: the game asks whether the candidate block can support something on the specific face the scan arrived at, which is not the same as asking whether it is solid. Expect a floor scan to accept a top slab, a right-way-up stair, a fence, a wall, a pane and glass, and to REFUSE a bottom slab, farmland, a dirt path, a chest, leaves, a carpet, a torch and a snow layer that is not at full height; a ceiling scan mirrors most of those. Blocks your own pack defines are treated as supporting every face, which is what the game does with any block that does not opt out -- naming one `..._stairs` does not give it a stair's behaviour, in this tool or in the game. STILL APPROXIMATE: a handful of enum states (a stair's or shelf's facing, a chain's axis, a grindstone's attachment) are matched by their documented value names rather than by the numbers the game stores, so an unusual spelling falls back to that block's default orientation."
+    },
+    {
+      "typeId": "minecraft:structure_template_feature",
+      "status": "implemented",
+      "note": "Stamps a structure file into the world, gated by `constraints`. Implemented: `facing_direction` (`south`/`west`/`north`/`east`/`random`, and an absent key means south), `rotate_around_center`, `ground_level`, `adjustment_radius`, and all four constraints -- `grounded`, `unburied`, `block_intersection` and `leveled` -- each over the same sample points the engine uses. A VOID cell and a cell holding explicit `minecraft:air` both count as empty for `grounded`, `unburied` and `leveled`: a .mcstructure exported from a structure block writes empty-but-selected cells as air, and counting those as occupied made this tool refuse placements the game accepts. `minecraft:structure_void` is a real block for that test and still contributes a point. `block_intersection` checks only the MOTION-BLOCKING cells unless `only_check_intersection_for_motion_blocking_blocks` is written as false: the field's engine default is true, so a file that never mentions it gets the narrow check. `leveled` scans the rows from `max_steepness` below each point to `max_steepness` above it (default 2) for a solid-over-air transition and refuses the whole placement if any point lacks one, so a structure straddling a cliff edge is rejected here as it is in game. REFUSED rather than repaired, because the game refuses them too: a `block_intersection` with no `block_allowlist` (alias `block_whitelist`), which the schema requires; an `adjustment_radius` outside the schema's [0, 16], which nothing in the engine clamps; and a negative `ground_level`, whose schema minimum is 0. THE TWO BLOCK PREDICATES ARE NOW THE GAME'S OWN, which is a change worth knowing about because it moves results: `block_intersection`'s cell split needs \"does this block stop movement\" and `grounded`/`leveled` need \"is this solid enough to stand on\". Both used to be answered from this tool's own render classification and are now the per-block answer the game gives. They disagree with the old answer for about half the vanilla block list, always in the same direction: stairs, single slabs, walls, fences, panes, doors, trapdoors, buttons, pressure plates, signs, carpets, candles and chests do NOT stop movement, nor do snow layers, cactus, bamboo, ladders, scaffolding or powder snow -- a double slab does. Leaves, glass and ice stop movement but are not solid enough to stand on. WHAT IS STILL ASSUMED: a block your own pack defines is taken to stop movement and to be stand-on-able, which is right for an ordinary custom cube and wrong for one whose collision box was removed; this tool does not read a custom block's material. `unburied`'s own air test is exact."
+    },
+    {
+      "typeId": "minecraft:surface_relative_threshold_feature",
+      "status": "implemented",
+      "note": "Places a wrapped feature only where the origin is strictly deeper than `minimum_distance_below_surface` below the surface. The type has exactly two keys, `feature_to_place` (required) and `minimum_distance_below_surface` (optional). Four near-miss spellings this tool used to accept as well -- `feature`, `wrapped_feature`, `places_feature`, `min_distance_below_surface` -- do NOT exist in the engine, so a file using one would not load in the game; this tool rejects them with an error naming the real key rather than quietly accepting something the game will not. The distance is an integer in the engine, so a fractional value truncates. APPROXIMATION: the surface height is looked up once per 4x4 column block, matching the engine's granularity, but the VALUE is this bench's finished-terrain height standing in for the engine's pre-generation estimate, which a bench has no equivalent of."
+    },
+    {
+      "typeId": "minecraft:weighted_random_feature",
+      "status": "implemented",
+      "note": "Picks exactly one entry from a required `features` array by weight. WATCH THE WEIGHTS: the engine truncates to whole numbers at every step of the pick, so fractional weights do not behave like a float sum would -- two entries weighted 0.5 total zero and NOTHING is picked at all. There is also no fallback to another entry when the picked one turns out to be unresolvable: the feature just places nothing."
+    },
+    {
+      "typeId": "minecraft:height_difference_filter_feature",
+      "status": "implemented",
+      "note": ""
+    },
+    {
+      "typeId": "minecraft:partially_exposed_blob_feature",
+      "status": "implemented",
+      "note": ""
+    },
+    {
+      "typeId": "minecraft:tree_feature",
+      "status": "implemented",
+      "note": "Pairs one trunk shape with one canopy shape. All eight trunk variants are implemented -- the plain trunk, acacia, cherry, fallen, fancy, mangrove, mega and poplar -- as are the canopy variants, so no part of the JSON surface refuses. New in 1.26.50.24 and implemented here: `poplar_trunk` and `poplar_canopy`, a weighted-radius crown with branch arms, optional side holes and a branch block that replaces leaves. Also new in this build: a fallen trunk now drops through and overwrites leaf litter instead of being blocked by it. APPROXIMATED: the engine decides that per block type, and this tool uses a fixed list of the blocks vanilla treats that way (leaf litter and the small replaceable plants and snow), so a custom block that would be built over in the game may block a fallen log here. Rotation is the one bench-wide caveat this type shares with the others: where the engine would rewrite a placed block's directional state, this tool places it unrotated and says so at load time. The bare `trunk` key is the plain trunk shape -- a straight column that can descend through may_grow_through cells when can_be_submerged is set, and that reads may_grow_through whether or not it is. It hands its canopy an EMPTY anchor list, so pairing it with random_spread_canopy or mangrove_canopy (the only two canopies that read that list) grows a bare pole -- engine behaviour, not a bench limit. `mangrove_roots` is a top-level key and now runs for EVERY trunk shape, not just the three it used to: the game runs the root pass for the feature, before the trunk, and the position it returns moves the trunk's origin, so a tree that skipped it grew at the wrong height and spent none of the draws that pass costs. The warning that used to say roots were being ignored is gone because the skip is gone."
+    },
+    {
+      "typeId": "minecraft:vegetation_patch_feature",
+      "status": "implemented",
+      "note": "Vegetation patch -- a ground (or ceiling) patch of one block with vegetation grown out of it. Both `surface: \"floor\"` and `surface: \"ceiling\"` are implemented. Any other value for `surface` is rejected, which is what the game does with it too. TWO THINGS TO KNOW. First, `replaceable_blocks` is about the GROUND, not the air above it: `ground_block` is written into the solid surface the column scan lands on, so a patch listing only `minecraft:air` there can never replace anything and drops every column unless the surface already holds `ground_block`. List the terrain materials the patch should eat into. Second, `waterlogged: true` places NOTHING here. The game still builds the ground patch and then hands the columns to a separate water-surface routine; this tool does not implement that routine, so it reports failure with zero blocks changed rather than showing you a dry patch the game would never have placed -- which means it also skips the ground writes the game does make. If you need a patch under water, leave `waterlogged` off and let the delegated vegetation feature's own `may_replace` include water."
+    },
+    {
+      "typeId": "minecraft:sculk_patch_feature",
+      "status": "partial",
+      "note": "Sculk patch -- places a central block, then spreads sculk outward from it with a cursor-driven growth simulation. The placement gate, `central_block` and `extra_growth_chance` are implemented. One default to know, because it is not the one you would guess: `central_block_placement_chance` defaults to 0.0, not 1.0. WHY THIS IS PARTIAL: the spread and growth simulation runs on the engine's per-block behaviour system, which this tool does not have. So a feature configured to actually run it -- `growth_rounds` plus `spread_rounds` at least 1, AND `cursor_count` at least 1, AND `spread_attempts` at least 1 -- refuses at build time with a diagnostic rather than placing a patch missing everything the spread would add. Set `cursor_count` to zero, or both `growth_rounds` and `spread_rounds` to zero, and the rest of the type works normally. Note that `spread_attempts` is NOT a third way out even though it appears in that condition: the schema bounds it to [1, 4], so the field itself refuses 0."
+    },
+    {
+      "typeId": "minecraft:growing_plant_feature",
+      "status": "implemented",
+      "note": ""
+    },
+    {
+      "typeId": "minecraft:geode_feature",
+      "status": "partial",
+      "note": "Amethyst-geode-style generator: concentric shells around a randomised blob, an optional crack cut through them, and `inner_placements` blocks budded onto the walls of the inner cavity. The shells, the crack geometry, the whole draw sequence and the traversal order are implemented. TWO FIELDS DO NOT DO WHAT THEIR NAMES SUGGEST -- in the engine, not just here: the crack roll is against a hardcoded 0.95 rather than your `generate_crack_chance`, and `base_crack_size` is never read at all. (Microsoft's own worked example happens to set `generate_crack_chance` to 0.95, which is why this is easy to miss.) WHY THIS IS PARTIAL: whether a bud may attach to a cavity wall runs through a per-block check, and one step of that consults a data-driven multi-block component this tool has no representation for. It cannot affect the four vanilla amethyst blocks, so the warning fires only when `inner_placements` names a block outside that set, names the block, and fires at most once per run."
+    },
+    {
+      "typeId": "minecraft:cave_carver_feature",
+      "status": "implemented",
+      "note": "Digs rooms and branching tunnels through solid terrain, removing blocks rather than placing them. Fully implemented, including the water gate that stops a carve from opening into an aquifer. Four things this tool used to get wrong were fixed on 2026-08-15, so output moved: the carve now covers the row ABOVE the row the ellipsoid test uses rather than one row lower, the thin-sand and lava-at-depth checks consult that test row rather than the carved one, and a room's angle uses full float precision instead of a truncated pi. Nothing about the JSON surface changed. Worth knowing when reading this tool's output: these paths have no end-to-end regression baseline behind them -- their own tests are what stand behind them instead."
+    },
+    {
+      "typeId": "minecraft:multiface_feature",
+      "status": "implemented",
+      "note": "Vine / glow-lichen multi-face growth: puts a face block on the sides of nearby blocks, ORing a new face bit into whatever faces the block there already carries, and rolls `chance_of_spreading` after each placement that actually changed something to spread further. All of it is implemented, spread included -- including the support check that decides whether the block can attach to the face at all, which for a while was applied on the spread path but not on the main one, so a feature with no `can_place_on` list could place a block into open air. ONE DELIBERATE DIFFERENCE FROM THE GAME, and a warning says so whenever a spread roll succeeds: the engine shuffles both the candidate faces and the spread direction with a generator seeded from operating-system entropy, so no two runs of the GAME agree either -- there is no faithful result to match. This tool is stable instead, so a preview only moves when you change something. The faces are tried in the fixed order the type itself declares them -- down first if `can_place_on_floor` is set, then up for `can_place_on_ceiling`, then the four walls as north, east, south, west -- and only the spread direction is derived, from your seed and the position being spread from. The consequence for you: a block may end up on a different face, and spread blocks in different places, than in any one run of the real game. Which draws are made, and where they sit in the sequence, match the engine exactly."
+    },
+    {
+      "typeId": "minecraft:fossil_feature",
+      "status": "implemented",
+      "note": "Buries one of eight hardcoded fossil structures (four spine, four skull) in stone, with a proportion of its bone blocks swapped for your `ore_block`. Both keys the type has, `ore_block` and `max_empty_corners`, are required and implemented. THE STRUCTURE FILES ARE NOT SHIPPED WITH THIS TOOL -- they are Mojang assets, so you point `--pack` or `--structures` at your own installed vanilla behaviour pack (the fossils live under its `structures/fossils/`). If one is missing, this refuses at build time and lists every absent file by name; it never silently places nothing. One other thing to know: in the game a fossil is also skipped when a structure such as a village or a mineshaft already claims the spot. This bench contains only the feature under test and no structures at all, so that check can never trigger here -- that is a property of previewing one feature in isolation, not an approximation of the fossil itself. A fossil is buried 15 to 24 blocks below the surface and its anchor is never put lower than ten blocks above the bottom of the area being generated, so a preview area ten blocks tall or less has nowhere to put one at all: every seed then reports \"No blocks could be placed\". The horizontal offset is drawn as up to fifteen blocks east and south of the origin, so an area narrower than about thirty-two blocks loses some placements off that edge too. Both are the preview area being too small rather than anything about your JSON -- the game writes into a whole chunk column and reports success regardless, so this failure is this tool speaking, and the message names the size that caused it. Generate a taller or wider area."
+    },
+    {
+      "typeId": "minecraft:nether_cave_carver_feature",
+      "status": "implemented",
+      "note": "The Nether variant of the cave carver. Same JSON surface as the base carver, and the same per-neighbour seed mixing over the same 17x17 chunk window, but its own placement, tunnel and room routines with their own draw cadence and walk -- so the same JSON under the two ids still does not produce the same caves, just not for the reason this Note used to give. Fully implemented. As with the base carver, there is no end-to-end regression baseline for it, so its own tests are what stand behind it."
+    },
+    {
+      "typeId": "minecraft:underwater_cave_carver_feature",
+      "status": "implemented",
+      "note": "The underwater variant of the cave carver: the base carver's JSON surface plus `replace_air_with`, which fills what would otherwise be air below the water line. Fully implemented. The same carve-row and threshold-row corrections made to the base carver on 2026-08-15 apply here, so this type's output moved too. There is no end-to-end regression baseline for it, so its own tests are what stand behind it."
+    },
+    {
+      "typeId": "minecraft:beards_and_shavers",
+      "status": "out_of_scope",
+      "note": "DELIBERATELY OUT OF SCOPE, and not on a queue: Microsoft's own public feature-type reference classifies `minecraft:beards_and_shavers` as internal/deprecated and not usable in custom content, so this tool does not implement it and does not plan to. A pack that uses it gets a diagnostic saying the type is not implemented here. What the type does, if you are trying to identify it in an existing pack: it smooths terrain around ANOTHER feature's footprint, raising or lowering the ground in a weighted shell around the feature it wraps -- the way a village is bedded into the surrounding landscape."
+    },
+    {
+      "typeId": "minecraft:rect_layout",
+      "status": "out_of_scope",
+      "note": "DELIBERATELY OUT OF SCOPE, and not on a queue: Microsoft's own public feature-type reference classifies `minecraft:rect_layout` as internal/deprecated and not usable in custom content, so this tool does not implement it and does not plan to. A pack that uses it gets a diagnostic saying the type is not implemented here. What the type does, if you are trying to identify it in an existing pack: it lays OTHER features out on a 16x16 chunk-local grid -- each entry of `feature_areas` pairs a feature with a two-value `area_dimensions` footprint, and `ratio_of_empty_space` budgets how much of the grid is left empty. Its schema and delegation are documented; a port was not attempted because the footprint-centering arithmetic, which if implemented wrong would place the delegated feature in the wrong spot with no signal that anything had gone wrong."
+    },
+    {
+      "typeId": "minecraft:horizontal_tree_decoration_feature",
+      "status": "partial",
+      "note": "Places one decoration block against a randomly chosen horizontal side of the origin block -- leaf litter and flower beds, the blocks that carry both a cardinal_direction and a growth state. places_block is required; allow_adjacent and bark_side_only are optional and both default to false. New in 1.26.50.24, but usable from format_version 1.13.0. REFUSES NOTHING, BUT SKIPS A CHECK: the engine first verifies that your places_block actually HAS a cardinal_direction and a growth state, and logs an error and places nothing if it does not. This tool cannot ask that question -- its block palette does not carry a per-block-type list of which states exist -- so it assumes the check passes and warns once when the feature loads. The practical consequence: a places_block missing either state will look like it works here and will place nothing in the game. Relatedly, bark_side_only needs the origin block's pillar_axis; where that state is absent this tool treats it as y (the vanilla default) and warns, while the engine would refuse outright."
+    },
+    {
+      "typeId": "minecraft:multi_block_feature",
+      "status": "implemented",
+      "note": "Places a pack-defined multi-block -- a custom block whose minecraft:multi_block trait makes it occupy 2 to 4 cells in a straight line -- as its complete line of parts, never partially: a cell that fails the replace check rejects the whole placement, and a part that falls outside the generated area erases the parts already written. places_block must name the STARTING part; naming anything else, or a block without the trait, loads with a warning and then fails every placement, exactly as the game does. randomize_rotation costs one draw of four and turns the parts' minecraft:cardinal_direction state (the block needs the placement_direction trait for that, otherwise the flag is switched off at load with a warning); it does NOT change the direction the line extends in. The rotation is not limited to that one state: it is the game's whole block-state rotation, so if your places_block also writes pillar_axis, facing_direction, orientation or any of the other directional states the game rotates, every one of them is turned by the same draw. The part index this places is left alone. Ten of those state families have an exact direction but a value spelling taken from vanilla block definitions; a places_block carrying one of them loads with a warning saying so. enforce_placement_rules parses but has no effect during world generation in this build. The trait data is read from the loaded pack's own blocks JSON, so this type only does anything for a pack that defines such a block. New in 1.26.50.24 and only available from format_version 1.26.40."
+    },
+    {
+      "typeId": "minecraft:multipart_block_column_feature",
+      "status": "implemented",
+      "note": "Places an ordered column of up to four block roles along any of the six directions (default up). All four of base_block, middle_block, frustum_block and tip_block are REQUIRED even at heights that cannot use them all. Which roles appear depends on the height: 1 gives tip only, 2 gives frustum plus tip, 3 gives base plus frustum plus tip, and 4 or more gives base, one or more middles, frustum, tip. Give exactly one of height_range or weighted_heights -- giving both, or neither, is only a warning and the feature still places, which is what the engine does too. may_place_on is checked one block BEHIND the origin (opposite the growth direction), not at the origin. may_replace truncates the column at the first blocked cell, and the truncated height must still reach height_range's minimum -- or, with weighted_heights, the SMALLEST value in the list rather than the one that was drawn. An unrecognised direction string is silently treated as up. New in 1.26.50.24 and only available from format_version 1.26.40. One quirk worth knowing: the feature reports success at the tip position even when the effective height works out below 1 and it placed nothing at all."
+    }
+  ]
+}

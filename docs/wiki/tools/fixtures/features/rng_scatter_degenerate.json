@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:rng_scatter_degenerate" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": {
+      "iterations": 8,
+      "x": { "distribution": "uniform", "extent": [5, 5] },
+      "y": 0,
+      "z": { "distribution": "uniform", "extent": [0, 20] }
+    }
+  }
+}

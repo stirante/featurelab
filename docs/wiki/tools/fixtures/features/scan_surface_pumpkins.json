@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scan_surface": {
+    "description": { "identifier": "wiki:scan_surface_pumpkins" },
+    "places_feature": "wiki:pumpkin_patch_block"
+  }
+}

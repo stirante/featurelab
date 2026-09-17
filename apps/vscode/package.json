@@ -1,0 +1,112 @@
+{
+  "name": "featurelab",
+  "displayName": "Feature Lab",
+  "description": "Live preview for Bedrock worldgen feature/rule JSON, driven by the featurelab engine.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "stirante",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stirante/featurelab"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "featurelab.previewFeature",
+        "title": "Feature Lab: Preview Feature",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "featurelab.openGraph",
+        "title": "Feature Lab: Open Feature Graph",
+        "icon": "$(type-hierarchy)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "featurelab.previewFeature",
+          "when": "resourceLangId == json",
+          "group": "navigation"
+        },
+        {
+          "command": "featurelab.openGraph",
+          "when": "resourceLangId == json",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "featurelab.previewFeature",
+          "when": "resourceLangId == json",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "featurelab.previewFeature",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p",
+        "when": "editorTextFocus && editorLangId == json"
+      }
+    ],
+    "configuration": {
+      "title": "Feature Lab",
+      "properties": {
+        "featurelab.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the featurelab engine executable. Leave empty to use the copy bundled with this extension. Set this during development to point at a locally built cmd/featurelab binary."
+        },
+        "featurelab.env": {
+          "type": "string",
+          "default": "plains",
+          "description": "Environment preset id passed to `generate` (see featurelab/env for the available presets)."
+        },
+        "featurelab.blockTextures": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw blocks with real Minecraft textures instead of flat per-block colours. The first preview offers, once, to fetch Mojang's sample resource pack (bedrock-samples, about 150 MB transferred) into your user cache directory; nothing is downloaded without that. Declining, being offline, or turning this off all leave the preview drawing flat block colours, which is what it has always drawn -- textures are an enhancement and nothing here can stop the preview working."
+        },
+        "featurelab.requestTimeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "description": "How long to wait for the engine to respond to a request (loadPack/generate) before treating it as stale. For generate requests this is a floor, not a ceiling: the extension automatically waits longer when the panel's Budget section raises the placement time limit above this value, and shows the raised wait there when it does."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build:binary": "node scripts/build-binary.mjs",
+    "compile": "node esbuild.config.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run compile",
+    "test": "vitest run",
+    "package": "npm run build:binary && npm run compile && vsce package --no-dependencies --allow-missing-repository -o featurelab.vsix"
+  },
+  "dependencies": {
+    "featurelab-frontend": "0.1.0",
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.24.0",
+    "playwright": "^1.62.1",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

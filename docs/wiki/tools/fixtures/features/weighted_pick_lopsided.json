@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:weighted_random_feature": {
+    "description": { "identifier": "wiki:weighted_pick_lopsided" },
+    "features": [
+      ["wiki:pumpkin_patch_block", 5],
+      ["wiki:weighted_pick_alt", 1]
+    ]
+  }
+}

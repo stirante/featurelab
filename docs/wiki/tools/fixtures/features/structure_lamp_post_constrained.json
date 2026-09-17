@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:structure_template_feature": {
+    "description": { "identifier": "wiki:lamp_post_constrained" },
+    "structure_name": "wiki:lamp_post",
+    "adjustment_radius": 2,
+    "constraints": {
+      "grounded": {},
+      "unburied": {},
+      "leveled": { "max_steepness": 1 }
+    }
+  }
+}

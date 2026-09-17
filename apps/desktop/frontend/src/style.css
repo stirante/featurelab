@@ -1,0 +1,136 @@
+/* style.css -- the desktop app's own shell layout (toolbar + canvas + shared sidebar). The
+   shared featurelab-frontend panel styling (frontend/src/ui/panel.css) is imported
+   separately by main.ts and left untouched -- this file only lays out what wraps it. */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #14161a;
+  color: #ddd;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+}
+
+#fl-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+#fl-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #1b1e24;
+  border-bottom: 1px solid #2c3138;
+}
+
+#fl-main {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+#fl-canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+}
+
+/* flex-basis here is only a fallback for the instant before main.ts's own createSplitter call
+   (frontend/src/ui/splitter.ts) takes over the sidebar's real, resizable, persisted width --
+   see that module's own doc comment. The splitter itself supplies the divider line (its own
+   border-left in panel.css), so no border here. */
+#fl-sidebar {
+  flex: 0 0 300px;
+  overflow-y: auto;
+}
+
+.fl-tb-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fl-tb-label {
+  opacity: 0.65;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fl-tb-num {
+  width: 4.5em;
+}
+
+select,
+input[type='number'],
+input[type='text'] {
+  background: #24272e;
+  color: #ddd;
+  border: 1px solid #3a3f47;
+  border-radius: 3px;
+  padding: 3px 5px;
+  font: inherit;
+}
+
+button {
+  background: #2c3138;
+  color: #ddd;
+  border: 1px solid #3a3f47;
+  border-radius: 3px;
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover {
+  background: #363c45;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fl-tb-path {
+  max-width: 26em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.fl-tb-spacer {
+  flex: 1 1 auto;
+}
+
+.fl-tb-banner {
+  flex: 0 0 100%;
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.fl-tb-banner-warning {
+  background: #5a4a1a;
+  border: 1px solid #b89500;
+}
+.fl-tb-banner-notice {
+  background: #23303a;
+  border: 1px solid #2f5a7a;
+  color: #cfd8de;
+}
+.fl-tb-banner-error {
+  background: #5a1a1a;
+  border: 1px solid #be1100;
+}

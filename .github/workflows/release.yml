@@ -1,0 +1,237 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build a release for (must already exist), e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  # cmd/featurelab (the headless engine: generate/serve/check/types) is pure Go, no cgo --
+  # verified locally by cross-compiling all four target/arch pairs below from a Windows host
+  # with CGO_ENABLED=0. That means every leg of this matrix can build on
+  # a single ubuntu-latest runner instead of needing native linux/macOS/windows machines --
+  # unlike the desktop job below, which genuinely needs one runner per OS because Wails links
+  # against each platform's native webview via cgo.
+  headless:
+    name: Headless binary (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build + archive
+        run: ./scripts/release/build-headless.sh ${{ matrix.goos }} ${{ matrix.goarch }} "$RELEASE_TAG" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: headless-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  # apps/vscode bundles the engine binary and packages a platform-specific VSIX via vsce
+  # --target (see apps/vscode/src/binaryResolver.ts: it only ever looks for bin/featurelab or
+  # bin/featurelab.exe, one per install, so "the VSIX with binaries bundled" means one VSIX per
+  # target platform, each containing that platform's binary -- not one VSIX with every
+  # platform's binary inside it). Packaging itself (vsce) is pure Node and doesn't care what OS
+  # it runs on, and the bundled binary is cross-compiled the same cgo-free way as the headless
+  # job above, so this also runs entirely on ubuntu-latest.
+  vscode-vsix:
+    name: VSIX (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: windows, goarch: amd64, target: win32-x64 }
+          - { goos: linux, goarch: amd64, target: linux-x64 }
+          - { goos: linux, goarch: arm64, target: linux-arm64 }
+          - { goos: darwin, goarch: amd64, target: darwin-x64 }
+          - { goos: darwin, goarch: arm64, target: darwin-arm64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # The tag names the release and package.json's version is what the Marketplace and Open VSX
+      # read. `npm run release` keeps them equal; a tag pushed by hand that does not would publish
+      # a VSIX under a different version from the release it is attached to.
+      - name: Check the tag matches the extension version
+        shell: bash
+        run: |
+          version="v$(node -p "require('./apps/vscode/package.json').version")"
+          if [ "$version" != "$RELEASE_TAG" ]; then
+            echo "::error::tag $RELEASE_TAG does not match apps/vscode/package.json version $version"
+            exit 1
+          fi
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Build frontend workspace dependency
+        run: npm run --workspace frontend build
+
+      - name: Compile extension (esbuild)
+        run: npm run --workspace apps/vscode compile
+
+      - name: Build engine binary + package VSIX
+        run: |
+          ./scripts/release/package-vsix.sh ${{ matrix.goos }} ${{ matrix.goarch }} \
+            ${{ matrix.target }} "$RELEASE_TAG" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: dist/*.vsix
+          if-no-files-found: error
+
+  # Wails v2 links against each platform's native webview via cgo (WebView2 on Windows via a
+  # pure-Go loader, WebKitGTK on Linux, WebKit/Cocoa on macOS) so, unlike the two jobs above,
+  # this genuinely needs one native runner per target OS -- it cannot be cross-compiled from a
+  # single runner. The Wails CLI is pinned to v2.13.0: the older 2.8.2 fails against Go 1.26.4
+  # with "internal error: package \"context\" without types was imported".
+  # Verified locally end-to-end on Windows only; the macOS and
+  # Linux legs are unverified since this was developed on a Windows machine with no access to
+  # those runners.
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { os: windows-latest, platform: windows/amd64, tags: "" }
+          - { os: macos-latest, platform: darwin/universal, tags: "" }
+          - { os: ubuntu-latest, platform: linux/amd64, tags: "webkit2_41" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Linux GTK/WebKitGTK dev headers (Wails' cgo backend)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Wails CLI (pinned -- 2.8.2 does not work with Go 1.26.4)
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: npm ci
+        run: npm ci
+
+      - name: Build frontend workspace dependency
+        run: npm run --workspace frontend build
+
+      - name: wails build + archive
+        shell: bash
+        run: ./scripts/release/build-desktop.sh "${{ matrix.platform }}" "$RELEASE_TAG" dist "${{ matrix.tags }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: [headless, vscode-vsix, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          path: dist
+          merge-multiple: true
+
+      - name: List collected release artifacts
+        run: ls -la dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+  # DISABLED for now: publishing to the Marketplace and Open VSX is done by hand. Uncomment this
+  # job to publish automatically on every release tag.
+  # The same platform VSIXes the GitHub release carries, published to both extension registries.
+  # Each registry is skipped rather than failed when its token is not configured, so a release
+  # can go out to GitHub alone before the publisher accounts exist.
+  #   VSCE_PAT  -- Azure DevOps personal access token with Marketplace (Manage) scope, for the
+  #                `stirante` publisher named in apps/vscode/package.json.
+  #   OVSX_PAT  -- open-vsx.org access token, for the same namespace.
+  # publish-extension:
+  #   name: Publish VSIX to the Marketplace and Open VSX
+  #   needs: [vscode-vsix]
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     VSCE_PAT: ${{ secrets.VSCE_PAT }}
+  #     OVSX_PAT: ${{ secrets.OVSX_PAT }}
+  #   steps:
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: "22"
+
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         pattern: "vsix-*"
+  #         path: dist
+  #         merge-multiple: true
+
+  #     - name: List VSIXes
+  #       run: ls -la dist
+
+  #     - name: Publish to the VS Code Marketplace
+  #       if: env.VSCE_PAT != ''
+  #       run: npx --yes @vscode/vsce@3 publish --packagePath dist/*.vsix
+
+  #     - name: Publish to Open VSX
+  #       if: env.OVSX_PAT != ''
+  #       shell: bash
+  #       run: |
+  #         for vsix in dist/*.vsix; do
+  #           npx --yes ovsx@0 publish "$vsix" --pat "$OVSX_PAT"
+  #         done

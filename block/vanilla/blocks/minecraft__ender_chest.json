@@ -1,0 +1,38 @@
+{
+  "format_version": "1.21.70",
+  "minecraft:block": {
+    "description": {
+      "identifier": "minecraft:ender_chest"
+    },
+    "components": {}
+  },
+  "featurelab:vanilla_block": {
+    "schema_version": 1,
+    "kind": "solid",
+    "states": {
+      "status": "not_catalogued",
+      "declared": false,
+      "note": "block states are catalogued separately (block/vanilla_states_table.go); absence here does not mean this block has no states"
+    },
+    "resource_pack": {
+      "textures": {
+        "up": "ender_chest_inventory_top",
+        "down": "ender_chest_inventory_top",
+        "north": "ender_chest_inventory_side",
+        "south": "ender_chest_inventory_front",
+        "west": "ender_chest_inventory_side",
+        "east": "ender_chest_inventory_side"
+      }
+    },
+    "untrusted_map_color": {
+      "status": "untrusted",
+      "provenance": "unvalidated map-colour data",
+      "palette_name": "STONE",
+      "rgb": [
+        112,
+        112,
+        112
+      ]
+    }
+  }
+}

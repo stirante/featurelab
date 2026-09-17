@@ -1,0 +1,9 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:structure_template_feature": {
+    "description": { "identifier": "wiki:lamp_post_structure" },
+    "structure_name": "wiki:lamp_post",
+    "facing_direction": "east",
+    "constraints": {}
+  }
+}

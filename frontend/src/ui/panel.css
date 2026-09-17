@@ -1,0 +1,1056 @@
+/* panel.css -- shared styling for panel.ts, themed entirely through CSS custom properties so
+   the SAME stylesheet works, unforked, inside a VS Code webview (following the user's active
+   light/dark theme automatically) and inside the Wails desktop app (which has no VS Code theme
+   variables at all).
+
+   Layering:
+     1. `--fl-*` semantic variables are declared once on `.fl-panel`, each as
+        `var(--vscode-<name>, <fallback>)`. Inside a VS Code webview, every `--vscode-*` custom
+        property is injected by the host and updates live when the user switches themes -- see
+        https://code.visualstudio.com/api/extension-guides/webview#theming-webview-content.
+        Outside a webview (Wails, or this file loaded standalone for a screenshot/test), none of
+        those variables exist, so every `--fl-*` falls back to the literal default instead --
+        a small, deliberately neutral dark palette that also responds to the OS light/dark
+        preference (see the `prefers-color-scheme: light` block at the bottom) so the Wails app
+        is never stuck looking like a VS Code dark theme on a light-mode OS.
+     2. Every rule below reads only `--fl-*` (never `--vscode-*` directly) -- this is the one
+        indirection point a future third host would need to touch, and the one place this file
+        would need a light-mode fallback tweak.
+   Do not hardcode a raw color anywhere below this point except inside the `--fl-*` declarations
+   themselves and the three stat-tile accent colors (placed/carved/replaced), which are
+   deliberately fixed hues (not theme-derived) so the three stay visually distinct and
+   recognizable in every theme -- see the ".fl-stat-*" rules. */
+
+.fl-panel {
+  --fl-bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #1e1e1e));
+  --fl-fg: var(--vscode-foreground, #cccccc);
+  --fl-fg-muted: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+  --fl-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  --fl-input-bg: var(--vscode-input-background, #3c3c3c);
+  --fl-input-fg: var(--vscode-input-foreground, #cccccc);
+  --fl-input-border: var(--vscode-input-border, rgba(128, 128, 128, 0.4));
+  --fl-input-disabled-fg: var(--vscode-disabledForeground, rgba(204, 204, 204, 0.4));
+  --fl-hover-bg: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+  --fl-button-bg: var(--vscode-button-background, #0e639c);
+  --fl-button-fg: var(--vscode-button-foreground, #ffffff);
+  --fl-button-hover-bg: var(--vscode-button-hoverBackground, #1177bb);
+  --fl-focus-border: var(--vscode-focusBorder, #007fd4);
+  /* A TEXT-appropriate foreground, unlike --fl-focus-border above: focusBorder's only contract
+     is "looks fine as a 1px outline", VS Code makes no contrast guarantee for it as a text
+     colour, and several real themes ship a focusBorder dark/saturated enough to be functionally
+     invisible as text on this panel's own tinted backgrounds (see button.fl-diag-position's own
+     comment for the bug this fixes). textLink-foreground is VS Code's actual "coloured, readable
+     text" token -- used here for exactly one control today (the position button) but named
+     generically so any future text-that-looks-clickable control reaches for this, not
+     --fl-focus-border. */
+  --fl-link-fg: var(--vscode-textLink-foreground, #3794ff);
+  --fl-error-border: var(--vscode-inputValidation-errorBorder, #be1100);
+  --fl-error-bg: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  --fl-error-fg: var(--vscode-errorForeground, #f14c4c);
+  --fl-warning-border: var(--vscode-inputValidation-warningBorder, #b89500);
+  --fl-warning-bg: var(--vscode-inputValidation-warningBackground, #5a4a1a);
+  --fl-warning-fg: var(--vscode-editorWarning-foreground, #cca700);
+  --fl-badge-bg: var(--vscode-badge-background, #4d4d4d);
+  --fl-badge-fg: var(--vscode-badge-foreground, #ffffff);
+  --fl-font: var(--vscode-font-family, -apple-system, 'Segoe UI', system-ui, sans-serif);
+  --fl-mono: var(--vscode-editor-font-family, ui-monospace, 'SF Mono', Consolas, monospace);
+  --fl-font-size: var(--vscode-font-size, 13px);
+
+  font-family: var(--fl-font);
+  font-size: var(--fl-font-size);
+  line-height: 1.35;
+  color: var(--fl-fg);
+  background: var(--fl-bg);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Both hosts (the VS Code webview's #fl-sidebar in previewPanel.ts and the Wails desktop
+     app's #fl-sidebar in style.css) already wrap this element in their own
+     `overflow-y: auto` container -- that outer element is the SINGLE scroll region for the
+     whole sidebar. This element must therefore never be its own bounded+scrolling flex
+     container: `height: 100%` + `overflow-y: auto` here previously gave every .fl-section
+     flex child a definite height to shrink against, and because .fl-section itself sets
+     `overflow: hidden`, the flexbox spec resolves its automatic minimum size to 0 in that
+     axis -- so instead of this panel growing taller than the sidebar and letting the OUTER
+     element scroll, flexbox shrank every section down to fit, silently clipping the bottom
+     rows of each one (see panel-sidebar-expanded.png before this fix: "Size X" sliced in
+     half, Materials showing 3 of 6 fields, etc). `min-height: 100%` keeps the panel filling
+     (or exceeding) the visible area for background-color continuity without ever creating a
+     second bounded overflow context that content could be shrunk to fit inside. */
+  min-height: 100%;
+  box-sizing: border-box;
+}
+.fl-panel * {
+  box-sizing: border-box;
+}
+
+/* ---- banners --------------------------------------------------------------------------- */
+.fl-banner {
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 0.95em;
+}
+.fl-banner-stale {
+  background: var(--fl-warning-bg);
+  border: 1px solid var(--fl-warning-border);
+  color: var(--fl-warning-fg);
+}
+.fl-banner-error {
+  background: var(--fl-error-bg);
+  border: 1px solid var(--fl-error-border);
+  color: var(--fl-error-fg);
+}
+/* In-flight indicator (so a request never shows "no indication that anything is happening") -- neutral, not
+   alarming like stale/error above, since being busy is the normal state of a request in
+   flight, not a problem. Pairs with .fl-readout-busy below (dims the stat tiles so a pending
+   run never reads as "finished with a fresh zero") and VoxelViewer.setBusy's own
+   .fl-canvas-busy (dims the 3D preview the same way). The pulse keeps it obviously LIVE rather
+   than a static line of text a user could mistake for stuck/frozen. */
+.fl-banner-busy {
+  background: var(--fl-hover-bg);
+  border: 1px solid var(--fl-border);
+  color: var(--fl-fg-muted);
+  animation: fl-pulse 1.4s ease-in-out infinite;
+}
+@keyframes fl-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fl-banner-busy {
+    animation: none;
+  }
+}
+
+/* ---- prominent placed/carved/replaced readout ------------------------------------------
+   The main result of a generate call -- deliberately the biggest, boldest thing in the
+   sidebar (task requirement: "not a line of small text"). Three fixed accent hues (not
+   theme-derived, see file header) keep placed/carved/replaced visually distinct at a glance;
+   carved gets the warmest/most attention-grabbing of the three since an excavating feature
+   that carved a lot and placed little would otherwise look like it did almost nothing. */
+.fl-readout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+/* Pending state -- applied to the whole three-tile grid while a request is in flight,
+   so whatever numbers are currently showing (the previous result, or "0" before the very first
+   one ever arrives) read as STALE/PENDING rather than as this run's own fresh result. Cleared
+   the instant setResult/setError/setStale(true) fires -- see panel.ts's applyBusy for why that
+   holds even if a host forgets to call setBusy(false) itself. */
+.fl-readout.fl-readout-busy .fl-stat {
+  animation: fl-pulse-dim 1.4s ease-in-out infinite;
+}
+/* A DEDICATED keyframe, not a reuse of fl-pulse above -- an `animation` on a property always
+   wins over a plain declaration of that same property for its whole duration (the static
+   `opacity: 0.4` this replaced was dead code the instant fl-pulse's own 0.6-1.0 keyframes took
+   over), so getting an actually-dimmed 0.4-ish look while still pulsing needs the dimming baked
+   into the keyframes themselves, not layered on top of them. */
+@keyframes fl-pulse-dim {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.52;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fl-readout.fl-readout-busy .fl-stat {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+.fl-stat {
+  border-radius: 4px;
+  padding: 6px 4px 5px;
+  text-align: center;
+  color: #fff;
+}
+.fl-stat-value {
+  font-size: 1.5em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.fl-stat-label {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+  margin-top: 1px;
+}
+.fl-stat-placed {
+  background: #2e7d4f;
+}
+.fl-stat-carved {
+  background: #b1511f;
+}
+.fl-stat-replaced {
+  background: #2f6fa8;
+}
+
+.fl-badge-partial {
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: var(--fl-warning-bg);
+  border: 1px solid var(--fl-warning-border);
+  color: var(--fl-warning-fg);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.fl-duration {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9em;
+}
+.fl-duration-secondary {
+  opacity: 0.5;
+  font-size: 0.8em;
+  margin-top: -4px;
+}
+
+/* ---- collapsible sections ---------------------------------------------------------------- */
+.fl-section {
+  border: 1px solid var(--fl-border);
+  border-radius: 4px;
+  overflow: hidden;
+  /* Belt-and-braces alongside .fl-panel's min-height comment above: even with .fl-panel no
+     longer establishing its own bounded+scrolling box, `min-height: 100%` on a flex container
+     can still lead Chromium/Firefox to treat that 100% as the resolved available main size
+     when sizing flex children (rather than purely as a floor) -- so make every section
+     unshrinkable outright rather than depending on the parent never wanting to shrink it.
+     `overflow: hidden` stays (it's what clips this section's own rounded corners against its
+     square header/body), but combined with flex-shrink: 0 it can never again resolve to
+     hiding actual control rows: this box can only ever be exactly as tall as its content. */
+  flex-shrink: 0;
+}
+/* The head is two sibling buttons on one strip: the caret+title toggle filling it, and the one
+   `?` at its right end (see dom.ts's makeSection for why they are siblings, not nested). */
+.fl-section-head {
+  display: flex;
+  align-items: center;
+  background: var(--fl-hover-bg);
+}
+.fl-section-header {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  color: var(--fl-fg);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.92em;
+  text-align: left;
+  cursor: pointer;
+}
+.fl-section-header:hover {
+  filter: brightness(1.15);
+}
+/* The one "?" a section has -- the node inspector's own .flg-ins-help, restyled through the
+   --fl-* tokens. Opens the section's documentation (docs.ts); hovering it changes nothing. */
+.fl-help {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  width: 1.6em;
+  height: 1.6em;
+  padding: 0;
+  font: inherit;
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--fl-fg-muted);
+  background: transparent;
+  border: 1px solid var(--fl-border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.fl-help:hover {
+  background: var(--fl-input-bg);
+  color: var(--fl-fg);
+}
+.fl-help:focus-visible {
+  outline: 1px solid var(--fl-focus-border);
+  outline-offset: 1px;
+}
+.fl-help[aria-expanded='true'] {
+  color: var(--fl-fg);
+  border-color: var(--fl-focus-border);
+  background: var(--fl-input-bg);
+}
+.fl-section-header:focus-visible {
+  outline: 1px solid var(--fl-focus-border);
+  outline-offset: -1px;
+}
+.fl-section-header-error {
+  color: var(--fl-error-fg);
+}
+.fl-section-header-warning {
+  color: var(--fl-warning-fg);
+}
+.fl-caret {
+  display: inline-block;
+  transition: transform 0.1s ease;
+  opacity: 0.75;
+  width: 0.8em;
+}
+.fl-section.fl-collapsed .fl-caret {
+  transform: rotate(0deg);
+}
+.fl-section:not(.fl-collapsed) .fl-caret {
+  transform: rotate(90deg);
+}
+.fl-section-body {
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.fl-section.fl-collapsed .fl-section-body {
+  display: none;
+}
+
+/* ---- rows/controls -------------------------------------------------------------------- */
+.fl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+}
+/* Generic "hidden" utility -- panel.ts toggles this class on several element kinds (.fl-row,
+   but also plain .fl-info divs like featureInfoEl/ruleInfoEl -- see updateModeVisibility), not
+   only .fl-row. This used to be scoped as `.fl-row.fl-hidden` only, which was the actual
+   root cause of Rule mode still showing feature metadata: switching to Rule mode DID add the fl-hidden class to featureInfoEl (the "type
+   minecraft:tree_feature · example_tree.json" line), but since no CSS rule matched a bare
+   .fl-info.fl-hidden, that line stayed visibly on screen, right under the now-hidden Feature
+   picker -- exactly the "Rule mode still shows the feature's type" bug report. A plain
+   `.fl-hidden { display: none }` fixes every current and future caller of this class in one
+   place; `.fl-row.fl-hidden` below is now redundant with it but kept so a `.fl-row`'s own
+   layout (flex/gap/etc.) never has to be it fights the generic rule's specificity. */
+.fl-hidden {
+  display: none;
+}
+.fl-row.fl-hidden {
+  display: none;
+}
+.fl-row-label {
+  flex: 0 0 auto;
+  min-width: 108px;
+  max-width: 108px;
+  opacity: 0.85;
+  font-size: 0.93em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fl-row-primary {
+  font-weight: 600;
+}
+/* A control that does nothing under the current state SHOWS it: the row dims as a whole and
+   the disabled input carries the reason as its own tooltip (panel.ts's
+   syncSeaSlotAvailability) -- no sentence beneath it. */
+.fl-row-inert > .fl-row-label {
+  opacity: 0.45;
+}
+
+.fl-select,
+.fl-num-input,
+.fl-text-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--fl-input-bg);
+  color: var(--fl-input-fg);
+  border: 1px solid var(--fl-input-border);
+  border-radius: 2px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 0.93em;
+}
+.fl-select:disabled,
+.fl-num-input:disabled,
+.fl-text-input:disabled {
+  color: var(--fl-input-disabled-fg);
+  opacity: 0.7;
+}
+.fl-select:focus-visible,
+.fl-num-input:focus-visible,
+.fl-text-input:focus-visible {
+  outline: 1px solid var(--fl-focus-border);
+  outline-offset: -1px;
+}
+.fl-num-input {
+  max-width: 84px;
+}
+
+.fl-checkbox {
+  accent-color: var(--fl-button-bg);
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.fl-radio-group {
+  display: flex;
+  gap: 10px;
+  flex: 1 1 auto;
+}
+.fl-radio-option {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.93em;
+}
+.fl-radio-option input {
+  accent-color: var(--fl-button-bg);
+}
+
+.fl-icon-btn {
+  flex: 0 0 auto;
+  background: var(--fl-input-bg);
+  color: var(--fl-input-fg);
+  border: 1px solid var(--fl-input-border);
+  border-radius: 2px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.fl-icon-btn:hover {
+  background: var(--fl-hover-bg);
+}
+
+.fl-wide-btn {
+  width: 100%;
+  padding: 4px 0;
+  margin-top: 4px;
+  border: 1px solid var(--fl-input-border);
+  border-radius: 3px;
+  background: var(--fl-button-bg);
+  color: var(--fl-button-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fl-wide-btn:hover:not(:disabled) {
+  background: var(--fl-button-hover-bg);
+}
+.fl-wide-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Status lines: one line each, about THIS run/selection, cut short with the whole text in the
+   tooltip -- the node inspector's own .flg-ins-problem rule. Never a paragraph. */
+.fl-info,
+.fl-note {
+  font-size: 0.85em;
+  opacity: 0.75;
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.fl-note {
+  background: var(--fl-hover-bg);
+  border-left: 2px solid var(--fl-warning-border);
+  padding: 4px 6px;
+  border-radius: 2px;
+  opacity: 0.9;
+}
+
+.fl-slice-slider {
+  flex: 1 1 auto;
+  accent-color: var(--fl-button-bg);
+}
+.fl-slice-label {
+  min-width: 3.5ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9em;
+}
+
+/* ---- Budget section ----------------------------------------------------------------------
+   Per-run placement budgets (writeBudget/delegationBudget/placementTimeLimitMs -- see panel.ts's
+   Budget section) -- blank input = engine default (shown as the input's own placeholder, native
+   grey placeholder text vs. normal value colour is what makes "overridden" visually obvious on
+   its own); the small pill badge next to each input is a second, unmissable signal for the same
+   state, since a placeholder can be easy to miss at a glance. */
+.fl-budget-control {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.fl-budget-badge {
+  flex: 0 0 auto;
+  font-size: 0.7em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--fl-badge-bg);
+  color: var(--fl-badge-fg);
+}
+.fl-budget-badge.fl-hidden {
+  display: none;
+}
+
+/* ---- diagnostics ------------------------------------------------------------------------ */
+.fl-diag-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 4px 4px;
+  border-bottom: 1px solid var(--fl-border);
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+.fl-diag-item:last-child {
+  border-bottom: none;
+}
+.fl-diag-icon {
+  flex: 0 0 auto;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+.fl-diag-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+}
+.fl-diag-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--fl-mono);
+}
+.fl-diag-error {
+  color: var(--fl-error-fg);
+  background: color-mix(in srgb, var(--fl-error-bg) 35%, transparent);
+}
+.fl-diag-warning {
+  color: var(--fl-warning-fg);
+  background: color-mix(in srgb, var(--fl-warning-bg) 25%, transparent);
+}
+.fl-diag-empty {
+  opacity: 0.6;
+  font-size: 0.9em;
+  padding: 2px 4px;
+}
+
+/* The failing feature's own identifier/type -- the prominent, "what actually broke" line
+   (previously the diagnostic showed the RUN feature's identifier
+   here, not the one that actually failed). */
+.fl-diag-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.fl-diag-identifier,
+.fl-diag-chain-seg {
+  font-family: var(--fl-mono);
+  font-weight: 700;
+  color: inherit;
+}
+.fl-diag-heading .fl-diag-chain-seg {
+  font-size: 1em;
+}
+button.fl-diag-chain-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+button.fl-diag-chain-link:hover {
+  text-decoration-style: solid;
+}
+.fl-diag-type {
+  opacity: 0.7;
+  font-size: 0.92em;
+}
+.fl-diag-count {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 0.85em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--fl-badge-bg);
+  color: var(--fl-badge-fg);
+}
+.fl-diag-file {
+  margin-left: auto;
+  opacity: 0.55;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+/* Root-first breadcrumb from the run feature/rule down to the diagnostic's own identifier --
+   only rendered when there's an actual chain (more than one element) to show. */
+.fl-diag-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px;
+  opacity: 0.75;
+  font-size: 0.85em;
+}
+.fl-diag-chain-sep {
+  opacity: 0.5;
+}
+.fl-diag-chain .fl-diag-chain-last {
+  opacity: 1;
+}
+/* Click-to-locate: jumps the viewer camera to this diagnostic's world cell and highlights it --
+   see viewer.ts's highlightCell(). */
+button.fl-diag-position {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--fl-input-border);
+  border-radius: 3px;
+  padding: 1px 6px;
+  /* Was var(--fl-focus-border) -- a BORDER token, painted as text. That's why the button read
+     as blank in several real VS Code themes: focusBorder is only guaranteed to look sane as a
+     1px outline, not as text colour, and a theme with a dark/desaturated focusBorder made this
+     label disappear against the diagnostic's own tinted (error/warning) background. --fl-link-fg
+     is the text-appropriate token (see its own declaration on .fl-panel above). */
+  color: var(--fl-link-fg);
+  font: inherit;
+  font-family: var(--fl-mono);
+  font-size: 0.85em;
+  cursor: pointer;
+}
+button.fl-diag-position:hover {
+  background: var(--fl-hover-bg);
+}
+/* One-click "double the budget this diagnostic hit, and regenerate" -- styled as a
+   real action button (filled, button-coloured), deliberately more visually weighty than the
+   position button above, so it reads as "do this" rather than blending in with the diagnostic's
+   own informational text. */
+button.fl-diag-budget-fix {
+  align-self: flex-start;
+  background: var(--fl-button-bg);
+  color: var(--fl-button-fg);
+  border: 1px solid var(--fl-input-border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  margin-top: 1px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+button.fl-diag-budget-fix:hover {
+  background: var(--fl-button-hover-bg);
+}
+
+/* ---- profiler table ---------------------------------------------------------------------- */
+.fl-profiler-summary {
+  margin-bottom: 6px;
+  opacity: 0.75;
+  font-size: 0.85em;
+}
+.fl-profiler-table {
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+.fl-profiler-row {
+  display: grid;
+  grid-template-columns: 2fr 1.3fr repeat(5, 0.9fr);
+  gap: 4px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--fl-border);
+}
+.fl-profiler-header {
+  position: sticky;
+  top: 0;
+  background: var(--fl-bg);
+  border-bottom: 1px solid var(--fl-border);
+}
+.fl-profiler-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fl-profiler-identifier {
+  font-family: var(--fl-mono);
+}
+.fl-profiler-numeric {
+  text-align: right;
+}
+.fl-profiler-head-cell {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.fl-profiler-head-cell.fl-profiler-numeric {
+  text-align: right;
+}
+.fl-profiler-head-active {
+  opacity: 1;
+  font-weight: 700;
+}
+
+/* ---- busy canvas (VoxelViewer.setBusy) --------------------------------------------------
+   #fl-canvas is a SIBLING of #fl-sidebar (the .fl-panel element), same as .fl-splitter below --
+   see that rule's own header comment for why this can't read .fl-panel's --fl-* custom
+   properties and uses a plain, fixed value instead. Dims (not hides) the preview while a
+   request is in flight, the canvas half of the "stat tiles and preview should read as
+   pending" behaviour -- toggled by VoxelViewer.setBusy, itself driven by panel.ts's own setBusy. */
+.fl-canvas-busy {
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+
+/* ---- resizable sidebar splitter ---------------------------------------------------------
+   Sits between the viewer canvas and #fl-sidebar as their own flex sibling -- see
+   frontend/src/ui/splitter.ts (createSplitter), which is what both app shells call to insert
+   this element; the shell HTML itself only needs a flex-row container with the canvas and
+   sidebar as siblings, the same "don't fork the shared behaviour, only the couple of host-
+   specific lines of HTML/CSS that differ" split the rest of this package already follows.
+   Self-contained --vscode-* fallbacks here (not --fl-*): this element is a SIBLING of
+   #fl-sidebar (the .fl-panel element), not a descendant, so it cannot inherit .fl-panel's own
+   --fl-* custom properties the way every other rule in this file does. */
+.fl-splitter {
+  --fl-split-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  --fl-split-hover: var(--vscode-focusBorder, #007fd4);
+  --fl-split-fg: var(--vscode-foreground, #cccccc);
+  --fl-split-bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #1e1e1e));
+  flex: 0 0 auto;
+  width: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: transparent;
+  border-left: 1px solid var(--fl-split-border);
+  touch-action: none;
+  user-select: none;
+}
+.fl-splitter:hover,
+.fl-splitter.fl-splitter-dragging {
+  background: color-mix(in srgb, var(--fl-split-hover) 30%, transparent);
+}
+.fl-splitter.fl-splitter-collapsed {
+  cursor: default;
+  width: 18px;
+}
+.fl-splitter-toggle {
+  width: 16px;
+  height: 32px;
+  border-radius: 3px;
+  border: 1px solid var(--fl-split-border);
+  background: var(--fl-split-bg);
+  color: var(--fl-split-fg);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.fl-splitter-toggle:hover {
+  filter: brightness(1.2);
+}
+.fl-splitter-toggle:focus-visible {
+  outline: 1px solid var(--fl-split-hover);
+  outline-offset: 1px;
+}
+
+/* ---- the documentation panel (docs.ts) ---------------------------------------------------
+   The long form behind each section's `?`: the node inspector's .flg-ins-docs shape (a bar
+   with ✕ and ‹ Back, a large title, one entry per control with a glyph, badges, summary and
+   detail), fixed over the area LEFT of the sidebar so it covers no control and moves no row.
+   Appended to <body>, so -- like .fl-splitter above -- it is not a descendant of .fl-panel and
+   declares its own --vscode-* fallbacks rather than reading --fl-*. Every rule below reads only
+   --fl-docs-*; no raw colour outside the variable block. */
+.fl-docs {
+  --fl-docs-bg: var(--vscode-editorWidget-background, #252526);
+  --fl-docs-fg: var(--vscode-foreground, #cccccc);
+  --fl-docs-fg-muted: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+  --fl-docs-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  --fl-docs-hover: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
+  --fl-docs-accent: var(--vscode-textLink-foreground, #3794ff);
+  --fl-docs-focus: var(--vscode-focusBorder, #007fd4);
+  --fl-docs-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  --fl-docs-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --fl-docs-font: var(--vscode-font-family, -apple-system, 'Segoe UI', system-ui, sans-serif);
+  --fl-docs-mono: var(--vscode-editor-font-family, ui-monospace, 'SF Mono', Consolas, monospace);
+  --fl-docs-font-size: var(--vscode-font-size, 13px);
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--fl-docs-font);
+  font-size: var(--fl-docs-font-size);
+  line-height: 1.35;
+  color: var(--fl-docs-fg);
+  background: var(--fl-docs-bg);
+  border-right: 1px solid var(--fl-docs-border);
+  box-shadow: 0 0 12px var(--fl-docs-shadow);
+}
+.fl-docs * {
+  box-sizing: border-box;
+}
+.fl-docs:focus-visible {
+  outline: none;
+}
+.fl-docs-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 0;
+  flex: 0 0 auto;
+}
+.fl-docs-close {
+  font: inherit;
+  font-size: 1.05em;
+  line-height: 1;
+  color: var(--fl-docs-fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.fl-docs-close:hover {
+  background: var(--fl-docs-hover);
+  color: var(--fl-docs-fg);
+}
+.fl-docs-close:focus-visible,
+.fl-docs-back:focus-visible,
+.fl-docs-item:focus-visible {
+  outline: 1px solid var(--fl-docs-focus);
+  outline-offset: 1px;
+}
+.fl-docs-back {
+  font: inherit;
+  color: var(--fl-docs-accent);
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.fl-docs-back:hover {
+  background: var(--fl-docs-hover);
+}
+.fl-docs-title {
+  margin: 6px 14px 0;
+  font-size: 1.5em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  flex: 0 0 auto;
+}
+.fl-docs-sub {
+  margin: 0 14px;
+  color: var(--fl-docs-fg-muted);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  flex: 0 0 auto;
+}
+.fl-docs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.fl-docs-body > * {
+  max-width: 720px;
+}
+/* The overview: one button per section. */
+.fl-docs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fl-docs-item {
+  font: inherit;
+  text-align: left;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--fl-docs-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fl-docs-fg);
+  cursor: pointer;
+}
+.fl-docs-item:hover {
+  background: var(--fl-docs-hover);
+}
+.fl-docs-item > .fl-docs-item-name {
+  font-weight: 600;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+.fl-docs-item > .fl-docs-item-count {
+  color: var(--fl-docs-fg-muted);
+  font-size: 0.9em;
+  flex: 0 0 auto;
+}
+/* One control. */
+.fl-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.fl-doc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.fl-doc-glyph {
+  font-family: var(--fl-docs-mono);
+  font-size: 0.8em;
+  line-height: 1.6;
+  color: var(--fl-docs-fg-muted);
+  border: 1px solid var(--fl-docs-border);
+  border-radius: 3px;
+  min-width: 1.8em;
+  padding: 0 3px;
+  text-align: center;
+  flex: 0 0 auto;
+}
+.fl-doc-name {
+  margin: 0;
+  font-size: 1.05em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.fl-doc-badges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.85em;
+  color: var(--fl-docs-fg-muted);
+}
+.fl-doc-badge {
+  border: 1px solid var(--fl-docs-border);
+  border-radius: 3px;
+  padding: 0 6px;
+  line-height: 1.6;
+  font-weight: 600;
+  font-size: 0.92em;
+}
+.fl-doc-badge[data-badge='inert'],
+.fl-doc-badge[data-badge='host'] {
+  color: var(--fl-docs-warning);
+  border-color: var(--fl-docs-warning);
+}
+.fl-doc-badge[data-badge='default'] {
+  color: var(--fl-docs-accent);
+  border-color: var(--fl-docs-accent);
+}
+.fl-doc-p {
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.fl-doc-fact {
+  margin: 0;
+  color: var(--fl-docs-fg-muted);
+  font-size: 0.92em;
+  font-style: italic;
+}
+
+/* ---- Wails/OS-light-mode fallback -------------------------------------------------------
+   Only affects the FALLBACK values above (the second argument of each var(--vscode-x, y)) --
+   a real VS Code webview always has --vscode-* defined and never falls through to this block,
+   whichever theme the user has picked. Outside a webview (Wails with no explicit theme wired
+   up yet), this keeps the panel from defaulting to a dark palette on a light-OS system. */
+@media (prefers-color-scheme: light) {
+  .fl-panel {
+    --fl-bg: #ffffff;
+    --fl-fg: #1e1e1e;
+    --fl-fg-muted: rgba(30, 30, 30, 0.65);
+    --fl-border: rgba(0, 0, 0, 0.15);
+    --fl-input-bg: #ffffff;
+    --fl-input-fg: #1e1e1e;
+    --fl-input-border: rgba(0, 0, 0, 0.2);
+    --fl-input-disabled-fg: rgba(30, 30, 30, 0.4);
+    --fl-hover-bg: rgba(0, 0, 0, 0.05);
+    --fl-badge-bg: #dddddd;
+    --fl-badge-fg: #1e1e1e;
+  }
+  /* .fl-splitter reads --vscode-*-with-fallback directly rather than through --fl-* (see its
+     own rule's header comment) since it sits outside .fl-panel's scope -- give it the same
+     light-mode fallback override the block above gives .fl-panel. */
+  .fl-splitter {
+    --fl-split-border: rgba(0, 0, 0, 0.15);
+    --fl-split-fg: #1e1e1e;
+    --fl-split-bg: #ffffff;
+  }
+  /* Same for the documentation panel, which sits outside .fl-panel's scope too. */
+  .fl-docs {
+    --fl-docs-bg: #ffffff;
+    --fl-docs-fg: #1e1e1e;
+    --fl-docs-fg-muted: rgba(30, 30, 30, 0.65);
+    --fl-docs-border: rgba(0, 0, 0, 0.15);
+    --fl-docs-hover: rgba(0, 0, 0, 0.05);
+    --fl-docs-shadow: rgba(0, 0, 0, 0.18);
+  }
+}
+
+/* Seed row: the number input plus its Random button share one control cell, so the row keeps
+   the same label/control geometry every other row has instead of introducing a second shape. */
+.fl-seed-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.fl-seed-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--fl-input-border);
+  border-radius: 3px;
+  background: var(--fl-button-bg);
+  color: var(--fl-button-fg);
+  font: inherit;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.fl-seed-btn:hover {
+  background: var(--fl-button-hover-bg);
+}

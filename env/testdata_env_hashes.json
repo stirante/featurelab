@@ -1,0 +1,132 @@
+{
+  "void": {
+    "hash": "f89f4fbd4597ebcd",
+    "nonAirCount": 0,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": -8,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "underground_stone": {
+    "hash": "660d196311668b69",
+    "nonAirCount": 49152,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": 8,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "underground_deepslate": {
+    "hash": "ce5c9e583f862df4",
+    "nonAirCount": 49152,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": -56,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "underground_mixed": {
+    "hash": "169a4a05f10e07dd",
+    "nonAirCount": 49152,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": -32,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "plains": {
+    "hash": "b0961bab3f829692",
+    "nonAirCount": 20590,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": 44,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "forest": {
+    "hash": "034bee02e3871085",
+    "nonAirCount": 21276,
+    "totalCells": 57344,
+    "bounds": {
+      "minX": -16,
+      "minY": 44,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 56,
+      "sizeZ": 32
+    }
+  },
+  "desert": {
+    "hash": "a750ca7b22285e0d",
+    "nonAirCount": 21628,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": 44,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "ocean": {
+    "hash": "4cf6adecf5d6b665",
+    "nonAirCount": 33792,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": 30,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "nether": {
+    "hash": "9cb30b8160c299ba",
+    "nonAirCount": 23223,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": 24,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  },
+  "end": {
+    "hash": "7534f083c8451e71",
+    "nonAirCount": 2338,
+    "totalCells": 49152,
+    "bounds": {
+      "minX": -16,
+      "minY": 44,
+      "minZ": -16,
+      "sizeX": 32,
+      "sizeY": 48,
+      "sizeZ": 32
+    }
+  }
+}
