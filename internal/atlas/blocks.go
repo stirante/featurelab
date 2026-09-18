@@ -31,7 +31,11 @@ func (b *builder) buildBlocks(ids []string) {
 	b.table.Blocks = make(map[string]Block, len(ids))
 	b.table.Misses.Blocks = []BlockMiss{}
 	all := withSuppliedBlocks(ids, b.opts.BlockFaces)
-	b.stats.Blocks = len(all)
+	for _, id := range all {
+		if !isStatedID(id) {
+			b.stats.Blocks++
+		}
+	}
 
 	keyMisses := map[string]string{}
 	for _, id := range all {
@@ -116,6 +120,13 @@ func (b *builder) buildBlocks(ids []string) {
 			blk.Note = note
 		}
 		b.table.Blocks[id] = blk
+		// A state-specific row is not a block (see isStatedID): counting it
+		// would make "N blocks, M fully textured" depend on how many
+		// permutations a pack happens to use, which is not the number anyone
+		// reading that line is asking about.
+		if isStatedID(id) {
+			continue
+		}
 		if len(faces) == len(rptex.CubeFaces) {
 			b.stats.BlocksFull++
 		} else {
@@ -137,7 +148,21 @@ func (b *builder) buildBlocks(ids []string) {
 	b.buildTints()
 }
 
+// isStatedID reports whether id is a STATE-SPECIFIC row rather than a block:
+// the canonical "name#k=v,k=v" spelling internal/packrender files a block's
+// per-permutation faces under (see block.CanonicalKey). Such a row is an
+// alternative appearance of a block already counted, not another block.
+func isStatedID(id string) bool { return strings.Contains(id, "#") }
+
 func (b *builder) blockMiss(id, reason string) {
+	if isStatedID(id) {
+		// A state row whose faces did not resolve is not a block the atlas is
+		// missing: the block itself is present, drawn with its default faces,
+		// and packrender has already reported the key that failed. Recording
+		// it here too would put one line per state combination in front of a
+		// reader looking for blocks with no binding at all.
+		return
+	}
 	b.stats.BlocksMissing++
 	b.table.Misses.Blocks = append(b.table.Misses.Blocks, BlockMiss{ID: id, Reason: reason})
 }

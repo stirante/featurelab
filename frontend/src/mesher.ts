@@ -3,7 +3,7 @@
 // this for speed, per this package's own charter.
 import type { BlockKind, ViewerPaletteEntry, ViewerVolume } from './viewer.js'
 import type { AtlasBlockWire, AtlasTableWire } from './protocol.js'
-import { parseHexColor } from './protocol.js'
+import { indexStatedAtlasBlocks, lookupAtlasBlock, parseHexColor } from './protocol.js'
 import { tintColorForChannel } from './colors.js'
 // TYPE-ONLY, and deliberately so: shapes.ts imports FACES and faceST from this file, and a
 // value import back the other way would make that a runtime cycle. The shapes themselves are
@@ -142,7 +142,12 @@ function tintForChannel(table: AtlasTableWire, block: AtlasBlockWire, face: stri
  * table says nothing about -- a pack's own block, an id newer than the atlas -- is pointed at it
  * and given its FLAT palette colour as its tint, which reproduces today's flat-colour rendering
  * for that block exactly, inside the same draw call. So is an individual FACE the builder could
- * not resolve, which its `faces` map simply omits. */
+ * not resolve, which its `faces` map simply omits.
+ *
+ * The row a palette entry resolves to is its STATE-specific one when the table carries one --
+ * a behaviour pack can make a block's textures depend on a block state, and the entry already
+ * carries the states the engine interned it with. `lookupAtlasBlock` falls back to the block's
+ * name-only row for everything else, which is every block that renders today. */
 export function compileAtlas(
   table: AtlasTableWire,
   palette: readonly ViewerPaletteEntry[],
@@ -155,9 +160,10 @@ export function compileAtlas(
   const tintForFace = new Uint32Array((maxId + 1) * FACE_COUNT).fill(0xffffff)
   const pass = new Uint8Array(maxId + 1)
   const cellCount = table.cells.length
+  const stated = indexStatedAtlasBlocks(table)
 
   for (const entry of palette) {
-    const block = table.blocks[entry.name]
+    const block = lookupAtlasBlock(table, stated, entry.name, entry.states)
     const base = entry.id * FACE_COUNT
     if (block === undefined) {
       for (let f = 0; f < FACE_COUNT; f++) tintForFace[base + f] = entry.color

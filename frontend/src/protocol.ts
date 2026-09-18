@@ -943,6 +943,21 @@ export interface AtlasTableWire {
   /** terrain_texture.json key -> every variant's cell, for keys with more than one. Piece D's
    * input; not consumed by this renderer, which is block-state-blind. */
   variants?: Readonly<Record<string, number[]>>
+  /** Block id -> its per-face lookup.
+   *
+   * A key is either a plain block name (`mypack:lamp`) -- the block's DEFAULT
+   * faces, which is what every key was before block states were carried here -- or a
+   * STATE-SPECIFIC key in the engine's own canonical spelling,
+   * `name#k=v,k=v` with the state names sorted (`mypack:lamp#mypack:lit=true`). That is
+   * literally `block.CanonicalKey(name, states)` on the Go side and what the palette interns a
+   * placed block under, so a consumer holding a palette entry already has the string; see
+   * `atlasBlockKey` below.
+   *
+   * Reusing `blocks` rather than adding a `variants` field is what keeps this additive in both
+   * directions: an engine that does not emit stated keys leaves a table this renderer reads
+   * exactly as before, and a renderer that does not know about them simply never looks any of
+   * them up and draws the default row, which is today's picture. Nothing about the shape of an
+   * entry changes -- a stated row is an ordinary AtlasBlockWire. */
   blocks: Readonly<Record<string, AtlasBlockWire>>
   tints?: Readonly<Record<string, AtlasTintWire>>
 
@@ -1028,4 +1043,107 @@ export function decodeAtlas(raw: unknown): DecodedAtlas {
     throw new Error(`malformed atlas: "white" must be a cell index in [0, ${String(table.cells.length)}), got ${String(table.white)}`)
   }
   return { table, png: base64ToUint8Array(obj.png) }
+}
+
+// --- state-keyed block lookup ------------------------------------------------------------------
+//
+// A block's textures can depend on its block STATE: a behaviour pack declares that with a
+// `permutations` entry whose Molang condition reads `query.block_state(...)`, and the engine
+// resolves those into one row of `AtlasTableWire.blocks` per distinguishable state set, filed
+// under the canonical `name#k=v,k=v` key (see that field's own doc comment). Everything a
+// consumer needs to use them is here, in one place, because both `mesher.ts` (which face goes on
+// which cell) and `shapes.ts` (which shape the block is) have to pick the SAME row -- a lamp
+// resolved to its lit textures and its unlit geometry would be worse than either.
+
+/** Renders one state VALUE exactly as the engine's canonical key does: booleans as
+ * `true`/`false`, numbers in plain decimal with no trailing `.0`, strings verbatim. The two
+ * spellings have to agree character for character or no stated key is ever found. */
+function renderStateValue(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'string') return value
+  return ''
+}
+
+/** The canonical key for a (name, states) pair: the name alone when there are no states, else
+ * `name#k1=v1,k2=v2` with the keys sorted. This is `block.CanonicalKey` in TypeScript. */
+export function atlasBlockKey(name: string, states?: Readonly<Record<string, unknown>> | null): string {
+  if (states === undefined || states === null) return name
+  const keys = Object.keys(states).sort()
+  if (keys.length === 0) return name
+  return `${name}#${keys.map((k) => `${k}=${renderStateValue(states[k])}`).join(',')}`
+}
+
+/** One state-specific row, with its key's states already split out for matching. */
+interface StatedAtlasBlock {
+  states: readonly (readonly [string, string])[]
+  block: AtlasBlockWire
+}
+
+/** Every state-specific row in the table, grouped by block name. Built once per table rather
+ * than per palette entry: a bench is tens of thousands of cells over a handful of block ids.
+ *
+ * A table with no stated keys at all -- which is every table an older engine produces --
+ * yields an empty map, and every lookup below then costs one `blocks[name]` exactly as before. */
+export function indexStatedAtlasBlocks(table: AtlasTableWire): ReadonlyMap<string, readonly StatedAtlasBlock[]> {
+  const out = new Map<string, StatedAtlasBlock[]>()
+  for (const key of Object.keys(table.blocks)) {
+    const hash = key.indexOf('#')
+    if (hash < 0) continue
+    const name = key.slice(0, hash)
+    const states: [string, string][] = []
+    for (const pair of key.slice(hash + 1).split(',')) {
+      const eq = pair.indexOf('=')
+      if (eq < 0) continue
+      states.push([pair.slice(0, eq), pair.slice(eq + 1)])
+    }
+    if (states.length === 0) continue
+    const block = table.blocks[key]
+    if (block === undefined) continue
+    const list = out.get(name)
+    if (list === undefined) out.set(name, [{ states, block }])
+    else list.push({ states, block })
+  }
+  return out
+}
+
+/** The row to draw a palette entry with: its state-specific row when the table has one, else the
+ * block's default row, else undefined for a block the table says nothing about (which the
+ * renderer already draws with the white cell and the block's flat palette colour).
+ *
+ * The exact key is tried first, which is the whole lookup whenever a placed block's states are
+ * exactly the ones its permutations switch on -- the ordinary case. The scan after it is what
+ * makes the OTHER case work: a descriptor that also spelled out a state no permutation reads
+ * (`{"name": "mypack:lamp", "states": {"mypack:lit": true, "mypack:facing": "north"}}`) interns
+ * under a longer key than the engine emitted a row for, and matching a row's states as a SUBSET
+ * of the entry's is what the game itself does when it applies a permutation. Rows over one block
+ * are mutually exclusive by construction -- each is a total assignment of the states its
+ * conditions read -- so at most one can match and the scan needs no ordering rule.
+ *
+ * The final fallback to the name-only row is load-bearing, not defensive: it is what keeps every
+ * block that renders today rendering, including against an engine that emits no stated keys. */
+export function lookupAtlasBlock(
+  table: AtlasTableWire,
+  stated: ReadonlyMap<string, readonly StatedAtlasBlock[]>,
+  name: string,
+  states?: Readonly<Record<string, unknown>> | null,
+): AtlasBlockWire | undefined {
+  if (states !== undefined && states !== null && stated.size > 0) {
+    const exact = table.blocks[atlasBlockKey(name, states)]
+    if (exact !== undefined) return exact
+    const candidates = stated.get(name)
+    if (candidates !== undefined) {
+      for (const candidate of candidates) {
+        let matches = true
+        for (const [key, value] of candidate.states) {
+          if (!Object.prototype.hasOwnProperty.call(states, key) || renderStateValue(states[key]) !== value) {
+            matches = false
+            break
+          }
+        }
+        if (matches) return candidate.block
+      }
+    }
+  }
+  return table.blocks[name]
 }

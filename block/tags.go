@@ -107,14 +107,16 @@ type blockTagData struct {
 // dropping a tag the earlier declaration had that the later one omits, not
 // just adding whatever new tags the later declaration introduces.
 //
-// Only the top-level minecraft:block.components bag is read. Real Bedrock
-// blocks can also declare components per "permutations" entry; tag
+// For TAGS, only the top-level minecraft:block.components bag is read. Real
+// Bedrock blocks can also declare components per "permutations" entry; tag
 // components in practice sit at the top level rather than inside a
-// permutation, so that shape is not handled -- a permutation-scoped tag would need per-state
+// permutation, so that shape is not handled here -- a permutation-scoped tag would need per-state
 // resolution this port's Descriptor.States plumbing doesn't carry into tag
 // matching in the first place. A file shaped that way is silently not
 // mined for tags rather than erroring, consistent with "this loader reads
-// what real pack files use, not the full schema".
+// what real pack files use, not the full schema". This SAME walk does read
+// permutations for a block's APPEARANCE, where the same shape is common and
+// per-state resolution has an answer -- see render.go and permutations.go.
 func (p *Palette) LoadBlockTags(files []SourceFile) []Diagnostic {
 	var diags []Diagnostic
 	data := &blockTagData{byBlock: make(map[string]map[string]struct{}), known: make(map[string]struct{})}
@@ -187,7 +189,11 @@ func (p *Palette) LoadBlockTags(files []SourceFile) []Diagnostic {
 		// load declares an empty components bag for all of its blocks. The later-file-wins
 		// rule still holds for a block that DOES declare them -- a pack file overriding a
 		// vanilla id replaces the earlier entry outright.
-		if br, brNotes, ok := parseBlockRender(canonical, f.ID, components); ok {
+		// The whole block body, not just its components: unlike the three
+		// indexes above, appearance is also declared per "permutations"
+		// entry, and enumerating those needs description.states as well (see
+		// permutations.go).
+		if br, brNotes, ok := parseBlockRender(canonical, f.ID, blockBody); ok {
 			rdData.byBlock[canonical] = br
 			delete(rdData.notes, canonical)
 			for _, note := range brNotes {

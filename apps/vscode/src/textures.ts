@@ -59,6 +59,12 @@ export interface TextureResultWire {
     untextured: number
     textures: number
     reused: number
+    /** Per block face, WHY a texture key produced no image (featurelab/blocktextures'
+     * PackSummary.Unresolved -- truncated, see `unresolvedTotal`). Without it `untextured` is a
+     * bare number against blocks the preview is drawing as flat colours, which is the same thing
+     * a machine with no atlas at all draws: the count alone cannot tell those two apart. */
+    unresolved?: { block: string; face: string; texture: string; reason: string }[]
+    unresolvedTotal?: number
   }
   notes?: TextureNoteWire[]
 }

@@ -28,6 +28,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/stirante/featurelab/internal/rptex"
 )
@@ -112,6 +114,13 @@ type ExtraTexture struct {
 	// File is a real file on disk, extension and all -- what
 	// rptex.FindTexture returns.
 	File string
+	// Color is a "#rrggbb"/"#rrggbbaa" flat colour supplied INSTEAD of File:
+	// a <name>.texture_set.json whose colour channel is a literal rather than
+	// a picture (see internal/rptex's textureset.go). There is no art to
+	// pack, so the cell is synthesised from the colour -- one texel, which
+	// normalise() then upscales to fill the cell exactly as it does a pack's
+	// hand-drawn 8x8. Ignored when File is set.
+	Color string
 	// Overlay, when non-empty, is the "#rrggbb" the pack's own
 	// terrain_texture.json entry declared, and is treated exactly as
 	// vanilla's overlay_color is.
@@ -292,6 +301,13 @@ func (b *builder) packTextures() {
 	b.stats.TexturePaths = len(sorted)
 
 	b.table.Misses.Textures = []TextureMiss{}
+	// A terrain_texture.json entry rptex could not read is skipped rather than
+	// failing the file (see rptex.Terrain.Skipped). It is recorded here for the
+	// reason this whole struct exists: an atlas that silently drops a texture
+	// family looks exactly like one that never had it.
+	for _, key := range sortedSkipped(b.terrain) {
+		b.missKey(key, b.terrain.Skipped[key])
+	}
 	for _, p := range sorted {
 		src, _, err := rptex.LoadImage(b.opts.Root, p)
 		if err != nil {
@@ -372,11 +388,7 @@ func (b *builder) packExtraTextures() {
 	sort.Strings(keys)
 	for _, key := range keys {
 		extra := b.opts.ExtraTextures[key]
-		if extra.File == "" {
-			b.missKey(key, "no texture file was supplied for this key")
-			continue
-		}
-		src, err := rptex.DecodeFile(extra.File)
+		src, cellPath, err := extraSource(extra)
 		if err != nil {
 			b.missKey(key, err.Error())
 			continue
@@ -404,7 +416,7 @@ func (b *builder) packExtraTextures() {
 		}
 		colour, opaquePixels := rptex.Average(img)
 		c := Cell{
-			Path:   filepath.ToSlash(extra.File),
+			Path:   cellPath,
 			Render: classifyRender(img),
 			Color:  colour.Hex(),
 			Grey:   opaquePixels > 0 && colour.Achromatic(),
@@ -427,6 +439,59 @@ func (b *builder) packExtraTextures() {
 	}
 }
 
+// extraSource decodes one caller-supplied texture, whichever of the two forms
+// it arrived in, and returns the pixels plus the Path to record for its cell.
+//
+// A flat colour gets a Path that reads as what it is rather than as a file
+// that does not exist, in the same "(featurelab:...)" spelling the synthetic
+// white cell already uses -- so nothing reading Cells has to tell a real path
+// from a stand-in by guessing.
+func extraSource(extra ExtraTexture) (image.Image, string, error) {
+	if extra.File != "" {
+		src, err := rptex.DecodeFile(extra.File)
+		if err != nil {
+			return nil, "", err
+		}
+		return src, filepath.ToSlash(extra.File), nil
+	}
+	if extra.Color == "" {
+		return nil, "", fmt.Errorf("no texture file and no flat colour was supplied for this key")
+	}
+	colour, err := parseExtraColor(extra.Color)
+	if err != nil {
+		return nil, "", err
+	}
+	return rptex.ColorImage(colour), fmt.Sprintf("(featurelab:color %s)", colour.Hex()), nil
+}
+
+// parseExtraColor reads the "#rrggbb"/"#rrggbbaa" a texture set's literal
+// colour travels as, alpha included: a pack that declared a see-through flat
+// colour meant a see-through face, and classifyRender below is what turns that
+// alpha into the right draw pass.
+func parseExtraColor(s string) (rptex.RGBA, error) {
+	hex := strings.TrimPrefix(s, "#")
+	switch len(hex) {
+	case 6:
+		rgb, err := rptex.ParseHex(hex)
+		if err != nil {
+			return rptex.RGBA{}, err
+		}
+		return rptex.RGBA{R: rgb.R, G: rgb.G, B: rgb.B, A: 0xff}, nil
+	case 8:
+		rgb, err := rptex.ParseHex(hex[:6])
+		if err != nil {
+			return rptex.RGBA{}, err
+		}
+		alpha, err := strconv.ParseUint(hex[6:], 16, 8)
+		if err != nil {
+			return rptex.RGBA{}, fmt.Errorf("invalid hex colour %q: %w", s, err)
+		}
+		return rptex.RGBA{R: rgb.R, G: rgb.G, B: rgb.B, A: uint8(alpha)}, nil
+	default:
+		return rptex.RGBA{}, fmt.Errorf("invalid hex colour %q", s)
+	}
+}
+
 // bakeOverlay multiplies img's colour channels by overlay in place, leaving
 // alpha alone -- the same per-channel multiply the engine applies for
 // terrain_texture.json's overlay_color.
@@ -436,6 +501,17 @@ func bakeOverlay(img *image.NRGBA, overlay rptex.RGB) {
 		img.Pix[i+1] = uint8(int(img.Pix[i+1]) * int(overlay.G) / 255)
 		img.Pix[i+2] = uint8(int(img.Pix[i+2]) * int(overlay.B) / 255)
 	}
+}
+
+// sortedSkipped is terrain.Skipped's keys in a fixed order, so the atlas table
+// is byte-identical across runs of the same inputs.
+func sortedSkipped(terrain *rptex.Terrain) []string {
+	out := make([]string, 0, len(terrain.Skipped))
+	for key := range terrain.Skipped {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (b *builder) missKey(key, reason string) {

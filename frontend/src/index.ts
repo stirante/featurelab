@@ -9,7 +9,7 @@ export type { CompiledAtlas, MeshBuffers, MesherAtlas, OverflowBlockMesh } from 
 export { compileShapes, rotationForStates, shapeForBlock } from './shapes.js'
 export type { BlockShape, CompiledShape, ShapeQuad } from './shapes.js'
 
-export { decodeGenerateResult, decodeAtlas, parseHexColor, base64ToUint8Array, ATLAS_TABLE_VERSION, ENGINE_DEFAULT_WRITE_BUDGET, ENGINE_DEFAULT_DELEGATION_BUDGET, ENGINE_DEFAULT_PLACEMENT_TIME_LIMIT_MS } from './protocol.js'
+export { decodeGenerateResult, decodeAtlas, parseHexColor, base64ToUint8Array, atlasBlockKey, indexStatedAtlasBlocks, lookupAtlasBlock, ATLAS_TABLE_VERSION, ENGINE_DEFAULT_WRITE_BUDGET, ENGINE_DEFAULT_DELEGATION_BUDGET, ENGINE_DEFAULT_PLACEMENT_TIME_LIMIT_MS } from './protocol.js'
 export type {
   BlockCounts,
   DecodedResult,

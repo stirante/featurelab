@@ -26,6 +26,10 @@ import (
 //     an average of four pixels and loses nothing a 16-texel cell could have
 //     shown.
 //
+// A pack's own textures add a fourth case vanilla has none of: a square whose
+// edge DIVIDES the cell (8x8, 4x4). That is ordinary hand-drawn art, and it is
+// upscaled by its whole factor rather than rejected -- see the switch below.
+//
 // Everything else is REJECTED with a reason rather than stretched to fit:
 // exactly three paths in the whole set (end_portal and end_gateway at 16x17,
 // conduit_base at 24x12) are neither square-multiple nor flipbook, and all
@@ -47,19 +51,43 @@ func normalise(src image.Image, cell int) (out *image.NRGBA, frames, scaled int,
 	if w != h {
 		return nil, 0, 0, fmt.Errorf("texture is %dx%d: neither square nor a whole number of square flipbook frames, so there is no honest way to fit it in a %d-texel cell", w, b.Dy(), cell)
 	}
-	if w%cell != 0 {
-		return nil, 0, 0, fmt.Errorf("texture is %dx%d, not a whole multiple of the %d-texel cell size", w, b.Dy(), cell)
+	if w%cell != 0 && cell%w != 0 {
+		return nil, 0, 0, fmt.Errorf("texture is %dx%d, neither a whole multiple nor a whole fraction of the %d-texel cell size", w, b.Dy(), cell)
 	}
 
 	// Copy frame 0 out at its source resolution first: src may be paletted,
 	// NRGBA, grey, or anything else image/png produces, and sampling it once
-	// into RGBA keeps the downscale below reading a single representation.
+	// into RGBA keeps the rescale below reading a single representation.
 	frame := image.NewNRGBA(image.Rect(0, 0, w, w))
 	draw.Draw(frame, frame.Bounds(), src, b.Min, draw.Src)
-	if w == cell {
+	switch {
+	case w == cell:
 		return frame, frames, 0, nil
+	case w > cell:
+		return boxDownscale(frame, cell), frames, w, nil
+	default:
+		// SMALLER than a cell, by a whole factor. Nothing in vanilla is, but a
+		// pack's own blocks routinely are -- an 8x8 or 4x4 texture is ordinary
+		// hand-drawn art, and rejecting it drops that block to a flat colour
+		// while every vanilla block beside it keeps its picture, which is the
+		// single most confusing way this can fail. Nearest-neighbour, because
+		// the source is pixel art and an integer upscale of pixel art is exact.
+		return nearestUpscale(frame, cell), frames, w, nil
 	}
-	return boxDownscale(frame, cell), frames, w, nil
+}
+
+// nearestUpscale enlarges src (whose edge divides size exactly) to size x size
+// by repeating each source texel. Lossless in both directions: box-downscaling
+// the result by the same factor returns the original bytes.
+func nearestUpscale(src *image.NRGBA, size int) *image.NRGBA {
+	factor := size / src.Bounds().Dx()
+	out := image.NewNRGBA(image.Rect(0, 0, size, size))
+	for y := 0; y < size; y++ {
+		for x := 0; x < size; x++ {
+			out.SetNRGBA(x, y, src.NRGBAAt(x/factor, y/factor))
+		}
+	}
+	return out
 }
 
 // boxDownscale reduces src (whose edge is an exact integer multiple of size)

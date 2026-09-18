@@ -99,8 +99,9 @@ type Cell struct {
 	// rest exist and where to find them (the source file, Frames tall).
 	Frames int `json:"frames,omitempty"`
 
-	// Scaled is the source texture's edge length when it was not Cell and
-	// had to be box-downscaled to fit; 0 when the source was already Cell.
+	// Scaled is the source texture's edge length when it was not Cell and had
+	// to be resized to fit -- box-downscaled when it was larger, repeated
+	// texel for texel when it was smaller; 0 when the source was already Cell.
 	Scaled int `json:"scaled,omitempty"`
 
 	// Overlay records a pack-declared overlay_color that has been MULTIPLIED

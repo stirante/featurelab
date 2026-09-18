@@ -208,7 +208,31 @@ type PackSummary struct {
 	// pack borrows from vanilla and therefore needed nothing packed.
 	Textures int `json:"textures"`
 	Reused   int `json:"reused"`
+	// Unresolved says, per block face, WHY a texture key produced no image --
+	// the key is absent from terrain_texture.json, or it is there and the file
+	// it names is not on disk. Untextured above is the count of affected
+	// blocks and was, until this field existed, the whole of what a host could
+	// say: "3 blocks with an unresolved texture" and no way to find out which
+	// three or what to do about them, while the preview drew those blocks as
+	// flat colours indistinguishable from the tool not having textures at all.
+	// Truncated to UnresolvedLimit entries; UnresolvedTotal is the real count.
+	Unresolved      []UnresolvedTexture `json:"unresolved,omitempty"`
+	UnresolvedTotal int                 `json:"unresolvedTotal,omitempty"`
 }
+
+// UnresolvedTexture is one block face whose texture key produced no image.
+type UnresolvedTexture struct {
+	Block   string `json:"block"`
+	Face    string `json:"face"`
+	Texture string `json:"texture"`
+	Reason  string `json:"reason"`
+}
+
+// UnresolvedLimit caps PackSummary.Unresolved. A pack that ships no resource
+// pack at all has one entry per face of every block it defines, which is
+// hundreds of identical sentences; the count plus a readable sample is what a
+// person can act on, and the full list is what `featurelab blocktable` is for.
+const UnresolvedLimit = 20
 
 // markerFile records what the atlas in a directory was built from. It sits
 // beside atlas.json/atlas.png and is ignored by wire.LoadAtlas, which reads
@@ -634,11 +658,23 @@ func packTable(packDir, resourcePackDir, vanillaRoot string) (*packrender.Table,
 
 	s := table.Summarise()
 	summary := &PackSummary{
-		Dir:        loaded.Dir,
-		Blocks:     s.Blocks,
-		Fully:      s.Fully,
-		ShapeCube:  s.ShapeCube,
-		Untextured: s.Untextured,
+		Dir:             loaded.Dir,
+		Blocks:          s.Blocks,
+		Fully:           s.Fully,
+		ShapeCube:       s.ShapeCube,
+		Untextured:      s.Untextured,
+		UnresolvedTotal: len(table.Unresolved),
+	}
+	// packrender.Build already sorted these by (block, face), so the sample is
+	// the same sample on every run rather than whichever map iteration order
+	// this process happened to get.
+	for i, u := range table.Unresolved {
+		if i >= UnresolvedLimit {
+			break
+		}
+		summary.Unresolved = append(summary.Unresolved, UnresolvedTexture{
+			Block: u.Block, Face: u.Face, Texture: u.Texture, Reason: u.Reason,
+		})
 	}
 	if rp != nil {
 		summary.ResourcePack = rp.Dir
@@ -668,10 +704,15 @@ func applyPackTable(opts *atlas.Options, table *packrender.Table) {
 		// A key the pack borrows from vanilla is already in the sheet, with
 		// the pack's own resolution of it recorded as from:"vanilla" -- not
 		// re-packed, per atlas.Options.ExtraTextures' own contract.
-		if tex.From != "pack" || tex.File == "" {
+		//
+		// File OR Color: a key that resolved through a texture set whose
+		// colour channel is a literal has no art to hand over, and dropping
+		// it here would put exactly the block the pack took the trouble to
+		// declare back on a hash colour.
+		if tex.From != "pack" || (tex.File == "" && tex.Color == "") {
 			continue
 		}
-		extra[key] = atlas.ExtraTexture{File: tex.File, Overlay: tex.Overlay}
+		extra[key] = atlas.ExtraTexture{File: tex.File, Color: tex.Color, Overlay: tex.Overlay}
 	}
 	faces := make(map[string]map[string]string, len(table.Blocks))
 	tint := make(map[string]map[string]string, len(table.Blocks))

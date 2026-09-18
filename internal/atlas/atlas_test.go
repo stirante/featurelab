@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stirante/featurelab/internal/rptex"
@@ -405,6 +406,47 @@ func TestBuilt_WriteDirWritesBothFiles(t *testing.T) {
 	}
 }
 
+// TestBuild_TerrainEntryThatCannotBeReadIsAMissNotAFailure: rptex skips a
+// terrain_texture.json entry it cannot make a path out of rather than failing
+// the file (a pack using one shape this port had not implemented used to lose
+// every texture it shipped). The atlas must still be built, and the skipped key
+// must appear in Misses -- an atlas that silently drops a texture family looks
+// exactly like one that never had it.
+func TestBuild_TerrainEntryThatCannotBeReadIsAMissNotAFailure(t *testing.T) {
+	root := fixturePack(t)
+	terrainPath := filepath.Join(root, "textures", "terrain_texture.json")
+	raw, err := os.ReadFile(terrainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One entry naming no path at all, spliced in beside the fixture's own.
+	patched := strings.Replace(string(raw), `"texture_data": {`,
+		`"texture_data": {`+"\n"+`    "gibberish": { "textures": {"no_path_here": true} },`, 1)
+	if patched == string(raw) {
+		t.Fatal("fixture terrain_texture.json changed shape; this test's splice no longer applies")
+	}
+	if err := os.WriteFile(terrainPath, []byte(patched), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	built, err := Build(Options{Root: root, Tag: "fixture", BlockIDs: fixtureIDs()})
+	if err != nil {
+		t.Fatalf("Build: %v -- one unreadable entry must not fail the whole file", err)
+	}
+	if _, ok := built.Table.Textures["stone"]; !ok {
+		t.Error("stone is missing: an unrelated entry's problem took the rest of the file with it")
+	}
+	var reason string
+	for _, m := range built.Table.Misses.Textures {
+		if m.Key == "gibberish" {
+			reason = m.Reason
+		}
+	}
+	if reason == "" {
+		t.Fatal("the skipped entry is in no miss; it was dropped with nothing said about it")
+	}
+}
+
 func TestBuild_RejectsAMissingRoot(t *testing.T) {
 	if _, err := Build(Options{Root: filepath.Join(t.TempDir(), "nope")}); err == nil {
 		t.Error("Build accepted a root that does not exist")
@@ -504,5 +546,60 @@ func TestBuild_ExtraTextureOverlayIsBaked(t *testing.T) {
 	}
 	if got.R != 200 || got.G < 95 || got.G > 105 || got.B != 0 {
 		t.Errorf("baked colour = %v, want ~(200,100,0): 200 multiplied by #ff8000", got)
+	}
+}
+
+// TestBuild_ExtraTextureFlatColourSynthesisesACell is the texture-set outcome
+// that has no art at all: the pack declared the face's colour in a
+// <name>.texture_set.json and shipped no image for it. The colour still has to
+// reach the sheet as a real cell, or the block goes back to the hash colour
+// the author was trying to get away from.
+func TestBuild_ExtraTextureFlatColourSynthesisesACell(t *testing.T) {
+	built, err := Build(Options{
+		Root:     fixturePack(t),
+		BlockIDs: []string{},
+		ExtraTextures: map[string]ExtraTexture{
+			"flat":  {Color: "#102030"},
+			"sheer": {Color: "#10203080"},
+			// Neither a file nor a colour is still a miss, and still says so.
+			"empty": {},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	tbl := built.Table
+
+	cell := tbl.Cells[tbl.Textures["flat"]]
+	if got, err := rptex.ParseHex(cell.Color); err != nil || got != (rptex.RGB{R: 0x10, G: 0x20, B: 0x30}) {
+		t.Errorf("cell colour = %q (%v), want #102030", cell.Color, err)
+	}
+	if cell.Render != RenderOpaque {
+		t.Errorf("render = %q, want opaque for a fully opaque flat colour", cell.Render)
+	}
+	if cell.Scaled != 1 {
+		t.Errorf("Scaled = %d, want 1: one texel upscaled to fill the cell", cell.Scaled)
+	}
+	if !strings.Contains(cell.Path, "#102030") {
+		t.Errorf("cell path = %q, want it to read as the flat colour it is rather than as a file", cell.Path)
+	}
+
+	// The declared alpha is part of the declaration, and it is what decides
+	// which pass the face is drawn in.
+	if got := tbl.Cells[tbl.Textures["sheer"]].Render; got != RenderTranslucent {
+		t.Errorf("render = %q, want translucent for a flat colour declared at alpha 0x80", got)
+	}
+
+	if _, packed := tbl.Textures["empty"]; packed {
+		t.Error("a key with neither a file nor a colour was packed; it must be a miss")
+	}
+	var said bool
+	for _, m := range tbl.Misses.Textures {
+		if m.Key == "empty" && strings.Contains(m.Reason, "flat colour") {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("misses = %+v, want one for \"empty\" saying neither form was supplied", tbl.Misses.Textures)
 	}
 }

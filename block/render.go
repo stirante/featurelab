@@ -45,18 +45,16 @@
 // is what stops an author having to guess why their sculpted block came out
 // square. Nothing here silently pretends a model was understood.
 //
-// ---- What is deliberately not read ----
+// ---- Permutations ----
 //
-// Only the top-level minecraft:block.components bag is read, exactly as
-// LoadBlockTags already documents for tag components. Real blocks can also
-// override minecraft:geometry and minecraft:material_instances per
-// "permutations" entry (e.g. a multi-part multiblock that swaps geometry per
-// block-state value), and resolving those needs
-// per-state evaluation that this port's Descriptor.States plumbing does not
-// carry into block appearance at all. A permutation-scoped override is
-// therefore not seen, and the top-level declaration -- which every such
-// block also carries -- is what gets drawn. In practice nearly every block
-// file declares material_instances at the top level.
+// A block may also override minecraft:geometry and
+// minecraft:material_instances per "permutations" entry -- a lamp that swaps
+// its top texture when lit, a multi-part multiblock that swaps geometry per
+// block-state value. Those ARE read, in permutations.go, which also enumerates
+// them into a face map per concrete state set; this file reads the top-level
+// bag, which is the block's default and what every state set starts from.
+//
+// ---- What is deliberately not read ----
 //
 // minecraft:item_visual (the held-item render) is a different component for
 // a different surface and is not read here.
@@ -193,6 +191,16 @@ type BlockRender struct {
 	Extra map[string]MaterialInstance `json:"extra,omitempty"`
 	// Geometry is the block's shape.
 	Geometry BlockGeometry `json:"geometry"`
+	// Permutations is the block's "permutations" array in FILE ORDER: each
+	// a Molang condition and the appearance components it applies when the
+	// condition holds. Empty for the great majority of blocks, which declare
+	// their whole appearance at the top level. See permutations.go.
+	Permutations []BlockPermutation `json:"permutations,omitempty"`
+	// States is the block's own description.states -- each state it declares
+	// and the values that state may take. Read for exactly one reason: it is
+	// what lets the permutation conditions be enumerated into concrete state
+	// sets (see StateVariants). nil when the block declares none.
+	States map[string][]StateValue `json:"states,omitempty"`
 	// FileID is the blocks/ file this block was read from -- so a note
 	// about it can point at a file the author can open.
 	FileID string `json:"fileId"`
@@ -203,10 +211,21 @@ type BlockRender struct {
 // makes it cutout, else opaque. The renderer needs one draw pass per block,
 // not per face, and picking the strongest is the choice that never draws a
 // transparent face as if it were solid.
-func (b BlockRender) Render() string {
+func (b BlockRender) Render() string { return RenderClass(b.Faces) }
+
+// Render is the block's render class for ONE state set -- the same rule,
+// applied to the faces that state set actually draws with, since a permutation
+// may swap an opaque face for a cutout one.
+func (b BlockStateRender) Render() string { return RenderClass(b.Faces) }
+
+// RenderClass is the strongest render method among a face map's faces. It is
+// the one place the "translucent beats cutout beats opaque" rule lives, so a
+// block's default faces and a permutation's cannot be classified by two
+// different readings of it.
+func RenderClass(faces map[string]MaterialInstance) string {
 	render := RenderOpaque
 	for _, name := range RenderFaces {
-		switch b.Faces[name].Render {
+		switch faces[name].Render {
 		case RenderTranslucent:
 			return RenderTranslucent
 		case RenderCutout:
@@ -252,15 +271,21 @@ type blockRenderData struct {
 // -- "component absent -> nothing to say", the same default shape
 // LoadBlockTags' other indexes use, and the reason the vanilla catalogue
 // does not fill this index with 1238 empty entries.
-func parseBlockRender(canonical, fileID string, components map[string]any) (br BlockRender, notes []RenderNote, ok bool) {
+func parseBlockRender(canonical, fileID string, blockBody map[string]any) (br BlockRender, notes []RenderNote, ok bool) {
+	components, _ := blockBody["components"].(map[string]any)
+	description, _ := blockBody["description"].(map[string]any)
+	rawPermutations := blockBody["permutations"]
+
 	rawMaterials, hasMaterials := components["minecraft:material_instances"]
 	rawGeometry, hasGeometry := components["minecraft:geometry"]
 	rawShape, hasShape := components["minecraft:block_shape"]
-	if !hasMaterials && !hasGeometry && !hasShape {
+	declaredStates := parseDeclaredStates(description["states"])
+	permutations, permNotes := parsePermutations(canonical, fileID, rawPermutations, declaredStates)
+	if !hasMaterials && !hasGeometry && !hasShape && len(permutations) == 0 {
 		return BlockRender{}, nil, false
 	}
 
-	br = BlockRender{Name: canonical, FileID: fileID}
+	br = BlockRender{Name: canonical, FileID: fileID, Permutations: permutations, States: declaredStates}
 
 	faces, extra, matNotes := parseMaterialInstances(canonical, fileID, rawMaterials)
 	br.Faces, br.Extra = faces, extra
@@ -270,6 +295,9 @@ func parseBlockRender(canonical, fileID string, components map[string]any) (br B
 
 	geom, geomNote := parseGeometry(canonical, fileID, rawGeometry, hasGeometry, rawShape, hasShape)
 	br.Geometry = geom
+	// A permutation with no condition applies to every state, so it belongs in
+	// the block's DEFAULT appearance too -- see applyUnconditional.
+	br.applyUnconditional()
 
 	// The geometry note goes FIRST, because only one note per block
 	// survives (see LoadBlockTags) and "this block is a cube because its
@@ -281,6 +309,11 @@ func parseBlockRender(canonical, fileID string, components map[string]any) (br B
 		notes = append(notes, *geomNote)
 	}
 	notes = append(notes, matNotes...)
+	// Permutation notes come LAST: a block with permutations also has a
+	// top-level declaration, and if that one has something to say ("your
+	// model is not drawn to shape", "this alias points nowhere") it explains
+	// more of what the author is looking at than a note about one state.
+	notes = append(notes, permNotes...)
 	return br, notes, true
 }
 

@@ -33,6 +33,7 @@
 // the identical path through the renderer. `layer`/`attached`/`torch`/`cactus` are this file's
 // own additions, for vanilla shapes Bedrock has no built-in geometry name for.
 import { FACES, FACE_COUNT, faceST } from './mesher.js'
+import { indexStatedAtlasBlocks, lookupAtlasBlock } from './protocol.js'
 import type { AtlasTableWire } from './protocol.js'
 import type { ViewerPaletteEntry } from './viewer.js'
 
@@ -566,9 +567,13 @@ export function compileShapes(table: AtlasTableWire, palette: readonly ViewerPal
   // -- a bench full of oak logs all on the same axis compiles one shape, not one per palette
   // entry, and every quad's typed arrays are read-only from here on.
   const cache = new Map<string, CompiledShape | null>()
+  // The SAME row mesher.ts's compileAtlas resolves for this entry: a permutation can swap a
+  // block's geometry as well as its textures, and a block resolved to its lit textures and its
+  // unlit shape would be worse than either.
+  const stated = indexStatedAtlasBlocks(table)
 
   for (const entry of palette) {
-    const block = table.blocks[entry.name]
+    const block = lookupAtlasBlock(table, stated, entry.name, entry.states)
     const shape = shapeForBlock(entry.name, block?.shape)
     const rotation = rotationForStates(entry.states)
     const underlays = overlayFaces(block, table)

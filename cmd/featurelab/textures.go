@@ -219,6 +219,16 @@ func printTextureResult(w io.Writer, r *blocktextures.Result) {
 		if p.ResourcePack != "" {
 			fmt.Fprintf(w, "Resource pack: %s (found by %s).\n", p.ResourcePack, p.How)
 		}
+		// Which faces, and why. Without this "3 with an unresolved texture"
+		// leaves an author looking at flat-coloured blocks with no way to tell
+		// a key missing from terrain_texture.json from a PNG that was never
+		// exported -- two problems with two different fixes.
+		for _, u := range p.Unresolved {
+			fmt.Fprintf(w, "  %s (%s face, texture %q): %s\n", u.Block, u.Face, u.Texture, u.Reason)
+		}
+		if extra := p.UnresolvedTotal - len(p.Unresolved); extra > 0 {
+			fmt.Fprintf(w, "  ... and %d more; `featurelab blocktable` lists every one.\n", extra)
+		}
 	}
 	// The notes, capped. A host shows only the ones a given preview actually
 	// placed -- that filter is the version a person should usually see. This
