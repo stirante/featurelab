@@ -2,7 +2,7 @@
   "name": "featurelab",
   "displayName": "Feature Lab",
   "description": "Live preview for Bedrock worldgen feature/rule JSON, driven by the featurelab engine.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "publisher": "stirante",
   "license": "MIT",
