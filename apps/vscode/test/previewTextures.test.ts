@@ -224,6 +224,55 @@ describe('PreviewPanel: the first run', () => {
     expect(vscodeMock.window.showInformationMessage).toHaveBeenCalledTimes(1)
     expect(downloadPrompts()).toBe(0)
   })
+
+  // "3 blocks with an unresolved texture" describes a preview that is drawing those blocks as
+  // flat colours -- which is exactly what a machine with no atlas at all draws. The count on its
+  // own cannot tell those two apart, and the two reasons behind it have two different fixes.
+  it('says which pack textures did not resolve and why, and how many more there were', async () => {
+    const textures = makeBuilder(status({ state: 'stale', needsDownload: false }))
+    ;(textures.build as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: status({ state: 'ready', needsDownload: false }),
+      pack: {
+        dir: '/pack',
+        resourcePack: '/packs/MyAddon_rp',
+        how: 'manifest dependency',
+        blocks: 3,
+        fully: 1,
+        shapeCube: 0,
+        untextured: 2,
+        textures: 4,
+        reused: 1,
+        unresolved: [
+          { block: 'myaddon:limestone', face: 'up', texture: 'myaddon:limestone', reason: 'no [.png .tga] found for textures/blocks/limestone' },
+          { block: 'myaddon:slate', face: 'north', texture: 'myaddon:slate_side', reason: 'texture key "myaddon:slate_side" is not declared in the resource pack\'s terrain_texture.json' },
+        ],
+        unresolvedTotal: 7,
+      },
+    } satisfies TextureResultWire)
+    open(makeController(), textures)
+    await settle()
+
+    const joined = vscodeMock.outputLines.join('\n')
+    expect(joined).toContain('myaddon:limestone')
+    expect(joined).toContain('textures/blocks/limestone')
+    expect(joined).toContain('not declared in the resource pack')
+    expect(joined).toContain('... and 5 more.')
+    expect(joined).toContain('/packs/MyAddon_rp')
+  })
+
+  // The single most likely reason a whole pack draws flat: its resource pack was never located,
+  // so not one texture key could resolve. Saying nothing makes that look like a broken feature.
+  it('says so when no resource pack was found at all', async () => {
+    const textures = makeBuilder(status({ state: 'stale', needsDownload: false }))
+    ;(textures.build as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: status({ state: 'ready', needsDownload: false }),
+      pack: { dir: '/pack', blocks: 12, fully: 0, shapeCube: 0, untextured: 12, textures: 0, reused: 0 },
+    } satisfies TextureResultWire)
+    open(makeController(), textures)
+    await settle()
+
+    expect(vscodeMock.outputLines.join('\n')).toContain('No resource pack was found for this pack')
+  })
 })
 
 describe('atlas notes', () => {

@@ -118,6 +118,17 @@ type TextureSource struct {
 	// Variants is true when the key's entry was an ARRAY of texture
 	// variants and this is its first; the others are not represented.
 	Variants bool `json:"variants,omitempty"`
+	// Color is a "#rrggbb"/"#rrggbbaa" flat colour, set INSTEAD of File when
+	// the path resolved to a <name>.texture_set.json whose colour channel is
+	// a literal rather than a picture (see internal/rptex's textureset.go).
+	// The pack has said what the face's colour is without shipping art for
+	// it, and the atlas draws it as one texel -- which its own upscale then
+	// fills the cell with. A key with neither File nor Color is one the
+	// vanilla atlas already holds a cell for.
+	Color string `json:"color,omitempty"`
+	// TextureSets is every .texture_set.json walked to reach this texture,
+	// so a staleness check can hash the indirection as well as its target.
+	TextureSets []string `json:"textureSets,omitempty"`
 }
 
 // Block is one block's row, in the shape Piece B's atlas.json publishes for
@@ -145,8 +156,38 @@ type Block struct {
 	// exactly as declared, or "" when it is. This is the string an
 	// interface shows an author whose custom block came out square.
 	Fallback string `json:"fallback,omitempty"`
+	// States is set on a STATE-SPECIFIC row and nil on a block's default
+	// one: the concrete block states this row's faces are for, which are
+	// exactly the states the block's permutation conditions read. Such a row
+	// is filed in Blocks under block.CanonicalKey(name, States) -- the same
+	// "name#k=v,k=v" spelling the palette interns a placed block under -- so
+	// a consumer looks one up by the key it already has. See permutations.go.
+	States map[string]block.StateValue `json:"states,omitempty"`
 	// FileID is the blocks/ file this block came from.
 	FileID string `json:"fileId"`
+}
+
+// sameAppearanceAs reports whether two rows would draw identically: same
+// faces, same tint channels, same shape and render class. Used to drop a
+// state-specific row that a permutation did not actually change.
+func (b Block) sameAppearanceAs(other Block) bool {
+	if b.Render != other.Render || b.Shape != other.Shape ||
+		b.Geometry != other.Geometry || b.DoubleSided != other.DoubleSided {
+		return false
+	}
+	return sameStringMap(b.Faces, other.Faces) && sameStringMap(b.Tint, other.Tint)
+}
+
+func sameStringMap(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if other, ok := b[k]; !ok || other != v {
+			return false
+		}
+	}
+	return true
 }
 
 // Fully reports whether this block resolved completely: a shape this
@@ -212,6 +253,20 @@ func Build(opts Options) (*Table, error) {
 			reason = addTexture(t, packTable, key, "pack")
 		case vanillaTable.has(key):
 			reason = addTexture(t, vanillaTable, key, "vanilla")
+
+		// A key the file DECLARED but rptex could not read is not the same
+		// thing as a key nobody wrote down, and saying "not declared" about it
+		// sends the author to add an entry that is already there. rptex now
+		// skips such an entry rather than failing the whole file (see
+		// rptex.Terrain.Skipped), which only helps if the reason travels the
+		// last stretch to the author, and this is that stretch.
+		case packTable.skipReason(key) != "":
+			reason = fmt.Sprintf("texture key %q is declared in the resource pack's terrain_texture.json but was skipped: %s",
+				key, packTable.skipReason(key))
+		case vanillaTable.skipReason(key) != "":
+			reason = fmt.Sprintf("texture key %q is declared in the vanilla terrain_texture.json but was skipped: %s",
+				key, vanillaTable.skipReason(key))
+
 		case packTerrain == nil && vanillaTerrain == nil:
 			reason = "no terrain_texture.json was loaded -- the pack's resource pack was not found"
 		case packTerrain == nil:
@@ -228,33 +283,68 @@ func Build(opts Options) (*Table, error) {
 		if !ok {
 			continue
 		}
-		row := Block{
-			Faces:    map[string]string{},
-			Tint:     map[string]string{},
-			Render:   br.Render(),
-			Shape:    br.Geometry.Shape,
-			Geometry: br.Geometry.Identifier,
-			FileID:   br.FileID,
-		}
+		fallback := ""
 		if note, has := opts.Palette.BlockRenderNote(name); has {
-			row.Fallback = note.Message
+			fallback = note.Message
 		}
-		for _, face := range block.RenderFaces {
-			inst, declared := br.Faces[face]
-			if !declared {
+
+		// One report per (face, texture key) per BLOCK, not per state row. A
+		// block with permutations produces several rows over the same handful
+		// of keys, and a key that cannot be resolved fails identically in all
+		// of them; listing it once per row would bury every other block's
+		// diagnostic under one block's state product. The report is filed
+		// against the plain block name for the same reason: the fix is in
+		// that one file either way.
+		reported := map[string]bool{}
+		buildRow := func(states map[string]block.StateValue, faces map[string]block.MaterialInstance, geom block.BlockGeometry) Block {
+			row := Block{
+				Faces:    map[string]string{},
+				Tint:     map[string]string{},
+				Render:   block.RenderClass(faces),
+				Shape:    geom.Shape,
+				Geometry: geom.Identifier,
+				FileID:   br.FileID,
+				Fallback: fallback,
+				States:   states,
+			}
+			for _, face := range block.RenderFaces {
+				inst, declared := faces[face]
+				if !declared {
+					continue
+				}
+				if inst.DoubleSided {
+					row.DoubleSided = true
+				}
+				if reason := resolveKey(inst.Texture); reason != "" {
+					if key := face + "\x00" + inst.Texture; !reported[key] {
+						reported[key] = true
+						t.Unresolved = append(t.Unresolved, Unresolved{Block: name, Face: face, Texture: inst.Texture, Reason: reason})
+					}
+					continue
+				}
+				row.Faces[face] = inst.Texture
+				row.Tint[face] = tintChannel(inst)
+			}
+			return row
+		}
+
+		base := buildRow(nil, br.Faces, br.Geometry)
+		t.Blocks[name] = base
+
+		// The state-specific rows, filed under the SAME canonical
+		// "name#k=v,k=v" key the palette interns a placed block under, so a
+		// consumer holding a placed block's (name, states) can look one up
+		// without knowing anything about permutations. A row identical to the
+		// default is not emitted: it would be a wire entry that changes
+		// nothing, and there is one per state combination that does not
+		// happen to matter.
+		for _, variant := range br.StateVariants() {
+			row := buildRow(variant.States, variant.Faces, variant.Geometry)
+			if row.sameAppearanceAs(base) {
 				continue
 			}
-			if inst.DoubleSided {
-				row.DoubleSided = true
-			}
-			if reason := resolveKey(inst.Texture); reason != "" {
-				t.Unresolved = append(t.Unresolved, Unresolved{Block: name, Face: face, Texture: inst.Texture, Reason: reason})
-				continue
-			}
-			row.Faces[face] = inst.Texture
-			row.Tint[face] = tintChannel(inst)
+			t.Blocks[block.CanonicalKey(name, variant.States)] = row
 		}
-		t.Blocks[name] = row
 	}
 
 	if notes := opts.Palette.BlockRenderNotes(); notes != nil {
@@ -287,6 +377,15 @@ func (k *keyTable) has(key string) bool {
 	return ok
 }
 
+// skipReason is why this table's terrain_texture.json declared key and yet has
+// no texture path for it, or "" when it has one or never mentioned it.
+func (k *keyTable) skipReason(key string) string {
+	if k == nil || k.terrain == nil {
+		return ""
+	}
+	return k.terrain.Skipped[key]
+}
+
 func loadTerrain(path string) (*rptex.Terrain, error) {
 	if path == "" {
 		return nil, nil
@@ -314,14 +413,24 @@ func addTexture(t *Table, table *keyTable, key, from string) string {
 		src.Overlay = v.Overlay.Hex()
 	}
 	if table.root != "" {
-		file, err := rptex.FindTexture(table.root, v.Path)
+		// ResolveTexture rather than FindTexture: a path with no image
+		// behind it may still be a texture set, and a texture set may answer
+		// with a flat colour instead of a file. Its error strings are
+		// deliberately specific -- "no image and no texture set", "that
+		// texture set's color names a file that isn't there", "that colour
+		// is written in a form this preview does not read" -- because they
+		// end up in PackSummary.Unresolved as the author's only clue.
+		tex, err := rptex.ResolveTexture(table.root, v.Path)
 		if err != nil {
 			// A key that IS declared but whose image is missing is a
 			// different problem from a key that was never declared, and
 			// gets a different sentence for that reason.
 			return err.Error()
 		}
-		src.File = file
+		src.File, src.TextureSets = tex.File, tex.Sets
+		if tex.Color != nil {
+			src.Color = tex.Color.Hex()
+		}
 	} else if from == "pack" {
 		return fmt.Sprintf("texture key %q resolves to %s but no resource pack root was given to look it up in", key, v.Path)
 	}
@@ -354,14 +463,23 @@ type Summary struct {
 // Summarise counts the table. Fully means "every declared face has an image
 // AND the shape is one this preview draws" -- deliberately the strict
 // reading, so the number never flatters the result.
+// A state-specific row is NOT a block: a lamp with a lit state is one block
+// the author wrote and one block the preview draws, whichever of its two face
+// sets is on screen. Counting its rows would make every count in this summary
+// depend on how many permutations a pack happens to use, which is exactly the
+// number a reader is not asking about.
 func (t *Table) Summarise() Summary {
-	s := Summary{Blocks: len(t.Blocks)}
+	s := Summary{}
 	untextured := map[string]bool{}
 	for _, u := range t.Unresolved {
 		untextured[u.Block] = true
 	}
 	s.Untextured = len(untextured)
 	for name, b := range t.Blocks {
+		if len(b.States) > 0 {
+			continue
+		}
+		s.Blocks++
 		if b.Shape == block.ShapeUnsupported {
 			s.ShapeCube++
 		}

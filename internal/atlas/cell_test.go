@@ -96,6 +96,49 @@ func TestNormalise_RejectsUnfittableShapes(t *testing.T) {
 	}
 }
 
+// TestNormalise_UpscalesSubCellTextures covers a pack's own art at a lower
+// resolution than the cell. Vanilla has none, so this used to be rejected with
+// the same sentence a 16x17 gets -- which dropped the block to a flat colour
+// while every vanilla block beside it kept its picture.
+func TestNormalise_UpscalesSubCellTextures(t *testing.T) {
+	// 8x8 with a distinct colour per texel, so a misindexed upscale shows up
+	// as a wrong colour rather than as a plausible blur.
+	src := solid(8, 8, func(x, y int) color.NRGBA { return color.NRGBA{uint8(x * 8), uint8(y * 8), 9, 255} })
+	out, frames, scaled, err := normalise(src, 16)
+	if err != nil {
+		t.Fatalf("normalise: %v", err)
+	}
+	if frames != 1 {
+		t.Fatalf("frames = %d, want 1", frames)
+	}
+	if scaled != 8 {
+		t.Fatalf("scaled = %d, want 8 (the source edge)", scaled)
+	}
+	if out.Bounds().Dx() != 16 || out.Bounds().Dy() != 16 {
+		t.Fatalf("size = %v, want 16x16", out.Bounds().Size())
+	}
+	// Each source texel covers a 2x2 block, so both members of a block must be
+	// the source texel exactly -- nearest-neighbour, not an interpolation.
+	for _, p := range []struct{ x, y, sx, sy int }{{0, 0, 0, 0}, {1, 1, 0, 0}, {6, 3, 3, 1}, {15, 15, 7, 7}} {
+		want := src.NRGBAAt(p.sx, p.sy)
+		if got := out.NRGBAAt(p.x, p.y); got != want {
+			t.Errorf("out(%d,%d) = %v, want source texel (%d,%d) = %v", p.x, p.y, got, p.sx, p.sy, want)
+		}
+	}
+	// A 1x1 texture is the degenerate end of the same case and is a perfectly
+	// ordinary way to declare a solid-colour block.
+	one, _, oneScaled, err := normalise(solid(1, 1, func(int, int) color.NRGBA { return color.NRGBA{4, 5, 6, 255} }), 16)
+	if err != nil {
+		t.Fatalf("normalise(1x1): %v", err)
+	}
+	if oneScaled != 1 {
+		t.Fatalf("scaled = %d, want 1", oneScaled)
+	}
+	if got, want := one.NRGBAAt(9, 2), (color.NRGBA{4, 5, 6, 255}); got != want {
+		t.Fatalf("1x1 upscale pixel = %v, want %v", got, want)
+	}
+}
+
 func TestClassifyRender(t *testing.T) {
 	opaque := solid(4, 4, func(int, int) color.NRGBA { return color.NRGBA{1, 2, 3, 255} })
 	cutout := solid(4, 4, func(x, _ int) color.NRGBA {

@@ -255,6 +255,57 @@ func TestAPacksOwnBlocksReachTheAtlas(t *testing.T) {
 	}
 }
 
+// A block whose textures did not resolve draws as a flat colour, which is
+// exactly what a machine with no atlas at all draws. The count alone cannot
+// tell those two apart, so the summary has to say which faces and why -- and
+// the two reasons have two different fixes, so it has to distinguish them.
+func TestPackSummaryExplainsEachUnresolvedTexture(t *testing.T) {
+	opts := isolate(t)
+	opts.Vanilla.Dir = vanillaFixture(t)
+	opts.PackDir = filepath.Join("..", "pack", "testdata", "addon", "MyAddon_bp")
+
+	result, err := Ensure(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if result.Pack == nil {
+		t.Fatal("no pack summary")
+	}
+	if result.Pack.Untextured == 0 {
+		t.Fatal("the fixture pack defines a block with unresolvable textures; the summary counted none")
+	}
+	if result.Pack.UnresolvedTotal == 0 || len(result.Pack.Unresolved) == 0 {
+		t.Fatalf("Untextured = %d but nothing was listed: an author is told a number they cannot act on",
+			result.Pack.Untextured)
+	}
+	if len(result.Pack.Unresolved) > UnresolvedLimit {
+		t.Fatalf("listed %d entries, past the %d cap", len(result.Pack.Unresolved), UnresolvedLimit)
+	}
+
+	byKey := map[string]string{}
+	for _, u := range result.Pack.Unresolved {
+		if u.Block == "" || u.Face == "" || u.Texture == "" || u.Reason == "" {
+			t.Fatalf("incomplete entry %+v: every field is part of the sentence a host prints", u)
+		}
+		byKey[u.Texture] = u.Reason
+	}
+	// The key IS declared but its file is not on disk -- the fix is to export
+	// the image.
+	missingImage, ok := byKey["myaddon:missing_image"]
+	if !ok {
+		t.Fatalf("no entry for a declared key whose image is absent; got %v", byKey)
+	}
+	// The key is not declared at all -- the fix is to add it to
+	// terrain_texture.json. The two must not share one sentence.
+	neverDeclared, ok := byKey["myaddon:never_declared"]
+	if !ok {
+		t.Fatalf("no entry for a key that terrain_texture.json never declares; got %v", byKey)
+	}
+	if missingImage == neverDeclared {
+		t.Fatalf("both failures explained identically (%q): they have different fixes", missingImage)
+	}
+}
+
 // An atlas built by `genatlas` before any of this existed has no marker of its
 // own. It is still an atlas, and its own table says which tag it came from.
 func TestAnUnmarkedAtlasIsReadThroughItsTable(t *testing.T) {

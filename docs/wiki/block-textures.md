@@ -143,6 +143,16 @@ The tool resolves them the way the game does:
 - **`minecraft:geometry`** decides the shape. `minecraft:geometry.full_block` and
   `minecraft:geometry.cross` are drawn as what they say. Legacy `minecraft:block_shape` is read
   too.
+- **Every shape `terrain_texture.json` writes a path in is read**: a bare string, an array of
+  them, a `{"path": …, "overlay_color": …}` object, an array of those, and a
+  `{"variations": [{"path": …, "weight": …}, …]}` list. A path may name a `.texture_set.json`
+  (with or without writing the suffix out), in which case its `color` channel is followed —
+  including a `"#rrggbb"` or `[r, g, b, a]` literal, which is drawn as that flat colour.
+  **Variations are pinned to their first entry.** The game rolls a weighted die per placed block;
+  a preview that did the same would show you different textures on every reload.
+- **One entry the tool cannot read costs that entry only.** It is skipped, the rest of the file
+  loads, and the reason is printed against every block face that wanted it — so an unusual entry
+  never leaves a whole pack untextured and silent.
 - The **resource pack is found by the manifest UUID link**, not by path: your behaviour pack's
   `dependencies[]` names your resource pack's `header.uuid`. Sibling directories and the
   `com.mojang/development_{behavior,resource}_packs` layout are both searched, with directory

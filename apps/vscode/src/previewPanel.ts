@@ -599,11 +599,32 @@ export class PreviewPanel {
           onProgress: (line) => progress.report({ message: line }),
         })
         if (result.pack && result.pack.blocks > 0) {
-          this.textureOutput().appendLine(
+          const output = this.textureOutput()
+          output.appendLine(
             `This pack defines ${String(result.pack.blocks)} block(s): ${String(result.pack.fully)} draw exactly as declared, ` +
               `${String(result.pack.shapeCube)} as a textured cube (their geometry is a resource-pack model), ` +
               `${String(result.pack.untextured)} with an unresolved texture.`,
           )
+          if (result.pack.resourcePack) {
+            output.appendLine(`Textures resolved through ${result.pack.resourcePack}${result.pack.how ? ` (found by ${result.pack.how})` : ''}.`)
+          } else {
+            // The single most likely reason a whole pack draws flat: the behaviour pack's own
+            // resource pack was never located, so not one texture key could be resolved. Silence
+            // here is what makes that indistinguishable from the feature being broken.
+            output.appendLine(
+              'No resource pack was found for this pack, so none of its own block textures could be resolved; ' +
+                'its blocks draw as flat colours. Link it from the behaviour pack manifest\'s "dependencies", ' +
+                'or keep the two directories side by side with matching _bp/_rp names.',
+            )
+          }
+          // Which faces, and why. "N with an unresolved texture" is a number an author cannot act
+          // on: a key missing from terrain_texture.json and a PNG that was never exported look
+          // identical in the preview and have different fixes.
+          for (const u of result.pack.unresolved ?? []) {
+            output.appendLine(`  ${u.block} (${u.face} face, texture "${u.texture}"): ${u.reason}`)
+          }
+          const extra = (result.pack.unresolvedTotal ?? 0) - (result.pack.unresolved?.length ?? 0)
+          if (extra > 0) output.appendLine(`  ... and ${String(extra)} more.`)
         }
         return result
       },

@@ -86,7 +86,10 @@ import (
 // rules above change; every atlas then restales once, which is the correct
 // answer, because an atlas checked by the old rules was checked by rules this
 // build no longer believes.
-const packDigestScheme = "packcontent-v1"
+// v2 adds the <name>.texture_set.json behind each texture path: a texture can
+// now be declared by a texture set rather than by an image, so a pack whose
+// only change is to one of those files really has changed.
+const packDigestScheme = "packcontent-v2"
 
 // packSources is the exact set of pack files one atlas was built from. It is
 // recorded in the marker beside the atlas so that a later Check can re-hash
@@ -140,12 +143,28 @@ func (s packSources) digest() (string, packDigestStats) {
 	}
 	if s.TextureRoot != "" {
 		for _, rel := range s.Textures {
-			path, err := rptex.FindTexture(s.TextureRoot, rel)
+			// The texture set that MAY stand behind this path is hashed
+			// whether or not it exists and whether or not it resolves --
+			// absent contributes "absent", exactly as a missing image does.
+			// Probing it unconditionally is what makes adding, editing,
+			// breaking or deleting a <name>.texture_set.json all visible;
+			// hashing it only on success would leave a pack whose texture set
+			// points at a file that is not there stuck on a stale atlas even
+			// after the author fixed the file.
+			hashInto(sum, "textureset "+rel, filepath.Join(s.TextureRoot, filepath.FromSlash(rel))+rptex.TextureSetSuffix, &st)
+			tex, err := rptex.ResolveTexture(s.TextureRoot, rel)
 			if err != nil {
 				fmt.Fprintf(sum, "texture %s\x00absent\n", rel)
 				continue
 			}
-			hashInto(sum, "texture "+rel+strings.ToLower(filepath.Ext(path)), path, &st)
+			if tex.File == "" {
+				// A flat colour has no file to hash; the texture set that
+				// declares it has already been hashed above, so the colour
+				// itself is recorded only to keep the two cases distinct.
+				fmt.Fprintf(sum, "texture %s\x00color %s\n", rel, tex.Color.Hex())
+				continue
+			}
+			hashInto(sum, "texture "+rel+strings.ToLower(filepath.Ext(tex.File)), tex.File, &st)
 		}
 	}
 	return hex.EncodeToString(sum.Sum(nil)), st
