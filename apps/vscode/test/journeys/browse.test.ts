@@ -50,6 +50,13 @@ const REQUIRED_BY = 'wiki:ceiling_slab_block'
 const REQUIRED_BY_FILE = 'features/ceiling_slab_block.json'
 const REQUIRING = 'wiki:ceiling_slab_scatter'
 const REQUIRING_FILE = 'features/ceiling_slab_scatter.json'
+/** A feature with a plain string field anybody can retype, used by the journeys about what the
+ * panel SAYS while it is being edited. Shared with edit.test.ts's first journey on purpose: it is
+ * the simplest write this pack has, so a failure here is about the sentence and not about the
+ * write. */
+const EDITABLE = 'wiki:blocked_gold_block'
+const EDITABLE_FILE = 'features/blocked_gold_block.json'
+const EDITABLE_KEY = 'places_block'
 /** graph/compounds/spec.ts's PLACEHOLDER_FEATURE, spelled out rather than imported: this is an
  * assertion about what ends up in somebody's pack file, and a constant that moved would rewrite
  * the assertion along with the product. */
@@ -98,6 +105,190 @@ describe('finding a node', () => {
       // Escape puts the rest of the pack back, which the status line promises in so many words.
       await box.press('Escape')
       await expect.poll(async () => (await j.nodeIds()).length, { timeout: 20_000 }).toBe(everything)
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+/** How many cards really overlap the canvas -- counted in the page, from client rectangles,
+ * which is the number a reader with a ruler would get. Nothing here asks the renderer; the whole
+ * point is to check the renderer's own answer against an independent one. */
+async function cardsOnScreen(j: Journey): Promise<number> {
+  return j.page.evaluate(() => {
+    const host = (document.querySelector('.flg-graph') as HTMLElement).getBoundingClientRect()
+    let n = 0
+    for (const el of document.querySelectorAll('.flg-node')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 && r.height === 0) continue
+      if (r.right > host.left && r.left < host.right && r.bottom > host.top && r.top < host.bottom) n++
+    }
+    return n
+  })
+}
+
+/** The number the status line is quoting, or -1 when it is not quoting one. */
+function quoted(status: string): number {
+  const m = /Showing (\d+) of \d+ cards/.exec(status)
+  return m === null ? -1 : Number(m[1])
+}
+
+describe('what the status line says is on screen', () => {
+  it(
+    'counts the cards a reader can see, and keeps counting them as the camera moves',
+    async () => {
+      const j = await journey()
+
+      // COLD OPEN. The line used to quote `nodesDrawn`, which is the CULL BAND -- the viewport
+      // grown half a screen per side, about four times its area -- so on this very pack it said
+      // "about 22 of 57" over a screen holding seventeen cards. The word "about" was doing the
+      // work of a factor of three.
+      const opening = await j.status()
+      expect(opening).toMatch(/Showing \d+ of \d+ cards/)
+      expect(opening).not.toMatch(/about/)
+      expect(quoted(opening)).toBe(await cardsOnScreen(j))
+
+      // ZOOMING IN IS THE CASE THAT BROKE. The kept set is recomputed only when the viewport
+      // LEAVES the band it was computed for, and a viewport that shrinks never leaves it -- so
+      // eight notches in, with nothing whole left on screen, the line still said "about 22 of
+      // 57". Eight notches is what the finding measured; `zoomBy` is exactly what ctrl+wheel and
+      // the `+` key do.
+      await j.page.evaluate(() => {
+        const w = window as unknown as { __flgView: { zoomBy(factor: number): void } }
+        for (let i = 0; i < 8; i++) w.__flgView.zoomBy(1.2)
+      })
+      await j.page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+      const zoomed = await j.status()
+      expect(quoted(zoomed)).toBeLessThan(quoted(opening))
+      expect(quoted(zoomed)).toBe(await cardsOnScreen(j))
+
+      // AND JUMPING SOMEWHERE ELSE. A search hit, a sidebar root, a freshly created node: every
+      // one of them moves the camera through focusNode, which used to move it in silence. The
+      // line has to still be true afterwards, wherever it landed.
+      const someNode = (await j.nodeIds())[0]!
+      await j.page.evaluate((id: string) => {
+        ;(window as unknown as { __flgView: { focusNode(n: string): void } }).__flgView.focusNode(id)
+      }, someNode)
+      await j.page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+      const jumped = await j.status()
+      expect(quoted(jumped)).toBeGreaterThanOrEqual(0)
+      expect(quoted(jumped)).toBe(await cardsOnScreen(j))
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+describe('the first thing a newcomer sees', () => {
+  it(
+    'opens on an entry point, and offers "Starts here" before the fault report',
+    async () => {
+      const j = await journey()
+
+      // THE SIDEBAR. Three stacked warning boxes used to come first -- dangling references, the
+      // ones the game provides, the delegation loops -- and "Starts here" sat below all of them,
+      // measured at y=523 of a 696px column with 165px scrolled off the bottom. The list a
+      // newcomer can actually act on was the one they could not see.
+      const side = await j.sideText()
+      expect(side).toContain('Starts here')
+      const roots = side.indexOf('Starts here')
+      // Every problem sentence the overview can lead with. Whichever of them this pack produces
+      // has to come after the roots, and a pack producing none of them passes trivially --
+      // which is right, there is nothing to be ahead of.
+      for (const problem of [/points? at a feature/, /loops? where a feature/, /the engine refused to load/, /something the engine reads/]) {
+        const m = problem.exec(side)
+        if (m !== null) expect(m.index).toBeGreaterThan(roots)
+      }
+
+      // THE CAMERA. It aimed at the DENSEST screenful, which on a real pack is a wall of
+      // near-identical leaves and on this one is whatever the packing happened to crowd. What a
+      // reader came for is an entry point -- a feature nothing delegates to -- which is the same
+      // set the sidebar has just listed under "Starts here".
+      const rootsOnScreen = await j.page.evaluate(() => {
+        const host = (document.querySelector('.flg-graph') as HTMLElement).getBoundingClientRect()
+        const named = [...document.querySelectorAll('#flg-side .flg-jump')].map((el) => el.textContent ?? '')
+        const on: string[] = []
+        for (const el of document.querySelectorAll('.flg-node')) {
+          const r = el.getBoundingClientRect()
+          if (!(r.right > host.left && r.left < host.right && r.bottom > host.top && r.top < host.bottom)) continue
+          const id = (el as HTMLElement).dataset['nodeId'] ?? ''
+          if (named.includes(id)) on.push(id)
+        }
+        return on
+      })
+      expect(rootsOnScreen.length).toBeGreaterThan(0)
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+describe('editing a field, and being told so', () => {
+  it(
+    'says what it is writing and where, then says it landed',
+    async () => {
+      const j = await journey()
+      await j.clickNode(EDITABLE)
+
+      const box = j.page.locator(`#flg-side [data-key=${JSON.stringify(EDITABLE_KEY)}] input.flg-ins-input`).first()
+      await box.waitFor({ state: 'visible', timeout: 20_000 })
+      await box.fill('minecraft:diamond_block')
+      await box.press('Enter')
+
+      // A SENTENCE, NOT A FIELD NAME. This used to be `setStatus(change.label)`, so the whole
+      // confirmation for somebody's first edit was the words "extent 2" -- no verb, no file, no
+      // tense, nothing to say whether that was a request, a result or a refusal. Every
+      // neighbouring path in the panel already said a sentence; this one now does too, and names
+      // the file, which is the part the reader cannot see for themselves.
+      const writing = await j.waitForStatus(/^Writing .+ to .+\.\.\.$/)
+      expect(writing).toContain(EDITABLE_FILE)
+
+      // AND THEN IT SAYS IT LANDED. With no acknowledgement the line simply stayed on "Writing
+      // ..." for the whole engine round trip -- measured at +5.6 s with the field still editable
+      // and no spinner anywhere -- and was then replaced by a card count, so the write itself was
+      // never confirmed at all. The host answers the moment the bytes are on disk.
+      await j.waitForStatus(/^Saved /)
+
+      // ...and the line goes back to the camera once the rebuilt graph arrives, which is what it
+      // says when nothing is happening.
+      await j.waitForStatus(/Showing \d+ of \d+ cards/)
+
+      // The outcome, on disk, because a status line is not evidence of a write.
+      expect(j.read(EDITABLE_FILE)).toContain('minecraft:diamond_block')
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+describe('finding the 3D preview at all', () => {
+  it(
+    'a selected node offers a Preview button, and pressing it asks for one',
+    async () => {
+      const j = await journey()
+      await j.clickNode(EDITABLE)
+
+      // THE ONLY ROUTE USED TO BE A TOGGLE. "Preview on select" lives in the toolbar, is off by
+      // default, and is a setting phrased as a condition on a thing the reader has not been told
+      // exists -- so selecting a node, which is the newcomer's whole goal, gave no hint that the
+      // other half of the product was there. Found by its accessible name, not by a class.
+      const preview = j.page.locator('#flg-side button', { hasText: /^Preview$/ }).first()
+      await preview.waitFor({ state: 'visible', timeout: 20_000 })
+
+      await preview.click()
+      // It previews the RULE that places this feature when there is one, and the feature itself
+      // otherwise -- either way the node the author selected is what gets attributed, which is
+      // the pair the host needs. See webview/graph.ts's previewFor.
+      const asked = await j.waitForPost('previewNode', (m) => m.type === 'previewNode')
+      expect(asked['attribute']).toBe(EDITABLE)
+      expect(typeof asked['nodeId']).toBe('string')
+      // And it says so, rather than leaving a press that opens a panel somewhere else silent.
+      expect(await j.status()).toMatch(/Previewing /)
 
       expect(j.problems()).toEqual([])
     },

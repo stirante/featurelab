@@ -22,11 +22,14 @@
 // The host owns naming, writing and undo; this module owns "the author asked for a scatter, at
 // this point on the canvas, and here are the fields it must start with".
 //
-// THE FIVE COMPOUNDS COME FIRST, on purpose. They are the whole reason a menu beats writing the
+// THE FOUR COMPOUNDS COME FIRST, on purpose. They are the whole reason a menu beats writing the
 // JSON by hand: each one is several features wired together that nobody would discover from the
 // type list. Sorting them in among 29 vanilla types alphabetically would bury the only entries
 // that are not already in the schema documentation. So they are their own category and that
-// category is first. (COMPOUND_KIND_NOTES is deliberately NOT surfaced here: those notes are
+// category is first. (FOUR, and the number is spelled once here and derived everywhere else --
+// COMPOUND_KINDS is the list. It read FIVE for as long as `switch` was a kind, which it has not
+// been for some time, and a stale count in a header is how a reviewer ends up counting buttons
+// to find out which of the two the code means.) (COMPOUND_KIND_NOTES is deliberately NOT surfaced here: those notes are
 // written for whoever might delete a compound, not for the author choosing one. The title and
 // summary on each CompoundSpec are the fields marked as what the palette shows.)
 //
@@ -1252,7 +1255,18 @@ export interface PaletteMenu {
   readonly element: HTMLElement
   /** Opens at a point in CLIENT coordinates -- a PointerEvent's `clientX`/`clientY`. A click on
    * an entry creates the node at the graph point this maps to, so a right-click and a click
-   * land in the same place. */
+   * land in the same place.
+   *
+   * DELIBERATELY UNFILTERED, and it takes no category or kind to open on. The obvious next
+   * parameter would be one -- the toolbar once had a labelled button per compound, and every one
+   * of them opened this menu at the first level with nothing preselected, which is four buttons
+   * making a promise the menu then broke. The parameter is not what was missing there. A menu
+   * opened already narrowed to one category hides the other eight behind a back button the author
+   * did not ask for, and the type-ahead field at the top already crosses every category, which is
+   * the faster path to a named type than any pre-filter would be. So the toolbar collapsed to one
+   * honest "Add" that opens the whole menu, and this signature stays one point and nothing else.
+   * If a caller ever genuinely wants a narrowed menu, the thing to add is a query to seed the
+   * filter field with -- visible, editable and clearable by the author -- not a hidden mode. */
   openAt(screen: GraphPoint): void
   close(): void
   isOpen(): boolean
@@ -1295,6 +1309,11 @@ export function createPaletteMenu(options: PaletteMenuOptions): PaletteMenu {
   root.hidden = true
   root.setAttribute('role', 'dialog')
   root.setAttribute('aria-label', 'Add a node')
+  // IT BEHAVES LIKE A MODAL, SO IT SAYS SO. Everything outside this panel is inert while it is
+  // up -- a pointerdown anywhere else closes it, Escape closes it, and Tab is trapped inside it
+  // (see onDocumentKeyDown) -- and a dialog that behaves that way without `aria-modal` leaves a
+  // screen reader free to walk out into a toolbar that will not answer.
+  root.setAttribute('aria-modal', 'true')
 
   const head = doc.createElement('div')
   head.className = 'flp-head'
@@ -1753,6 +1772,49 @@ export function createPaletteMenu(options: PaletteMenuOptions): PaletteMenu {
     }
   }
 
+  /** Everything inside the panel that can take the keyboard, in document order.
+   *
+   * The rows are deliberately NOT in it: this is an `aria-activedescendant` listbox, so the rows
+   * are announced without ever holding focus, and putting them in the tab ring would undo that. */
+  function focusables(): HTMLElement[] {
+    return [...root.querySelectorAll<HTMLElement>('button, input, [href], select, textarea, [tabindex]')].filter(
+      (el) => !el.hasAttribute('disabled') && el.tabIndex >= 0 && el.offsetParent !== null && !el.hidden,
+    )
+  }
+
+  /** THE TRAP, AND THE ESCAPE THAT SURVIVES LEAVING THE PANEL.
+   *
+   * Both used to be on the filter input alone, which meant they held for exactly as long as the
+   * caret stayed in it. Two Tabs took the focus to <body> and then into the toolbar behind a
+   * dialog that was still open and still covering it, and from there Escape did nothing at all:
+   * the only key that dismissed this thing was bound to an element the reader had just left. So
+   * the panel listens on the DOCUMENT, in the capture phase, for as long as it is open:
+   *
+   *   - Escape closes it from wherever focus has got to, and is stopped here so it cannot also
+   *     be read as "clear the search" or "drop the filter" by the canvas behind.
+   *   - Tab is moved by hand between the panel's own focusable elements, wrapping at both ends,
+   *     and a Tab pressed while focus has somehow escaped the panel is pulled back into it. */
+  function onDocumentKeyDown(event: KeyboardEvent): void {
+    if (!open) return
+    if (event.key === 'Escape') {
+      close()
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const ring = focusables()
+    if (ring.length === 0) return
+    const active = doc.activeElement
+    const at = active instanceof HTMLElement ? ring.indexOf(active) : -1
+    // Focus already outside the panel: the next Tab belongs to the panel, not to what is behind
+    // it, so it lands on the first (or last) thing in here rather than on the toolbar.
+    const next = at < 0 ? (event.shiftKey ? ring.length - 1 : 0) : (at + (event.shiftKey ? -1 : 1) + ring.length) % ring.length
+    ring[next]?.focus()
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
   function onInput(): void {
     activeIndex = 0
     draw()
@@ -1788,9 +1850,15 @@ export function createPaletteMenu(options: PaletteMenuOptions): PaletteMenu {
     root.style.top = `${y}px`
   }
 
+  /** Whatever had the keyboard when this opened, so closing can give it back. */
+  let opener: HTMLElement | null = null
+
   function openAt(screen: GraphPoint): void {
     if (disposed) return
     openPoint = { x: screen.x, y: screen.y }
+    // Recorded BEFORE the filter takes focus, and only on a real open: re-opening an already
+    // open menu must not record the menu's own filter box as the place to return to.
+    if (!open) opener = doc.activeElement instanceof HTMLElement ? doc.activeElement : null
     open = true
     level = null
     activeIndex = 0
@@ -1799,6 +1867,7 @@ export function createPaletteMenu(options: PaletteMenuOptions): PaletteMenu {
     draw()
     position(screen)
     filter.focus()
+    doc.addEventListener('keydown', onDocumentKeyDown, true)
   }
 
   function close(): void {
@@ -1806,6 +1875,15 @@ export function createPaletteMenu(options: PaletteMenuOptions): PaletteMenu {
     endDrag()
     open = false
     root.hidden = true
+    doc.removeEventListener('keydown', onDocumentKeyDown, true)
+    // Focus goes back to whatever opened this -- but ONLY if the panel still has it. A menu
+    // dismissed by clicking somewhere else has already given the keyboard to whatever was
+    // clicked, and yanking it back to a toolbar button the reader did not press is worse than
+    // not restoring it at all.
+    const active = doc.activeElement
+    const held = active === null || active === doc.body || (active instanceof Node && root.contains(active))
+    if (held && opener !== null && opener.isConnected) opener.focus()
+    opener = null
     options.onClose?.()
   }
 
@@ -1826,6 +1904,7 @@ export function createPaletteMenu(options: PaletteMenuOptions): PaletteMenu {
       endDrag()
       open = false
       doc.removeEventListener('pointerdown', onDocumentPointerDown, true)
+      doc.removeEventListener('keydown', onDocumentKeyDown, true)
       root.remove()
     },
   }
