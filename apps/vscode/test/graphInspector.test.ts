@@ -47,6 +47,7 @@ import {
   existsAt,
   materialisedEdit,
   exclusiveChoices,
+  fieldsAfter,
   fieldsOf,
   isScalarList,
   isSectionRow,
@@ -702,7 +703,7 @@ describe('what a section\'s documentation lists', () => {
     const head = entries[0]!
     expect(head.name).toBe('distribution')
     expect(head.glyph).toBe(kindGlyph('group'))
-    expect(head.badges.map((badge) => badge.label)).toEqual(['required', '1.21.10+'])
+    expect(head.badges.map((badge) => badge.label)).toEqual(['group', 'read once', 'required', '1.21.10+'])
     const names = entries.map((entry) => `${entry.parent}${entry.name}`)
     expect(names).toContain('x')
     expect(names).toContain('x.distribution')
@@ -794,10 +795,34 @@ describe('the stylesheet', () => {
     expect(offenders).toEqual([])
   })
 
-  it('reads every colour it uses out of a --vscode-* property', () => {
-    const declared = [...INSPECTOR_STYLESHEET.matchAll(/--fli-[a-z-]+:\s*([^;]+);/g)].map((match) => match[1] as string)
-    expect(declared.length).toBeGreaterThan(10)
-    for (const value of declared) expect(value).toContain('var(--vscode-')
+  it('reads every colour it uses out of a --vscode-* property, however many steps away', () => {
+    // A token may now be DERIVED from other tokens -- `--fli-fg-dim` is this panel's own
+    // foreground faded towards its own background, which is how a "quieter, but still legible"
+    // grey is obtained without borrowing the host's `descriptionForeground` (60% alpha in the
+    // light default, 3.40:1 once it resolves). So "contains var(--vscode-" is no longer the
+    // right question; "does every path out of this token end at a --vscode-* property" is, and
+    // it is the question the rule always meant to ask. A hard-coded colour still fails, a token
+    // that references a token that references the host still passes, and a token that
+    // references one that does not exist fails rather than silently rendering as nothing.
+    const declared = new Map<string, string>()
+    for (const match of INSPECTOR_STYLESHEET.matchAll(/(--fli-[a-z-]+):\s*([^;]+);/g)) declared.set(match[1]!, match[2]!)
+    expect(declared.size).toBeGreaterThan(10)
+
+    function resolvesToTheHost(value: string, seen: Set<string>): boolean {
+      if (value.includes('var(--vscode-')) return true
+      const references = [...value.matchAll(/var\((--fli-[a-z-]+)/g)].map((m) => m[1]!)
+      if (references.length === 0) return false
+      return references.some((name) => {
+        if (seen.has(name)) return false
+        seen.add(name)
+        const next = declared.get(name)
+        return next !== undefined && resolvesToTheHost(next, seen)
+      })
+    }
+
+    for (const [name, value] of declared) {
+      expect(resolvesToTheHost(value, new Set([name])), `${name} does not resolve to a --vscode-* property`).toBe(true)
+    }
   })
 })
 
@@ -831,6 +856,103 @@ const DARK_THEME: Record<string, string> = {
   '--vscode-font-family': 'system-ui, sans-serif',
   '--vscode-editor-font-family': 'Consolas, monospace',
   '--vscode-font-size': '13px',
+}
+
+/** VS Code's Light Modern, the light default.
+ *
+ * `#3b3b3b99` is not a typo and is the entire point: VS Code registers `descriptionForeground`
+ * as its own foreground at 60% alpha, and in a light theme that resolves to a grey which reads
+ * perfectly well in a designer's head and measures 3.40:1 on the panel. */
+const LIGHT_MODERN_THEME: Record<string, string> = {
+  ...DARK_THEME,
+  '--vscode-foreground': '#3b3b3b',
+  '--vscode-descriptionForeground': '#3b3b3b99',
+  '--vscode-editorWidget-background': '#f8f8f8',
+  '--vscode-editorHoverWidget-background': '#ffffff',
+  '--vscode-editorHoverWidget-border': '#cecece',
+  '--vscode-input-background': '#ffffff',
+  '--vscode-input-foreground': '#3b3b3b',
+  '--vscode-input-border': '#cecece',
+  '--vscode-input-placeholderForeground': '#767676',
+  '--vscode-widget-border': '#e5e5e5',
+  '--vscode-panel-border': '#e5e5e5',
+  '--vscode-focusBorder': '#005fb8',
+  '--vscode-button-secondaryBackground': '#e5e5e5',
+  '--vscode-button-secondaryForeground': '#3b3b3b',
+  '--vscode-list-hoverBackground': '#e8e8e8',
+  '--vscode-textPreformat-foreground': '#a31515',
+  '--vscode-textCodeBlock-background': '#f3f3f3',
+  '--vscode-editorError-foreground': '#e51400',
+  '--vscode-editorWarning-foreground': '#bf8803',
+  '--vscode-charts-blue': '#1a85ff',
+}
+
+/** Asks the page for raw strings only: the element's own colour, and every background and
+ * opacity above it, root first. The compositing is done in node by `flattened` below, because
+ * arithmetic inside a `page.evaluate` string is arithmetic nothing type-checks and nothing
+ * tests -- and the first version of it silently returned NaN for every `color-mix()` result,
+ * which is most of the derived colours in this stylesheet. */
+const INSPECTOR_READ = `(selector) => {
+  const el = document.querySelector(selector)
+  if (el === null) return null
+  const stack = []
+  for (let n = el; n !== null; n = n.parentElement) {
+    const s = getComputedStyle(n)
+    stack.push({ background: s.backgroundColor, opacity: s.opacity })
+  }
+  return { colour: getComputedStyle(el).color, stack: stack.reverse() }
+}`
+
+/** Every colour spelling a browser answers with: `rgb()`, `rgba()`, and `color(srgb r g b / a)`
+ * with 0..1 channels, which is what a `color-mix()` result comes back as. */
+function parseCssColour(value: string): [number, number, number, number] {
+  const mix = /color\(srgb ([^)]+)\)/.exec(value)
+  if (mix !== null) {
+    const n = mix[1]!.split(/[\s/]+/).filter((part) => part !== '').map(Number)
+    return [n[0]! * 255, n[1]! * 255, n[2]! * 255, n[3] ?? 1]
+  }
+  const plain = /rgba?\(([^)]+)\)/.exec(value)
+  if (plain === null) return [0, 0, 0, 0]
+  const n = plain[1]!.split(/[\s,/]+/).filter((part) => part !== '').map(Number)
+  return [n[0]!, n[1]!, n[2]!, n[3] ?? 1]
+}
+
+interface ColourStack {
+  colour: string
+  stack: { background: string; opacity: string }[]
+}
+
+/** The colour the text is really seen in, and the colour really behind it. */
+function flattened(read: ColourStack): { foreground: number[]; background: number[] } {
+  const over = (src: readonly number[], back: readonly number[], a: number): number[] => [
+    src[0]! * a + back[0]! * (1 - a),
+    src[1]! * a + back[1]! * (1 - a),
+    src[2]! * a + back[2]! * (1 - a),
+  ]
+  let background: number[] = [255, 255, 255]
+  let alpha = 1
+  for (const layer of read.stack) {
+    const layerOpacity = Number(layer.opacity)
+    alpha *= Number.isFinite(layerOpacity) ? layerOpacity : 1
+    const bg = parseCssColour(layer.background)
+    if (bg[3] > 0) background = over(bg, background, bg[3] * alpha)
+  }
+  const fg = parseCssColour(read.colour)
+  return { foreground: over(fg, background, fg[3] * alpha), background }
+}
+
+/** WCAG 2.x relative luminance and contrast ratio, over already-flattened colours. */
+function contrastRatio(a: readonly number[], b: readonly number[]): number {
+  const luminance = (c: readonly number[]): number => {
+    const channel = (v: number): number => {
+      const x = v / 255
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * channel(c[0]!) + 0.7152 * channel(c[1]!) + 0.0722 * channel(c[2]!)
+  }
+  const la = luminance(a)
+  const lb = luminance(b)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
 }
 
 /** Every property the stylesheet reads, given a colour no palette would produce. Against this,
@@ -954,11 +1076,27 @@ window.__ready = true
   interface EdgeIterations {
     value: string | null
     fieldPath: string
+    /** What the host's last profiled run measured about this key, in nodeStats.ts's words --
+     * `describeStop(stop).label`. See MolangFieldOptions.engineNote. */
+    note?: string
+  }
+
+  /** The two lists the lineage strip draws, as a host would hand them over. */
+  interface Lineage {
+    parents: { id: string; kind?: string; count?: number }[]
+    children: { id: string; kind?: string; count?: number }[]
   }
 
   async function load(
     form: NodeForm,
-    opts: { theme?: Record<string, string>; nodeId?: string; docsHost?: boolean; height?: number; iterations?: EdgeIterations } = {},
+    opts: {
+      theme?: Record<string, string>
+      nodeId?: string
+      docsHost?: boolean
+      height?: number
+      iterations?: EdgeIterations
+      lineage?: Lineage
+    } = {},
   ): Promise<Page> {
     const page = await browser.newPage({ viewport: { width: 900, height: opts.height ?? 1400 } })
     await page.goto(`http://127.0.0.1:${server.port}/`)
@@ -967,7 +1105,7 @@ window.__ready = true
       for (const [name, value] of Object.entries(vars)) document.documentElement.style.setProperty(name, value)
     }, opts.theme ?? DARK_THEME)
     await page.evaluate(
-      ({ payload, id, hosted, iterations }) => {
+      ({ payload, id, hosted, iterations, lineage }) => {
         const api = (window as unknown as { FLI: Record<string, unknown> }).FLI
         const create = api['createNodeInspector'] as (form: unknown, options: unknown) => { element: HTMLElement }
         const changes: unknown[] = []
@@ -991,11 +1129,14 @@ window.__ready = true
           )
           editor.onChange((change) => edgeChanges.push(change))
           ;(window as unknown as { edgeEditor: unknown }).edgeEditor = editor
-          edgeFields = [{ key: 'iterations', editor }]
+          edgeFields = [{ key: 'iterations', editor, engineNote: () => iterations.note ?? null }]
         }
+        const navigations: string[] = []
+        ;(window as unknown as { navigations: string[] }).navigations = navigations
         const view = create(payload, {
           nodeId: id,
           ...(hosted ? { docsHost: document.getElementById('canvas') } : {}),
+          ...(lineage === null ? {} : { lineage, onNavigate: (to: string) => navigations.push(to) }),
           edgeFields,
           onChange: (change: { edits: { path: unknown; value: unknown }[]; path: unknown; label: string }) => {
             // `undefined` does not survive JSON, and "remove the key" is exactly the case this
@@ -1015,6 +1156,7 @@ window.__ready = true
         id: opts.nodeId ?? 'example:node',
         hosted: opts.docsHost !== false,
         iterations: opts.iterations ?? null,
+        lineage: opts.lineage ?? null,
       },
     )
     return page
@@ -1056,13 +1198,279 @@ window.__ready = true
     )
   }
 
+  it('the lineage strip lists both directions, and every row goes there', async () => {
+    const page = await load(formFor('wiki:acacia_branching_tree'), {
+      nodeId: 'wiki:shared_child',
+      lineage: {
+        parents: [
+          { id: 'wiki:one', kind: 'scatter', count: 1 },
+          { id: 'wiki:two', kind: 'sequence', count: 3 },
+          { id: 'wiki:three', kind: 'aggregate', count: 1 },
+        ],
+        children: [{ id: 'wiki:leaf', kind: 'scatter', count: 1 }],
+      },
+    })
+    try {
+      const strip = await page.evaluate(() => {
+        const rows = (which: string): { id: string; tag: string; text: string }[] =>
+          [...document.querySelectorAll(`[data-lineage="${which}"] .flg-ins-lineage-row`)].map((r) => ({
+            id: (r as HTMLElement).dataset['lineageId'] ?? '',
+            tag: r.tagName,
+            text: (r.textContent ?? '').trim(),
+          }))
+        return {
+          present: document.querySelectorAll('.flg-ins-lineage').length,
+          parents: rows('parents'),
+          children: rows('children'),
+          counts: [...document.querySelectorAll('.flg-ins-lineage-count')].map((c) => c.textContent),
+        }
+      })
+      expect(strip.present).toBe(1)
+      expect(strip.parents.map((r) => r.id)).toEqual(['wiki:one', 'wiki:two', 'wiki:three'])
+      expect(strip.children.map((r) => r.id)).toEqual(['wiki:leaf'])
+      // Every row is a CONTROL. This strip exists because following a chain on the canvas is a
+      // camera problem with no solution -- 87 nodes over 5,362 x 5,075 units fit at zoom 0.184
+      // and every label is dropped below 0.55 -- so a list that cannot be travelled from would
+      // be the same dead end one level in.
+      expect(strip.parents.every((r) => r.tag === 'BUTTON')).toBe(true)
+      // A pair joined by three edges is ONE destination, and the row says how many edges it is.
+      expect(strip.parents[1]!.text).toContain('sequence')
+      expect(strip.parents[1]!.text).toContain('3')
+      expect(strip.counts).toEqual(['3', '1'])
+
+      await page.locator('[data-lineage="parents"] .flg-ins-lineage-row').nth(1).click()
+      expect(await page.evaluate(() => (window as unknown as { navigations: string[] }).navigations)).toEqual(['wiki:two'])
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the lineage strip says so when a direction is empty, and revealLineage lands on a row', async () => {
+    const page = await load(formFor('wiki:acacia_branching_tree'), {
+      nodeId: 'wiki:root',
+      lineage: { parents: [], children: [{ id: 'wiki:leaf', kind: 'scatter', count: 1 }] },
+    })
+    try {
+      const empty = await page.evaluate(() => ({
+        parents: document.querySelector('[data-lineage="parents"] .flg-ins-lineage-empty')?.textContent ?? null,
+        parentRows: document.querySelectorAll('[data-lineage="parents"] .flg-ins-lineage-row').length,
+        // "Nothing points at this" is an ANSWER, and the strip gives it rather than disappearing:
+        // a missing section reads as a panel that failed to load.
+        landedOnParents: (window as unknown as { view: { revealLineage(w: string): boolean } }).view.revealLineage('parents'),
+        landedOnChildren: (window as unknown as { view: { revealLineage(w: string): boolean } }).view.revealLineage('children'),
+        focused: document.activeElement?.className ?? '',
+      }))
+      expect(empty.parentRows).toBe(0)
+      expect(empty.parents).toBeTruthy()
+      expect(empty.landedOnParents).toBe(false)
+      expect(empty.landedOnChildren).toBe(true)
+      expect(empty.focused).toContain('flg-ins-lineage-row')
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('no lineage means no strip: a panel that cannot answer does not draw an empty answer', async () => {
+    const page = await load(formFor('wiki:acacia_branching_tree'))
+    try {
+      expect(await page.evaluate(() => document.querySelectorAll('.flg-ins-lineage').length)).toBe(0)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  // -------------------------------------------------------------------------
+  // What the panel is called, to something that is not looking at it
+  // -------------------------------------------------------------------------
+  //
+  // An audit drove this panel through Chromium's accessibility tree rather than its DOM. What it
+  // found was a panel whose every string is on screen and whose every string is anonymous once
+  // it is off it: two lists called `list ""`, rows called `button "wiki:ceiling_slab_block
+  // scatter"` -- a name with no verb in it -- a heading called "DISTRIBUTION Remove distribution
+  // Explain distribution", and a documentation aside that forty forward Tabs never reached.
+
+  it('the lineage lists are named, are really lists, and every row says what pressing it does', async () => {
+    const page = await load(formFor('wiki:acacia_branching_tree'), {
+      nodeId: 'wiki:middle',
+      lineage: {
+        parents: [
+          { id: 'wiki:one', kind: 'scatter', count: 1 },
+          { id: 'wiki:two', kind: 'sequence', count: 3 },
+        ],
+        children: [{ id: 'wiki:leaf', kind: 'scatter', count: 1 }],
+      },
+    })
+    try {
+      const strip = await page.evaluate(() =>
+        [...document.querySelectorAll('.flg-ins-lineage-list')].map((list) => ({
+          name: list.getAttribute('aria-label') ?? '',
+          role: list.getAttribute('role') ?? '',
+          items: list.querySelectorAll('[role="listitem"]').length,
+          wrapperDisplay: getComputedStyle(list.querySelector('[role="listitem"]')!).display,
+          rows: [...list.querySelectorAll('.flg-ins-lineage-row')].map((row) => ({
+            // The VISIBLE text, joined the way an accessible-name computation joins separate
+            // boxes: with a space between them. `textContent` runs them together ("wiki:one"
+            // + "scatter" = "wiki:onescatter") because the gap between the two spans is a flex
+            // gap and not a character.
+            face: [...row.children].map((child) => (child.textContent ?? '').trim()).filter((t) => t !== '').join(' '),
+            name: row.getAttribute('aria-label') ?? '',
+          })),
+        })),
+      )
+      expect(strip).toHaveLength(2)
+      const names = strip.map((list) => list.name)
+      // "USED BY" and "DELEGATES TO" were two loose pieces of StaticText above `list ""`, twice.
+      expect(names[0]).toContain('Used by')
+      expect(names[1]).toContain('Delegates to')
+      // The count went with them, spelled out rather than left as a bare number.
+      expect(names[0]).toContain('2')
+      expect(names[0]!.toLowerCase()).toContain('feature')
+
+      for (const list of strip) {
+        expect(list.role).toBe('list')
+        // A `role="list"` whose children are not listitems is a list of nothing.
+        expect(list.items).toBe(list.rows.length)
+        // And the wrapper must be invisible to layout, or the flex column turns into a nested
+        // one and every row loses its width.
+        expect(list.wrapperDisplay).toBe('contents')
+        for (const row of list.rows) {
+          // WCAG 2.5.3: what is written on the control has to be the start of what it is called.
+          expect(row.name.startsWith(row.face), `${row.name} does not begin with ${row.face}`).toBe(true)
+          // ...and then it has to say what pressing it will DO.
+          expect(row.name.length).toBeGreaterThan(row.face.length + 8)
+        }
+      }
+      // Still travellable, which is the whole reason the strip exists.
+      await page.locator('[data-lineage="parents"] .flg-ins-lineage-row').nth(1).click()
+      expect(await page.evaluate(() => (window as unknown as { navigations: string[] }).navigations)).toEqual(['wiki:two'])
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('a section heading is called its own name, once', async () => {
+    const page = await load(formFor('wiki:acacia_branching_tree'))
+    try {
+      const headings = await page.evaluate(() =>
+        [...document.querySelectorAll('.flg-ins-section-head')].map((head) => {
+          const id = head.getAttribute('aria-labelledby') ?? ''
+          const target = id === '' ? null : head.ownerDocument.getElementById(id)
+          return {
+            id,
+            labelIsTheNameSpan: target !== null && target.classList.contains('flg-ins-section-name'),
+            name: target?.textContent ?? '',
+            // What the heading would have been called with no aria-labelledby: its whole subtree,
+            // which is where "DISTRIBUTION Remove distribution Explain distribution" came from.
+            subtree: (head.textContent ?? '').trim(),
+            controls: [...head.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? ''),
+          }
+        }),
+      )
+      expect(headings.length).toBeGreaterThan(0)
+      for (const heading of headings) {
+        expect(heading.id).not.toBe('')
+        expect(heading.labelIsTheNameSpan).toBe(true)
+        expect(heading.name).not.toBe('')
+        // The name says the section once. The subtree said it two or three times.
+        const occurrences = heading.subtree.toLowerCase().split(heading.name.toLowerCase()).length - 1
+        expect(occurrences).toBeGreaterThanOrEqual(1)
+        expect(heading.name.toLowerCase().split(heading.name.toLowerCase()).length - 1).toBe(1)
+        // The buttons keep their own labels -- they are separately reachable and separately
+        // announced; they are simply no longer part of what the HEADING is called.
+        for (const label of heading.controls) expect(label).not.toBe('')
+      }
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the documentation aside takes the keyboard when it opens and gives it back when it closes', async () => {
+    // It is appended into the CANVAS, which is before the panel in document order, so a Tab from
+    // the "?" walks forward out of the panel and never arrives: forty Tabs forward, nine
+    // backwards, and its own Close and Back unreachable in between. Moving the focus is the fix
+    // that does not mean moving the panel the aside fills.
+    const page = await load(formFor('wiki:acacia_branching_tree'))
+    try {
+      await page.locator('.flg-ins-help').first().click()
+      await page.waitForSelector('.flg-ins-docs')
+      const opened = await page.evaluate(() => ({
+        insideAside: document.querySelector('.flg-ins-docs')?.contains(document.activeElement) ?? false,
+        isTheAside: document.activeElement?.classList.contains('flg-ins-docs') ?? false,
+        expanded: document.querySelector('.flg-ins-help')?.getAttribute('aria-expanded') ?? '',
+      }))
+      expect(opened.insideAside).toBe(true)
+      expect(opened.isTheAside).toBe(true)
+      expect(opened.expanded).toBe('true')
+
+      // From there Close and Back are one Tab away rather than forty.
+      const reach = await page.evaluate(() => {
+        const aside = document.querySelector('.flg-ins-docs')!
+        const focusable = [...aside.querySelectorAll<HTMLElement>('button')]
+        return { count: focusable.length, labelled: focusable.every((b) => (b.getAttribute('aria-label') ?? b.title) !== '') }
+      })
+      expect(reach.count).toBeGreaterThan(0)
+      expect(reach.labelled).toBe(true)
+
+      await page.keyboard.press('Tab')
+      expect(
+        await page.evaluate(() => document.querySelector('.flg-ins-docs')?.contains(document.activeElement) ?? false),
+      ).toBe(true)
+
+      // Escape closes it, and the keyboard goes back to the "?" that opened it rather than to
+      // <body>, which is where a removed element leaves it.
+      await page.keyboard.press('Escape')
+      await page.waitForFunction(() => document.querySelector('.flg-ins-docs') === null)
+      const closed = await page.evaluate(() => ({
+        onHelp: document.activeElement?.classList.contains('flg-ins-help') ?? false,
+        expanded: document.querySelector('.flg-ins-help')?.getAttribute('aria-expanded') ?? '',
+      }))
+      expect(closed.onHelp).toBe(true)
+      expect(closed.expanded).toBe('false')
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the panel reads at 4.5:1 in Light Modern, where descriptionForeground carries an alpha byte', async () => {
+    // The one theme these colours actually failed in. Light Modern resolves
+    // `descriptionForeground` to the theme's own foreground at 60% alpha, which composites to
+    // #878787 over this panel and measures 3.40:1 -- and the section headings, the lineage
+    // headings and the lineage kind were all set in it. Measured rather than compared against a
+    // hex: the whole failure is invisible until the alpha is resolved against a real background.
+    const page = await load(formFor('wiki:acacia_branching_tree'), {
+      nodeId: 'wiki:middle',
+      theme: LIGHT_MODERN_THEME,
+      lineage: {
+        parents: [{ id: 'wiki:one', kind: 'scatter', count: 3 }],
+        children: [{ id: 'wiki:leaf', kind: 'scatter', count: 1 }],
+      },
+    })
+    try {
+      const readings = await page.evaluate(`
+        ['.flg-ins-section-head', '.flg-ins-lineage-head', '.flg-ins-lineage-count', '.flg-ins-lineage-kind']
+          .map((selector) => ({ selector, read: (${INSPECTOR_READ})(selector) }))
+      `) as { selector: string; read: ColourStack | null }[]
+      for (const reading of readings) {
+        expect(reading.read, `${reading.selector} is not on the page`).not.toBeNull()
+        const measured = flattened(reading.read!)
+        const ratio = contrastRatio(measured.foreground, measured.background)
+        expect(ratio, `${reading.selector} measured ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+      }
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
   // -------------------------------------------------------------------------
   // The shape of a row
   // -------------------------------------------------------------------------
 
   it('draws every row as one line: label in the gutter, control filling the rest', async () => {
-    // Measured on the hardest type there is, at the real sidebar width. The ONE exception is a
-    // raw-JSON box, which is a multi-line control by nature and the only one in the panel.
+    // Measured on the hardest type there is, at the real sidebar width. TWO exceptions, both
+    // multi-line controls by nature: a raw-JSON box, and an EXPRESSION box -- which puts its key
+    // above the box rather than in the gutter, deliberately and for the reason the stylesheet
+    // gives at length. Those are measured for what they do promise (a full-width key, a control
+    // starting at the row's left edge) rather than exempted outright.
     const page = await load(formFor('wiki:acacia_branching_tree'))
     try {
       const rows = await page.$$eval('.flg-ins-row', (els) =>
@@ -1075,8 +1483,14 @@ window.__ready = true
             key: (el as HTMLElement).dataset['key'] ?? el.textContent?.trim().slice(0, 16) ?? '',
             lines: rect.height / line,
             json: el.querySelector('textarea') !== null,
+            molang: el.querySelector(':scope > .flg-ins-control > .flg-molang-field') !== null,
             width: rect.width,
+            left: rect.left,
+            right: rect.right,
+            labelLeft: label === undefined ? null : label.left,
             labelRight: label === undefined ? null : label.right,
+            labelBottom: label === undefined ? null : label.bottom,
+            controlTop: control === undefined || control.width === 0 ? null : control.top,
             controlLeft: control === undefined || control.width === 0 ? null : control.left,
             sameLine: label !== undefined && control !== undefined && control.width > 0 ? Math.abs(label.top + label.height / 2 - (control.top + control.height / 2)) < 8 : true,
           }
@@ -1088,6 +1502,13 @@ window.__ready = true
       // The label sits left of the control, on the same line, and nothing pokes out of the
       // sidebar: the control column is never wider than what it was given.
       for (const row of rows) {
+        if (row.molang) {
+          // The documented shape for a language: the key on its own line above a full-width box.
+          expect(row.labelLeft, row.key).toBeLessThanOrEqual(row.controlLeft!)
+          expect(row.labelBottom, row.key).toBeLessThanOrEqual(row.controlTop! + 1)
+          expect(row.width, row.key).toBeLessThanOrEqual(SIDEBAR_WIDTH)
+          continue
+        }
         if (row.labelRight !== null && row.controlLeft !== null) expect(row.labelRight).toBeLessThanOrEqual(row.controlLeft)
         expect(row.sameLine).toBe(true)
         expect(row.width).toBeLessThanOrEqual(SIDEBAR_WIDTH)
@@ -1159,9 +1580,10 @@ window.__ready = true
       const summary = lookupFieldDoc('minecraft:cave_carver_feature', 'width_modifier')!.entry!.summary
       expect(title.split('\n')[0]).toBe('width_modifier')
       expect(title).toContain(plainDocText(summary))
-      // The control inherits the row's tooltip: an input with no title of its own shows its
-      // nearest ancestor's, so hovering the box after a while shows the sentence too.
-      expect(await row.locator('input').first().getAttribute('title')).toBeNull()
+      // The control inherits the row's tooltip: a box with no title of its own shows its
+      // nearest ancestor's, so hovering it after a while shows the sentence too. (This row's
+      // control is the Molang field, whose box is a textarea -- see molangRow.)
+      expect(await row.locator('textarea').first().getAttribute('title')).toBeNull()
       // Every documented row has one, and none hands Markdown to the browser.
       const titles = await page.$$eval('.flg-ins-row[data-key]', (els) => els.map((el) => el.getAttribute('title') ?? ''))
       expect(titles.filter((text) => text.includes('\n')).length).toBeGreaterThan(3)
@@ -1197,7 +1619,7 @@ window.__ready = true
         expect(await snapshot()).toBe(before)
       }
       // Hovering the controls themselves, not just the row's edge.
-      for (const selector of ['.flg-ins-row[data-key="distribution"] select', '.flg-ins-row[data-key="extent"] input', '.flg-ins-mode']) {
+      for (const selector of ['.flg-ins-row[data-key="distribution"] select', '.flg-ins-row[data-key="extent"] textarea', '.flg-ins-mode']) {
         await page.locator(selector).first().hover()
         expect(await snapshot()).toBe(before)
       }
@@ -1301,11 +1723,17 @@ window.__ready = true
   it('uses a raw JSON box ONLY where the sub-schema was not sourced', async () => {
     const page = await load(formFor('wiki:acacia_branching_tree'))
     try {
-      const kinds = await page.$$eval('textarea', (els) => els.map((el) => (el.closest('[data-kind]') as HTMLElement | null)?.dataset['kind'] ?? '(no row)'))
+      // A textarea is no longer proof of a raw-JSON box: an expression box is one too, and that
+      // is the point of it. The question is still the same question -- which rows were given a
+      // free-text box because their shape was never modelled -- so it is asked of the boxes that
+      // are not the Molang control.
+      const kinds = await page.$$eval('textarea:not(.flg-molang-input)', (els) =>
+        els.map((el) => (el.closest('[data-kind]') as HTMLElement | null)?.dataset['kind'] ?? '(no row)'),
+      )
       expect(kinds.length).toBeGreaterThan(0)
       expect([...new Set(kinds)]).toEqual(['json'])
       // The reason the shape is not modelled is the box's tooltip, not a paragraph beside it.
-      expect(((await page.locator('textarea').first().getAttribute('title')) ?? '').length).toBeGreaterThan(20)
+      expect(((await page.locator('textarea:not(.flg-molang-input)').first().getAttribute('title')) ?? '').length).toBeGreaterThan(20)
     } finally {
       await page.close()
     }
@@ -1338,19 +1766,46 @@ window.__ready = true
     }
   }, 45_000)
 
-  it('keeps a Molang-or-number field as free text, so the expression spelling stays reachable', async () => {
+  it('gives a Molang-or-number field the same editor the expression on an edge gets', async () => {
+    // THE BUG. Only two slots in the whole editor had a Molang control: a scatter edge's
+    // `iterations` and a conditional edge's `condition`. A feature_rule's `iterations`, both ends
+    // of every `extent`, `width_modifier` and `scatter_chance` are the same language by the same
+    // rules and got a bare <input> whose entire affordance was a placeholder that vanished the
+    // moment the key had a value -- so `query.made_up_thing(1) + }{` typed one row away from the
+    // field that calls it a red error was accepted and written to the pack.
     const page = await load(formFor('wiki:cave_demo'))
     try {
-      const box = page.locator('.flg-ins-row[data-key="width_modifier"] input').first()
-      expect(await box.getAttribute('type')).toBe('text')
-      await box.fill('math.random(0, 1)')
-      await box.press('Enter')
+      const row = page.locator('.flg-ins-row[data-key="width_modifier"]')
+      const box = row.locator('textarea')
+      expect(await box.count(), 'width_modifier is still a bare input').toBe(1)
+      // The two-layer highlighted control, not a textarea somebody swapped in: something behind
+      // the box is painting the same text in coloured spans.
+      await box.fill('query.noise(1, 2)')
+      expect(await row.locator('.flg-molang-ink .flg-mo-query').textContent()).toBe('query.noise')
+
+      // BLUR commits, which is what it has always done for this control -- Enter in a text box
+      // that can hold a setup script is a newline.
+      await box.blur()
       await box.fill('4')
-      await box.press('Enter')
+      await box.blur()
       await box.fill('')
-      await box.press('Enter')
+      await box.blur()
       const changes = await changesOf(page)
-      expect(changes.map((change) => change.edits[0]!.value)).toEqual(['math.random(0, 1)', 4, '<remove>'])
+      // Compact in the file, as every expression this editor writes is.
+      expect(changes.map((change) => change.edits[0]!.value)).toEqual(['query.noise(1,2)', 4, '<remove>'])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('refuses to write Molang the game would refuse, and says why, in a plain field', async () => {
+    const page = await load(formFor('wiki:cave_demo'))
+    try {
+      const row = page.locator('.flg-ins-row[data-key="width_modifier"]')
+      await row.locator('textarea').fill('query.made_up_thing(1) + }{')
+      const said = (await row.textContent()) ?? ''
+      expect(said, 'garbage Molang in a form field is still accepted in silence').toMatch(/no .+ to match it|never closed|not one of the six queries/)
+      expect(await row.getAttribute('data-problem')).toBe('yes')
     } finally {
       await page.close()
     }
@@ -1770,22 +2225,89 @@ window.__ready = true
       for (const key of ['x', 'y', 'z']) {
         const row = section.locator(`.flg-ins-row[data-key="${key}"]`)
         expect(await row.getAttribute('data-state')).toBe('unset')
-        const box = row.locator('input.flg-ins-input').first()
+        // An axis written as one value is an EXPRESSION slot, like the chance above it and like
+        // both ends of an `extent` below it -- so its box is the Molang control, not a bare
+        // <input>. It keeps the documented default as its placeholder, which is what this row has
+        // always promised.
+        expect(await row.locator('input.flg-ins-input').count(), `${key} is still a bare input`).toBe(0)
+        const box = row.locator('textarea.flg-molang-input').first()
         expect(await box.inputValue()).toBe('')
         expect(await box.getAttribute('placeholder')).toBe('0')
         // Nothing to remove: the key is not written.
         expect(await row.locator('button.flg-ins-x').count()).toBe(0)
       }
-      expect(await section.locator('.flg-ins-row[data-key="scatter_chance"] input.flg-ins-input').first().getAttribute('placeholder')).toBe('100')
+      // The chance is an EXPRESSION slot now -- a percent is a number or Molang by the same rule
+      // as everything else in this panel -- so its box is the Molang control. It keeps the
+      // documented default as its placeholder, which is what this row has always promised.
+      expect(await section.locator('.flg-ins-row[data-key="scatter_chance"] textarea.flg-molang-input').first().getAttribute('placeholder')).toBe('100')
       expect(await section.locator('select.flg-ins-addfield option').first().textContent()).toBe('+ Add a field (1)')
       // Drawing the rows is not an edit.
       expect(await changesOf(page)).toEqual([])
 
       // Typing into one writes that key under distribution, building distribution on the way.
-      const x = section.locator('.flg-ins-row[data-key="x"] input.flg-ins-input').first()
+      // The commit is the expression editor's, so it lands on blur rather than on Enter -- Enter
+      // in an expression box is a newline, which is the whole reason it is a textarea.
+      const x = section.locator('.flg-ins-row[data-key="x"] textarea.flg-molang-input').first()
       await x.fill('5')
-      await x.press('Enter')
+      await x.blur()
       expect((await changesOf(page))[0]!.edits).toEqual([{ path: ['distribution'], value: { x: 5 } }])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  // -------------------------------------------------------------------------
+  // A second edit, before the first has come back
+  // -------------------------------------------------------------------------
+  //
+  // THE CHEAP COPY OF A 20-SECOND JOURNEY. test/journeys/scatter.test.ts pins this outcome on
+  // the file, over the real host and the real engine, and takes twenty seconds to say so. What
+  // it is really about is decidable here, in one page, in one second: TWO EDITS AND NO UPDATE
+  // BETWEEN THEM, which is exactly the state a panel is in for the couple of hundred
+  // milliseconds a write's round trip takes -- and which is therefore the state anybody's second
+  // click lands in.
+  //
+  // What went wrong there is worse than staleness. An edit under a parent the panel's snapshot
+  // believes is missing is materialised as that WHOLE parent (see materialisedEdit and its own
+  // tests above), so the second edit did not add to the first, it replaced it: pick `gaussian`
+  // for an axis, press + beside `extent`, and `gaussian` is gone. Reported as "I picked
+  // gaussian, clicked + beside extent, and nothing happens".
+
+  it('a second edit builds on the first one, without waiting for the form to come back', async () => {
+    // A fresh scatter: `distribution` is there because the engine wrote `iterations` into it, and
+    // `x` is not there at all -- which is the shape that makes the parent get materialised.
+    const page = await load(freshScatterForm({ distribution: { iterations: 1 } }))
+    try {
+      const section = page.locator('[data-section="group:[\\"distribution\\"]"]')
+      // The axis is written as an object, so it has a distribution of its own and an extent.
+      await page.getByLabel('x: how this axis is written').first().selectOption('object')
+      await section.locator('.flg-ins-row[data-key="distribution"] select').last().selectOption('gaussian')
+
+      // The + beside `extent`, pressed with NO update() in between: nothing has told this panel
+      // that `x` exists now, and it has to know anyway, because it is the thing that asked.
+      await page.getByLabel('Fill extent with 2 entries').first().click()
+
+      const changes = await changesOf(page)
+      expect(changes.map((c) => c.edits)).toEqual([
+        // The first edit does materialise the parent -- `x` really was missing.
+        [{ path: ['distribution', 'x'], value: { distribution: 'gaussian' } }],
+        // The second must NOT. Writing `{ extent: [0, 0] }` at `distribution.x` is the bug: it is
+        // a whole-parent write, and the parent it replaces is the one carrying `gaussian`.
+        [{ path: ['distribution', 'x', 'extent'], value: [0, 0] }],
+      ])
+
+      // And the host's answer is still the authority. Handed the form the file now produces, the
+      // panel edits from THAT and not from what it remembers asking for.
+      const written = freshScatterForm({ distribution: { iterations: 1, x: { distribution: 'gaussian', extent: [0, 0] } } })
+      await page.evaluate((form) => {
+        ;(window as unknown as { view: { update(next: unknown): void } }).view.update(form)
+      }, written)
+      // Both ends of an extent are Molang-or-number, so both are expression boxes now, and a
+      // box that can hold a setup script commits on blur rather than on Enter. See molangRow.
+      const max = section.locator('.flg-ins-row[data-key="extent"]').last().locator('textarea').nth(1)
+      await max.fill('16')
+      await max.blur()
+      expect((await changesOf(page))[2]!.edits).toEqual([{ path: ['distribution', 'x', 'extent', 1], value: 16 }])
     } finally {
       await page.close()
     }
@@ -1795,16 +2317,18 @@ window.__ready = true
     const page = await load(freshScatterForm({ distribution: { x: 5 } }))
     try {
       const section = page.locator('[data-section="group:[\\"distribution\\"]"]')
-      const y = section.locator('.flg-ins-row[data-key="y"] input.flg-ins-input').first()
+      const y = section.locator('.flg-ins-row[data-key="y"] textarea.flg-molang-input').first()
       await y.fill('math.random(-2, 2)')
-      await y.press('Enter')
-      const x = section.locator('.flg-ins-row[data-key="x"] input.flg-ins-input').first()
+      await y.blur()
+      const x = section.locator('.flg-ins-row[data-key="x"] textarea.flg-molang-input').first()
       expect(await x.inputValue()).toBe('5')
       expect(await section.locator('.flg-ins-row[data-key="x"]').getAttribute('data-state')).toBe('set')
       await x.fill('')
-      await x.press('Enter')
+      await x.blur()
+      // The FILE's spelling, which is the compact one the editor writes -- the box shows the
+      // readable layout and the JSON gets one line. See molangEdge.ts on why the two differ.
       expect((await changesOf(page)).map((change) => change.edits[0])).toEqual([
-        { path: ['distribution', 'y'], value: 'math.random(-2, 2)' },
+        { path: ['distribution', 'y'], value: 'math.random(-2,2)' },
         { path: ['distribution', 'x'], value: '<remove>' },
       ])
     } finally {
@@ -1870,20 +2394,33 @@ window.__ready = true
     }
   }, 45_000)
 
-  it('keeps the Molang row inside the row contract: label on its first line, nothing under it, no prose', async () => {
+  it('gives the Molang row the width of the panel, with its key above it', async () => {
+    // THE ROW CONTRACT BENDS FOR EXACTLY ONE KIND, and this is the measurement that made the
+    // case. Every other row is label-in-a-gutter | control, which is right for a checkbox, a
+    // number and a name. At the shipped 320px sidebar the fixed 116px gutter plus the 16px mode
+    // menu left the expression 130px, so a 150-character setup script became a 271px-tall,
+    // 16-row column that wrapped in the middle of identifiers and pushed its own diagnostic off
+    // the bottom of the screen. Above the box, the same script gets more than twice the columns.
     const page = await load(freshScatterForm({ distribution: {} }), { iterations: NESTED_ITERATIONS })
     try {
       const section = page.locator('[data-section="group:[\\"distribution\\"]"]')
       const row = section.locator('.flg-ins-row[data-key="iterations"]')
-      const line = await row.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) * 1.4)
       const rowBox = (await row.boundingBox())!
-      // A one-line expression is a short row: the control grew to its content, not to three rows.
-      expect(rowBox.height / line).toBeLessThan(2.6)
       const label = (await row.locator(':scope > .flg-ins-key').boundingBox())!
       const box = (await row.locator('textarea').boundingBox())!
-      expect(Math.abs(label.y - box.y)).toBeLessThan(10)
-      expect(label.x + label.width).toBeLessThanOrEqual(box.x)
-      // The next row starts below it: nothing is drawn under the field.
+
+      // The key is ABOVE, not beside: it ends before the box begins vertically, and the box no
+      // longer starts to the right of it.
+      expect(label.y + label.height, 'the key is still beside the box').toBeLessThanOrEqual(box.y + 1)
+      expect(box.x, 'the box is still indented past a label gutter').toBeLessThan(label.x + label.width)
+      // And the box is most of the row's width rather than a third of it.
+      expect(box.width / rowBox.width).toBeGreaterThan(0.8)
+
+      // A one-line expression is still a SHORT row -- the control grew to its content, not to a
+      // column -- even with the key, the mode word and the stepper on their own lines.
+      const line = await row.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) * 1.4)
+      expect(rowBox.height / line).toBeLessThan(7)
+      // The next row starts below it: nothing overlaps.
       const next = (await section.locator('.flg-ins-row[data-key="scatter_chance"]').boundingBox())!
       expect(next.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1)
 
@@ -1894,15 +2431,450 @@ window.__ready = true
       expect(grown.height).toBeLessThanOrEqual(0.4 * 1400 + 2)
       expect(await row.locator('textarea').evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
       expect(await page.locator('.flg-inspector').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
 
-      // No prose anywhere in the panel, the field included; the ink layer holds the author's own
-      // expression, which is not prose either.
+  it('states which of the two modes an expression slot is in, and offers the help for it', async () => {
+    // `14` and `math.random(1, 4)` were the same box and the same pixels: nothing anywhere said
+    // which of the two you had. The stepper, ITERATIONS_TEMPLATES, `writeValue`, `problem.detail`
+    // and every `problem.actions` entry were computed and unit-tested in molangEdge.ts, and a
+    // grep for any of them across webview/ returned nothing at all.
+    const page = await load(freshScatterForm({ distribution: {} }), { iterations: NESTED_ITERATIONS })
+    try {
+      const row = page.locator('.flg-ins-row[data-key="iterations"]')
+      const field = row.locator('.flg-molang-field')
+      const box = row.locator('textarea')
+
+      // A bare count says so and gets the up/down the editor has always computed.
+      expect(await field.getAttribute('data-mode')).toBe('number')
+      expect(await row.locator('.flg-molang-stepper').isVisible()).toBe(true)
+      expect(await row.locator('.flg-molang-templates').isVisible()).toBe(false)
+      await row.locator('.flg-molang-step').last().click()
+      expect(await box.inputValue()).toBe('11')
+
+      // An expression says THAT, loses the stepper, and gains the two idiom seeds nobody guesses.
+      await box.fill('math.random_integer(1, 4)')
+      expect(await field.getAttribute('data-mode')).toBe('expression')
+      expect(await row.locator('.flg-molang-stepper').isVisible()).toBe(false)
+      const templates = await row.locator('.flg-molang-templates option').allTextContents()
+      expect(templates.join(' ')).toMatch(/Gate|Setup/)
+
+      // And it is REVERSIBLE: the last count this slot held is offered back by name.
+      const back = row.locator('.flg-molang-tonumber')
+      expect(await back.isVisible()).toBe(true)
+      expect(await back.textContent()).toContain('11')
+      await back.click()
+      expect(await box.inputValue()).toBe('11')
+      expect(await field.getAttribute('data-mode')).toBe('number')
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  // -------------------------------------------------------------------------
+  // THE FILE MOVING UNDER A HALF-TYPED BOX
+  // -------------------------------------------------------------------------
+  //
+  // The edge field has answered this since `reseed` was written: a clean box adopts the file's
+  // new value, a dirty one keeps the draft and raises a conflict with two ways out. The node
+  // form's own expression rows use the same editor and did NOT, for a reason that is entirely
+  // about the panel around them: the host empties the sidebar to redraw it, removing a focused
+  // control blurs it, and the blur handler COMMITTED -- writing the draft over the value that had
+  // just arrived, and leaving the editor clean so that the reseed a few lines later found nothing
+  // to protect and adopted in silence.
+  //
+  // The sequence below is the host's, in the host's order (webview/graph.ts's renderInspector):
+  // hold the focus, empty the sidebar, put the panel back, update it.
+  async function hostRedraw(page: Page, next: NodeForm): Promise<void> {
+    await page.evaluate((payload) => {
+      const view = (window as unknown as { view: { element: HTMLElement; holdFocus(): void; update(form: unknown): void } }).view
+      const side = document.getElementById('side')!
+      view.holdFocus()
+      side.replaceChildren()
+      side.append(view.element)
+      view.update(payload)
+    }, JSON.parse(JSON.stringify(next)) as unknown)
+  }
+
+  it('keeps a half-typed node-form slot and raises the conflict when the file moves under it', async () => {
+    const node = sampleNode('wiki:cave_demo')
+    const page = await load(formFor('wiki:cave_demo'))
+    try {
+      const row = page.locator('.flg-ins-row[data-key="width_modifier"]')
+      const box = row.locator('textarea')
+      await box.fill('math.random(1,4)')
+      await box.focus()
+
+      await hostRedraw(page, buildNodeForm({ typeId: node.typeId!, formatVersion: node.formatVersion!, fields: { ...node.fields, width_modifier: 42 } }))
+
+      // NOTHING WAS WRITTEN. This is the whole of it: the redraw is not a decision, and the draft
+      // is not an edit until somebody says so.
+      expect(await changesOf(page), 'the redraw committed the draft over the file').toEqual([])
+
+      // The draft is still there, still marked unsaved, and still an expression -- the box and
+      // the editor agree, which they did not when the commit was happening.
+      const field = page.locator('.flg-ins-row[data-key="width_modifier"] .flg-molang-field')
+      expect(await page.locator('.flg-ins-row[data-key="width_modifier"] textarea').inputValue()).toBe('math.random(1,4)')
+      expect(await field.getAttribute('data-dirty')).toBe('yes')
+      expect(await field.getAttribute('data-mode')).toBe('expression')
+
+      // The conflict, in the edge field's own words, with the edge field's own three answers.
+      const said = (await page.locator('.flg-ins-row[data-key="width_modifier"]').textContent()) ?? ''
+      expect(said).toContain('This changed in the file to `42` while you were editing')
+      const actions = await page.locator('.flg-ins-row[data-key="width_modifier"] .flg-molang-problem button').allTextContents()
+      expect(actions).toEqual(['Use the file’s version', 'Keep mine', 'Show the JSON'])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('lets the author answer a node-form conflict either way, and writes only what they chose', async () => {
+    const node = sampleNode('wiki:cave_demo')
+    const page = await load(formFor('wiki:cave_demo'))
+    try {
+      const row = () => page.locator('.flg-ins-row[data-key="width_modifier"]')
+      const moved = buildNodeForm({ typeId: node.typeId!, formatVersion: node.formatVersion!, fields: { ...node.fields, width_modifier: 42 } })
+
+      // KEEP MINE: the draft stays, still unsaved, and the warning stops being repeated.
+      await row().locator('textarea').fill('math.random(1,4)')
+      await row().locator('textarea').focus()
+      await hostRedraw(page, moved)
+      await row().locator('.flg-molang-problem button', { hasText: 'Keep mine' }).click()
+      expect(await row().locator('textarea').inputValue()).toBe('math.random(1,4)')
+      expect(await row().locator('.flg-molang-field').getAttribute('data-dirty')).toBe('yes')
+      expect((await row().textContent()) ?? '').not.toContain('This changed in the file')
+      expect(await changesOf(page)).toEqual([])
+
+      // USE THE FILE'S VERSION: the draft is abandoned for what the file now holds, and that is
+      // not a write either -- the file already says what the box ends up showing.
+      //
+      // The file has to move AGAIN for there to be a second conflict: a reseed to the value the
+      // editor already has is "unchanged", which is the common case and rightly says nothing.
+      const movedAgain = buildNodeForm({ typeId: node.typeId!, formatVersion: node.formatVersion!, fields: { ...node.fields, width_modifier: 7 } })
+      await row().locator('textarea').fill('math.random(9,9)')
+      await row().locator('textarea').focus()
+      await hostRedraw(page, movedAgain)
+      await row().locator('.flg-molang-problem button', { hasText: 'Use the file' }).click()
+      expect(await row().locator('textarea').inputValue()).toBe('7')
+      expect(await row().locator('.flg-molang-field').getAttribute('data-dirty')).toBe('no')
+      expect(await changesOf(page)).toEqual([])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  // -------------------------------------------------------------------------
+  // THE MODE IS A PROPERTY OF THE VALUE, NOT OF ONE KEY NAME
+  // -------------------------------------------------------------------------
+
+  it('gives scatter_chance the expression editor, with highlighting and diagnostics, like every other slot', async () => {
+    // FIVE OF SIX SLOTS HAD IT. `scatter_chance` was a bare <input type="text"> labelled
+    // "scatter_chance: percent" -- no colour, no diagnostics, no mode -- and it stayed one with
+    // `math.random(1,10) > 5 ? 100 : 0` in it, which is as much Molang as anything on an edge.
+    const page = await load(freshScatterForm({ distribution: { scatter_chance: 'math.random(1,10) > 5 ? 100 : 0' } }))
+    try {
+      const row = page.locator('.flg-ins-row[data-key="scatter_chance"]')
+      const box = row.locator('textarea')
+      expect(await box.count(), 'scatter_chance is still a bare input').toBe(1)
+      // The READABLE spelling, which is what this box has always shown -- the file keeps the
+      // compact one. See molangEdge.ts on why the two differ.
+      expect(await box.inputValue()).toBe('math.random(1, 10) > 5 ? 100 : 0')
+      // The two-layer control, not a textarea somebody swapped in: the text is being highlighted.
+      expect(await row.locator('.flg-molang-ink .flg-mo-function').first().textContent()).toBe('math.random')
+      // The percent/fraction menu is still the row's, because that is a different question.
+      const spellings = await row.locator('select.flg-ins-spell option').allTextContents()
+      expect(spellings.join(' ')).toMatch(/percent/)
+
+      // And it refuses what the game would refuse, the way every other expression slot does.
+      await box.fill('query.made_up_thing(1) + }{')
+      const said = (await row.textContent()) ?? ''
+      expect(said, 'garbage Molang in scatter_chance is still accepted in silence').toMatch(/to match it|never closed|not one of the six queries/)
+      expect(await row.getAttribute('data-problem')).toBe('yes')
+
+      // It writes through the same path the bare input did.
+      await box.fill('50')
+      await box.blur()
+      expect((await changesOf(page)).at(-1)!.edits).toEqual([{ path: ['distribution', 'scatter_chance'], value: 50 }])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('gives an axis written as a bare scalar the same editor as one written as a distribution', async () => {
+    // WHICH EDITOR YOU GET MAY NOT DEPEND ON HOW YOUR FILE HAPPENED TO BE WRITTEN. `y: 5` and
+    // `y: {distribution: 'uniform', extent: [0, 20]}` are the same key, and `acceptsMolang`
+    // ('coordinate') has said so since it was written -- but the first got a plain
+    // <input aria-label="y: value"> with no highlighting, no mode, no stepper and no diagnostics,
+    // while the second got the real control on BOTH ends of its extent, one row lower down. Two
+    // answers to one question, decided by a spelling the author may never have chosen.
+    const page = await load(freshScatterForm({ distribution: { x: 5, y: 'math.random(1, 4)' } }))
+    try {
+      const x = page.locator('.flg-ins-row[data-key="x"]')
+      expect(await x.locator('input.flg-ins-input').count(), 'a scalar axis is still a bare input').toBe(0)
+      expect(await x.locator('textarea.flg-molang-input').inputValue()).toBe('5')
+      // The two-layer control, so the text is really being highlighted, and the mode is the
+      // value's -- a bare 5 is a number and gets the stepper every other number slot gets.
+      expect(await x.locator('.flg-molang-field').getAttribute('data-mode')).toBe('number')
+      expect(await x.locator('.flg-molang-stepper').isVisible()).toBe(true)
+      // The one-value/distribution menu stays: that is a different SHAPE in the file, and a
+      // different question from number-versus-expression.
+      expect((await x.locator('select.flg-ins-spell option').allTextContents()).join(' ')).toMatch(/one value/)
+
+      // An axis whose one value is an expression says so, and is coloured.
+      const y = page.locator('.flg-ins-row[data-key="y"]')
+      expect(await y.locator('.flg-molang-field').getAttribute('data-mode')).toBe('expression')
+      expect(await y.locator('.flg-molang-ink .flg-mo-function').first().textContent()).toBe('math.random')
+
+      // And it refuses what the game would refuse, which the bare input accepted in silence.
+      await y.locator('textarea').fill('query.made_up_thing(1) + }{')
+      expect((await y.textContent()) ?? '').toMatch(/to match it|never closed|not one of the six queries/)
+      expect(await y.getAttribute('data-problem')).toBe('yes')
+
+      // It writes through the path the bare input wrote through, as a number when it is one.
+      await y.locator('textarea').fill('12')
+      await y.locator('textarea').blur()
+      expect((await changesOf(page)).at(-1)!.edits).toEqual([{ path: ['distribution', 'y'], value: 12 }])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('does not seed a scalar axis box with an object the file is still holding', async () => {
+    // The spelling menu is an override: picking "one value" on an axis the FILE holds as
+    // `{distribution, extent}` draws the scalar control while the object is still there. The
+    // editor is seeded from the row's value, and `String({...})` is "[object Object]" -- which
+    // would have put that in the box and offered to write it to the pack on the next blur.
+    const page = await load(freshScatterForm({ distribution: { z: { distribution: 'uniform', extent: [0, 20] } } }))
+    try {
+      const row = page.locator('.flg-ins-row[data-key="z"]')
+      await row.locator('select.flg-ins-spell').selectOption('scalar')
+      const box = row.locator('textarea.flg-molang-input').first()
+      expect(await box.inputValue()).toBe('')
+      expect(await box.getAttribute('placeholder')).toBe('0')
+      // Drawing it is not an edit, and blurring an untouched box writes nothing.
+      await box.focus()
+      await box.blur()
+      expect(await changesOf(page)).toEqual([])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('reads the mode off the text in every slot, not off the one key called iterations', async () => {
+    // `stepper` used to be computed only when the field was `iterations`, so every other slot was
+    // permanently "expression" whatever was in it: no stepper, no way back, and the two modes
+    // neither distinguishable nor reversible. `width_modifier: 0` was the tell -- it reported
+    // `expression` and offered "Back to 0" while already holding 0.
+    const page = await load(formFor('wiki:cave_demo'))
+    try {
+      const row = page.locator('.flg-ins-row[data-key="width_modifier"]')
+      const field = row.locator('.flg-molang-field')
+      expect(await field.getAttribute('data-mode')).toBe('number')
+      expect(await row.locator('.flg-molang-stepper').isVisible()).toBe(true)
+      expect(await row.locator('.flg-molang-tonumber').isVisible(), 'offers a way back to the number it is already holding').toBe(false)
+      // No template menu: the two idiom seeds are an `iterations` thing and this is not one.
+      expect(await row.locator('.flg-molang-templates').isVisible()).toBe(false)
+
+      // Typing an expression flips the mode and offers the way back, by name.
+      await row.locator('textarea').fill('query.noise(1, 2) * 4')
+      expect(await field.getAttribute('data-mode')).toBe('expression')
+      expect(await row.locator('.flg-molang-stepper').isVisible()).toBe(false)
+      expect(await row.locator('.flg-molang-tonumber').textContent()).toContain('Back to 0')
+      await row.locator('.flg-molang-tonumber').click()
+      expect(await row.locator('textarea').inputValue()).toBe('0')
+      expect(await field.getAttribute('data-mode')).toBe('number')
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('steps a negative extent end down rather than flooring it at a count\'s zero', async () => {
+    // The bounds are the SLOT's, which is the half of "a property of the value and the slot" that
+    // is not the value: `iterations` is a count and floors at 0, an extent end is routinely
+    // negative, and a floor borrowed from the count would refuse to move it.
+    const page = await load(freshScatterForm({ distribution: { x: { distribution: 'uniform', extent: [-5, 15] } } }))
+    try {
+      const row = page.locator('.flg-ins-row[data-key="extent"]').first()
+      const ends = row.locator('textarea')
+      expect(await ends.count()).toBe(2)
+      expect(await ends.nth(0).inputValue()).toBe('-5')
+      expect(await ends.nth(1).inputValue()).toBe('15')
+      for (const index of [0, 1]) {
+        expect(await row.locator('.flg-ins-chip').nth(index).locator('.flg-molang-field').getAttribute('data-mode')).toBe('number')
+      }
+      // THE STEPPER IS DRAWN IN A CHIP. It used to be dropped with the rest of the adornment, so
+      // the commonest place in the panel a person types a number was the one slot with no way to
+      // nudge one -- and the only slot where a number and an expression looked alike.
+      const low = row.locator('.flg-ins-chip').first()
+      expect(await low.locator('.flg-molang-stepper').isVisible()).toBe(true)
+      await low.locator('.flg-molang-step').first().click()
+      expect(await ends.nth(0).inputValue(), 'an extent end was floored at a count\'s zero').toBe('-6')
+      await low.locator('.flg-molang-step').nth(1).click()
+      expect(await ends.nth(0).inputValue()).toBe('-5')
+
+      // The mode is stated here as it is everywhere else, and it is the VALUE's rather than the
+      // key's.
+      expect(await low.locator('.flg-molang-mode').textContent()).toBe('number')
+      await ends.nth(0).fill('query.noise(1, 2)')
+      expect(await low.locator('.flg-molang-field').getAttribute('data-mode')).toBe('expression')
+      expect(await low.locator('.flg-molang-mode').textContent()).toBe('expression')
+      // ...and the stepper goes, because a stepper is no longer a lossless view of the text.
+      expect(await low.locator('.flg-molang-stepper').isVisible()).toBe(false)
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('keeps an extent chip to the mode and the stepper, and inside the sidebar', async () => {
+    // WHAT COMPACT STILL LEAVES OUT, and why the row is still readable. Two ends share the
+    // narrowest column on screen: they get the word and the buttons -- the two things that ARE
+    // the number/expression distinction -- and none of the three wide ones. Measured rather than
+    // asserted by class, because "it fits" is the whole objection compact answers.
+    const page = await load(freshScatterForm({ distribution: { x: { distribution: 'uniform', extent: [-5, 15] } } }))
+    try {
+      const row = page.locator('.flg-ins-row[data-key="extent"]').first()
+      expect(await row.locator('.flg-molang-templates').count(), 'the iterations template menu is in an extent chip').toBe(0)
+      expect(await row.locator('.flg-molang-tonumber').count(), '"Back to N" is as wide as the chip it sits in').toBe(0)
+      expect(await row.locator('.flg-molang-write').count(), 'the "the file will get" line is a sentence').toBe(0)
+      // Both chips are still on one line, and nothing pokes out of the sidebar.
+      const tops = await row.locator('.flg-ins-chip').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
+      expect(tops.length).toBe(2)
+      expect(tops[0]).toBe(tops[1])
+      expect(await row.evaluate((el) => el.getBoundingClientRect().width)).toBeLessThanOrEqual(SIDEBAR_WIDTH)
+      expect(await page.locator('.flg-inspector').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('says what the file will get, and marks a box that has not been saved yet', async () => {
+    const page = await load(freshScatterForm({ distribution: {} }), { iterations: NESTED_ITERATIONS })
+    try {
+      const row = page.locator('.flg-ins-row[data-key="iterations"]')
+      const field = row.locator('.flg-molang-field')
+      expect(await field.getAttribute('data-dirty')).toBe('no')
+
+      // `writeValue` -- the exact bytes a commit puts in the JSON -- has been on the view since
+      // the editor was written so a renderer could show the author their file instead of asking
+      // them to trust it, and nothing had ever read it.
+      await row.locator('textarea').fill('v.a = 1;\nreturn v.a;')
+      expect(await field.getAttribute('data-dirty')).toBe('yes')
+      const written = (await row.locator('.flg-molang-write').textContent()) ?? ''
+      expect(written).toContain('v.a=1;return v.a;')
+      expect(written.toLowerCase()).toContain('not saved')
+
+      // And an edit that has been written stops being marked.
+      await row.locator('textarea').blur()
+      expect(await field.getAttribute('data-dirty')).toBe('no')
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('draws a diagnostic whole -- the line, the long form and the buttons it offers', async () => {
+    const page = await load(freshScatterForm({ distribution: {} }), { iterations: NESTED_ITERATIONS })
+    try {
+      const row = page.locator('.flg-ins-row[data-key="iterations"]')
+      await row.locator('textarea').fill('math.random(1, ')
+      const problem = row.locator('.flg-molang-problem')
+      expect(await problem.count(), 'an unclosed call was accepted in silence').toBeGreaterThan(0)
+      // The severity is a WORD, not only a colour.
+      expect(((await problem.first().textContent()) ?? '').toLowerCase()).toContain('error')
+      expect((await problem.first().textContent()) ?? '').toContain('never closed')
+
+      // `span` -- which characters the problem is about -- had never been drawn either, so a
+      // message about one of three calls on screen said nothing about which. Shown by selecting
+      // the range, which is the browser's own selection and survives wrapping for free.
+      await problem.first().getByRole('button', { name: /where/i }).click()
+      const selected = await row.locator('textarea').evaluate((el) => {
+        const box = el as HTMLTextAreaElement
+        return box.value.slice(box.selectionStart, box.selectionEnd)
+      })
+      expect(selected).toBe('(1, ')
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it("repeats the engine's answer under the key it is an answer about", async () => {
+    // "iterations = 0 (from 0.1251)" was rendered at the TOP of the panel, with Places, Used by
+    // and Delegates to between it and the `iterations` row -- 389px, measured -- and on the edge
+    // panel, the one place in the editor with a real expression editor in it, not at all. The
+    // sentence is the run's own (nodeStats.describeStop); what changed is where it is drawn.
+    const page = await load(freshScatterForm({ distribution: {} }), {
+      iterations: { ...NESTED_ITERATIONS, note: 'no iterations — iterations = 0 (from 0.1251) ×412' },
+    })
+    try {
+      const row = page.locator('.flg-ins-row[data-key="iterations"]')
+      const note = (await row.locator('.flg-molang-engine').textContent()) ?? ''
+      expect(note).toContain('iterations = 0 (from 0.1251)')
+      // Under the box, not above the section.
+      const box = (await row.locator('textarea').boundingBox())!
+      const line = (await row.locator('.flg-molang-engine').boundingBox())!
+      expect(line.y).toBeGreaterThanOrEqual(box.y)
+      expect(line.y - (box.y + box.height)).toBeLessThan(60)
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('does not throw away what is being typed when the panel is redrawn under it', async () => {
+    // THE SECOND DATA LOSS. `applyRunStats` calls the host's renderInspector unconditionally when
+    // a profiled preview finishes, which rebuilds every control in this panel -- and `holdFocus`
+    // restored the caret's PLACE and never its value, so the caret came back sitting in the
+    // middle of the file's value while the author's half-typed one was gone. A background job the
+    // author had no part in starting deleted their typing, and the panel looked as though nothing
+    // had happened.
+    const page = await load(formFor('wiki:cave_demo'))
+    try {
+      const plain = page.locator('.flg-ins-row[data-key="height_limit"] input').first()
+      await plain.click()
+      await plain.fill('')
+      await plain.pressSequentially('42')
+      const molang = page.locator('.flg-ins-row[data-key="width_modifier"] textarea')
+      // A redraw with the form the file still holds -- exactly what a finished preview causes.
+      const redraw = async (): Promise<void> => {
+        await page.evaluate(() => {
+          const view = (window as unknown as { view: { form: unknown; update(next: unknown): void } }).view
+          view.update(JSON.parse(JSON.stringify(view.form)) as unknown)
+        })
+      }
+      await redraw()
+      expect(await page.locator('.flg-ins-row[data-key="height_limit"] input').first().inputValue()).toBe('42')
+      expect(await page.evaluate(() => document.activeElement?.closest('.flg-ins-row')?.getAttribute('data-key'))).toBe('height_limit')
+      // And it is marked as holding something the file has not got.
+      expect(await page.locator('.flg-ins-row[data-key="height_limit"]').getAttribute('data-dirty')).toBe('yes')
+
+      // The same for an expression, which survives for a different reason: the editor behind the
+      // box outlives the control drawn over it, and this panel caches one per row.
+      await molang.click()
+      await molang.fill('math.random(0, 1)')
+      await redraw()
+      expect(await page.locator('.flg-ins-row[data-key="width_modifier"] textarea').inputValue()).toBe('math.random(0, 1)')
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('keeps the panel free of prose, the expression field included', async () => {
+    // The contract this file has always pinned: no hint under a control, no default spelled out,
+    // no note about how a value is written. Diagnostics are exempt -- they are the exception the
+    // panel exists to make -- and a Molang diagnostic is a diagnostic, with its own long form
+    // folded behind a disclosure rather than drawn open.
+    const page = await load(freshScatterForm({ distribution: {} }), { iterations: NESTED_ITERATIONS })
+    try {
       const long = await page.$$eval('.flg-inspector', (els) => {
         const out: string[] = []
         const walker = document.createTreeWalker(els[0]!, NodeFilter.SHOW_TEXT)
         for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
           const parent = (node as Text).parentElement
-          if (parent === null || parent.closest('.flg-ins-notice, .flg-ins-problem, .flg-ins-warn, option, .flg-molang-ink') !== null) continue
+          if (
+            parent === null ||
+            parent.closest('.flg-ins-notice, .flg-ins-problem, .flg-ins-warn, .flg-molang-problem, option, .flg-molang-ink') !== null
+          )
+            continue
           const text = (node.textContent ?? '').trim()
           if (text.length > 40) out.push(text)
         }
@@ -1984,7 +2956,12 @@ window.__ready = true
       const head = page.locator('.flg-ins-doc').first()
       expect(await head.locator('.flg-ins-doc-name').textContent()).toBe('distribution')
       const badges = await head.locator('.flg-ins-badge').evaluateAll((els) => els.map((el) => [(el as HTMLElement).dataset['badge'], el.textContent]))
+      // The three chips every documented key carries come first, in a fixed order -- what you
+      // write in it, when the game looks at it, whether you may leave it out -- and only then the
+      // ones that apply to this key in particular.
       expect(badges).toEqual([
+        ['kind', 'group'],
+        ['when', 'read once'],
         ['required', 'required'],
         ['version', '1.21.10+'],
       ])
@@ -1997,6 +2974,86 @@ window.__ready = true
     }
   }, 45_000)
 
+  it('leaves the canvas -- and whatever is selected on it -- visible beside the documentation', async () => {
+    const page = await load(formFor('wiki:pumpkin_patch'))
+    try {
+      // Something drawn on the canvas, standing in for the node the reader pressed `?` about.
+      await page.evaluate(() => {
+        const node = document.createElement('div')
+        node.id = 'a-node'
+        node.style.cssText = 'position:absolute;left:12px;top:40px;width:120px;height:60px;background:#345'
+        ;(document.getElementById('canvas') as HTMLElement).append(node)
+      })
+      const canvasBox = await page.locator('#canvas').boundingBox()
+      const nodeBefore = await page.locator('#a-node').boundingBox()
+
+      await page.locator('[data-section="general"] .flg-ins-help').click()
+      const docs = page.locator('.flg-ins-docs')
+      expect(await docs.count()).toBe(1)
+      const docsBox = await docs.boundingBox()
+      if (!canvasBox || !docsBox || !nodeBefore) throw new Error('nothing was laid out')
+
+      // A COLUMN, not a second screen. It used to be inset:0 over the whole canvas box, so the
+      // node somebody was reading about disappeared behind the essay about it.
+      expect(docsBox.width).toBeLessThan(canvasBox.width - 100)
+      // Pinned to the right edge of the canvas, against the form.
+      expect(Math.round(docsBox.x + docsBox.width)).toBeCloseTo(Math.round(canvasBox.x + canvasBox.width), -1)
+      // And still wide enough to read prose in.
+      expect(docsBox.width).toBeGreaterThan(200)
+
+      // The node is where it was, and not under the column.
+      const nodeAfter = await page.locator('#a-node').boundingBox()
+      expect(nodeAfter).toEqual(nodeBefore)
+      expect(overlaps(nodeAfter as Box, docsBox as Box)).toBe(false)
+      // The visible slice of canvas to the left of the column is real, not a sliver.
+      expect(docsBox.x - canvasBox.x).toBeGreaterThan(150)
+
+      // The way back is still there and still says what it says.
+      expect(await docs.locator('.flg-ins-docs-back').textContent()).toMatch(/Back to overview/)
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('gives every documented field a chip row, and keeps the prose under it', async () => {
+    const page = await load(formFor('wiki:pumpkin_patch'))
+    try {
+      await page.locator('[data-section="general"] .flg-ins-help').click()
+      const entries = page.locator('.flg-ins-doc')
+      const count = await entries.count()
+      expect(count).toBeGreaterThan(0)
+      for (let i = 0; i < count; i++) {
+        const entry = entries.nth(i)
+        const kinds = await entry.locator('.flg-ins-badge').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset['badge']))
+        // Never empty: the three questions asked about every key are answered on every key.
+        expect(kinds[0]).toBe('kind')
+        expect(kinds[1]).toBe('when')
+        expect(kinds.some((k) => k === 'required' || k === 'optional')).toBe(true)
+        // The chips are short. A chip that needs a line of its own has become the prose again.
+        for (const label of await entry.locator('.flg-ins-badge').allTextContents()) expect(label.length).toBeLessThan(18)
+        // And the prose is still there, BELOW them.
+        const chipsBottom = (await entry.locator('.flg-ins-doc-badges').boundingBox())?.y ?? 0
+        const firstP = await entry.locator('.flg-ins-doc-p').first().boundingBox()
+        if (firstP) expect(firstP.y).toBeGreaterThan(chipsBottom)
+      }
+      // When it is read is one of the three answers, in the words a reader can act on.
+      const whens = await page.locator('.flg-ins-badge[data-badge="when"]').allTextContents()
+      for (const when of whens) expect(['per placement', 'per chunk', 'read once']).toContain(when)
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('says "per placement" for a key that takes Molang, because that is when it is worked out', async () => {
+    const page = await load(formFor('wiki:pumpkin_patch'))
+    try {
+      await page.locator('[data-section="group:[\\"distribution\\"]"] .flg-ins-help').click()
+      const chance = page.locator('.flg-ins-doc[data-key="scatter_chance"]')
+      expect(await chance.locator('.flg-ins-badge[data-badge="when"]').textContent()).toBe('per placement')
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
   it('documents a choice with every variant, and the same name may be the mode and a value', async () => {
     const page = await load(formFor('wiki:acacia_branching_tree'))
     try {
@@ -2125,6 +3182,50 @@ describe('an edit under an unwritten parent builds the containers it needs', () 
     expect(materialisedEdit({}, ['distribution', 'x'], undefined)).toEqual({
       path: ['distribution', 'x'],
       value: undefined,
+    })
+  })
+
+  // The other half of the same rule, and the one that decides whether a second edit adds to the
+  // first or replaces it: what the fields LOOK LIKE once an edit has been sent. See `sent` in
+  // inspector.ts for why the panel needs an answer before the host gives it one.
+  describe('the fields an edit leaves behind', () => {
+    it('is what makes a second edit narrow instead of a whole-parent write', () => {
+      const fields = { distribution: { iterations: 1 } }
+      const first = materialisedEdit(fields, ['distribution', 'x', 'distribution'], 'gaussian')
+      expect(first).toEqual({ path: ['distribution', 'x'], value: { distribution: 'gaussian' } })
+      const after = fieldsAfter(fields, [first])
+      expect(after).toEqual({ distribution: { iterations: 1, x: { distribution: 'gaussian' } } })
+      // Against the file as it was, this is the write that erased `gaussian`.
+      expect(materialisedEdit(fields, ['distribution', 'x', 'extent'], [0, 0])).toEqual({
+        path: ['distribution', 'x'],
+        value: { extent: [0, 0] },
+      })
+      // Against the file as the first edit left it, it is the narrow write it should always have
+      // been -- and `gaussian` survives.
+      expect(materialisedEdit(after, ['distribution', 'x', 'extent'], [0, 0])).toEqual({
+        path: ['distribution', 'x', 'extent'],
+        value: [0, 0],
+      })
+    })
+
+    it('copies rather than mutates: the form the panel is drawing is not touched', () => {
+      const fields = { distribution: { iterations: 1 } }
+      const after = fieldsAfter(fields, [{ path: ['distribution', 'iterations'], value: 9 }])
+      expect(after).toEqual({ distribution: { iterations: 9 } })
+      expect(fields).toEqual({ distribution: { iterations: 1 } })
+    })
+
+    it('removes a key, and splices a list entry out', () => {
+      expect(fieldsAfter({ a: 1, b: 2 }, [{ path: ['a'], value: undefined }])).toEqual({ b: 2 })
+      expect(fieldsAfter({ list: [1, 2, 3] }, [{ path: ['list', 1], value: undefined }])).toEqual({ list: [1, 3] })
+      expect(fieldsAfter({ list: [1, 2] }, [{ path: ['list', 0], value: 7 }])).toEqual({ list: [7, 2] })
+    })
+
+    it('invents nothing: an edit whose container is missing is dropped, not materialised again', () => {
+      // materialisedEdit has already made every edit address a container that exists, so this can
+      // only be reached by an edit that did not come from it -- and guessing a container here is
+      // the guess the writer refuses to make.
+      expect(fieldsAfter({}, [{ path: ['distribution', 'x'], value: 1 }])).toEqual({})
     })
   })
 })

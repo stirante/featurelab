@@ -451,6 +451,10 @@ export type LocalProblemCode =
   | 'world-var-in-iterations'
   | 'sequence-without-return'
   | 'empty-required'
+  | 'unbalanced'
+  | 'unterminated-string'
+  | 'dangling-operator'
+  | 'string-arithmetic'
 
 export interface LocalProblem {
   code: LocalProblemCode
@@ -461,6 +465,168 @@ export interface LocalProblem {
   span?: { offset: number; length: number }
 }
 
+/** Which closer each opener wants. */
+const CLOSERS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}' }
+const OPENERS: Readonly<Record<string, string>> = { ')': '(', ']': '[', '}': '{' }
+
+/** Every operator a NUMBER may sit next to and a STRING may not. Molang compares strings with
+ * `==` / `!=` and does nothing else with them; `'hello' + 1` is not a concatenation, it is a
+ * type error the game reports at evaluation time and this editor can see from the text. */
+const ARITHMETIC = new Set(['+', '-', '*', '/', '%'])
+
+/** The characters an expression may not be the last significant thing in. A trailing operator is
+ * the shape half-typed text has -- `math.random(1, ` , `4 +` -- and the shape a deletion leaves
+ * behind, which is the one that reaches a file. */
+const DANGLING = new Set(['+', '-', '*', '/', '%', '<', '>', '=', '!', '&', '|', '?', ':', ',', '.'])
+
+/** The last index in `masked` that is neither whitespace nor a statement terminator, or -1. */
+function lastSignificant(masked: string): number {
+  let i = masked.length - 1
+  while (i >= 0 && (/\s/.test(masked[i]!) || masked[i] === ';')) i--
+  return i
+}
+
+/**
+ * What is wrong with an expression's SHAPE, before anything is asked about what its names mean.
+ *
+ * WHY THIS IS HERE AT ALL. The engine-side validator this module's siblings are written against
+ * (MolangEdgeValidator) has no method behind it yet -- `featurelab serve` dispatches loadPack,
+ * generate, graph and eight others, and none of them compiles an expression -- so the webview
+ * wires a stub that answers `{}` to everything. Until that method exists, every syntax error in
+ * this editor is one of these or it is nothing: `math.random(1, `, `}{ ] ,, +` and `'hello' + 1`
+ * all reached a pack file with not a word said about them.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO. It is not a parser, and a parser here would be a second
+ * implementation of the game's grammar that could disagree with the real one -- which is worse
+ * than saying nothing, because an editor that cries wolf about valid Molang is an editor whose
+ * diagnostics people learn to scroll past. Every check below is one whose answer is the same
+ * under any grammar: brackets have to match, a quote has to close, and an expression cannot end
+ * on a binary operator. "This reads a name nothing writes" and "these two types do not combine"
+ * in the general case still belong to the engine.
+ *
+ * ONE bracket problem is reported, not a cascade: a single stray `}` puts every bracket after it
+ * on the wrong foot, and eight errors about one typo is a wall the reader has to search for the
+ * first line of.
+ */
+export function structuralProblems(source: string): LocalProblem[] {
+  const problems: LocalProblem[] = []
+  const masked = maskStrings(source)
+  if (masked.trim().length === 0) return problems
+
+  // -- an unclosed quote ----------------------------------------------------
+  //
+  // First, because every other check reads the masked text and a runaway quote has masked the
+  // rest of the expression into spaces -- so anything else found after it would be found in text
+  // that is not there.
+  let openQuote = -1
+  for (let i = 0; i < masked.length; i++) {
+    if (masked[i] !== "'") continue
+    openQuote = openQuote === -1 ? i : -1
+  }
+  if (openQuote !== -1) {
+    problems.push({
+      code: 'unterminated-string',
+      severity: 'error',
+      message:
+        "This string is never closed -- there is no matching ' after it. The game rejects the " +
+        'file while tokenizing it, so nothing in it loads, not just this expression.',
+      span: { offset: openQuote, length: source.length - openQuote },
+    })
+    return problems
+  }
+
+  // -- brackets -------------------------------------------------------------
+  const stack: { ch: string; offset: number }[] = []
+  for (let i = 0; i < masked.length; i++) {
+    const ch = masked[i]!
+    if (CLOSERS[ch] !== undefined) {
+      stack.push({ ch, offset: i })
+      continue
+    }
+    const wants = OPENERS[ch]
+    if (wants === undefined) continue
+    const top = stack.pop()
+    if (top === undefined) {
+      problems.push({
+        code: 'unbalanced',
+        severity: 'error',
+        message: `There is a \`${ch}\` here with no \`${wants}\` to match it.`,
+        span: { offset: i, length: 1 },
+      })
+      return problems
+    }
+    if (top.ch !== wants) {
+      problems.push({
+        code: 'unbalanced',
+        severity: 'error',
+        message: `\`${top.ch}\` is closed by \`${ch}\` -- it wants a \`${CLOSERS[top.ch]}\`.`,
+        span: { offset: top.offset, length: i - top.offset + 1 },
+      })
+      return problems
+    }
+  }
+  const unclosed = stack[0]
+  if (unclosed !== undefined) {
+    problems.push({
+      code: 'unbalanced',
+      severity: 'error',
+      message:
+        `This \`${unclosed.ch}\` is never closed -- the expression ends before its ` +
+        `\`${CLOSERS[unclosed.ch]}\`. The game cannot parse it, so the file will not load.`,
+      span: { offset: unclosed.offset, length: source.length - unclosed.offset },
+    })
+    return problems
+  }
+
+  // -- a trailing operator --------------------------------------------------
+  //
+  // After the brackets, and only when they balanced: `math.random(1, ` is both, and "this ( is
+  // never closed" is the sentence that names the mistake. Two errors for one typo teaches the
+  // reader that half the errors here are noise.
+  const end = lastSignificant(masked)
+  const last = end >= 0 ? masked[end]! : ''
+  if (DANGLING.has(last)) {
+    problems.push({
+      code: 'dangling-operator',
+      severity: 'error',
+      message:
+        `This expression ends on \`${last}\`, which needs something after it. As written it is ` +
+        'not an expression at all and the game cannot parse it.',
+      span: { offset: end, length: 1 },
+    })
+  }
+
+  // -- a string where a number has to be ------------------------------------
+  for (let i = 0; i < masked.length; i++) {
+    if (masked[i] !== "'") continue
+    let close = i + 1
+    while (close < masked.length && masked[close] !== "'") close++
+    let before = i - 1
+    while (before >= 0 && /\s/.test(masked[before]!)) before--
+    let after = close + 1
+    while (after < masked.length && /\s/.test(masked[after]!)) after++
+    const operator = ARITHMETIC.has(masked[before] ?? '')
+      ? masked[before]!
+      : ARITHMETIC.has(masked[after] ?? '')
+        ? masked[after]!
+        : null
+    if (operator !== null) {
+      problems.push({
+        code: 'string-arithmetic',
+        severity: 'error',
+        message:
+          `A string cannot be used with \`${operator}\`. Molang compares strings with == and != ` +
+          'and does nothing else with them -- there is no concatenation and no conversion, so ' +
+          'this is a type error rather than a value you can predict.',
+        span: { offset: i, length: Math.min(close, masked.length - 1) - i + 1 },
+      })
+    }
+    i = close
+  }
+
+  return problems
+}
+
 /** Everything wrong with an expression that its own text proves, with no pack loaded and no
  * engine running. Deliberately a short list: these are the checks that are DECIDABLE from the
  * text, so they can be wrong only if this file's catalogue is wrong. Anything needing to know
@@ -468,7 +634,10 @@ export interface LocalProblem {
  * commonest real bug -- belongs to the Go validator and arrives through
  * molangEdge.ts's MolangEdgeValidator instead. */
 export function localProblems(source: string, field: MolangEdgeField): LocalProblem[] {
-  const problems: LocalProblem[] = []
+  // FIRST, and ahead of everything about names. A `query.` the catalogue has never heard of is
+  // worth saying; it is not worth saying before "this bracket is never closed", which is the
+  // reason the file will not load at all.
+  const problems: LocalProblem[] = structuralProblems(source)
   const refs = scanMolang(source)
   for (const ref of refs) {
     const span = { offset: ref.offset, length: ref.length }
