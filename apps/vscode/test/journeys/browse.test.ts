@@ -237,26 +237,64 @@ describe('editing a field, and being told so', () => {
 
       const box = j.page.locator(`#flg-side [data-key=${JSON.stringify(EDITABLE_KEY)}] input.flg-ins-input`).first()
       await box.waitFor({ state: 'visible', timeout: 20_000 })
+
+      // RECORDED, NOT POLLED FOR, and the difference is the whole reason this test used to fail
+      // on a Linux runner about one run in three with a bare 20 s timeout.
+      //
+      // The three lines below are a SEQUENCE, and the middle one is transient by design: the
+      // editor says "Writing ... to ..." when it sends the edit and replaces it with "Saved ..."
+      // the moment the host answers. `waitForStatus` polls on an animation frame, so it can only
+      // catch a line that is still on screen when a frame happens. Watching #flg-status through a
+      // MutationObserver on the runner, on this fixture, over six runs:
+      //
+      //   +0.0 ms  Showing 15 of 57 cards. ...
+      //   +9.7 ms  Writing places_block: block name to features/blocked_gold_block.json...
+      //   +18.8 ms Saved features/blocked_gold_block.json.
+      //
+      // Nine milliseconds, against a 16.7 ms poll. The run that failed is the run whose frame
+      // landed either side of that window; the five that passed are the ones where it did not.
+      //
+      // THE PRODUCT IS NOT AT FAULT AND THE LINE IS NOT MISSING. This is a 57-node fixture with
+      // the engine already warm on the same machine, so the round trip the "Writing" line covers
+      // is 9-19 ms. On the pack that prompted this test it was 5.6 SECONDS -- which is what the
+      // line exists for, and what a reader actually sees. A confirmation that is brief when the
+      // work is brief is the confirmation working.
+      //
+      // So the states are collected as they happen and asserted afterwards, which also asks more
+      // than the three separate waits did: their ORDER is now part of the claim, and "Saved"
+      // arriving without a "Writing" before it used to pass.
+      const transcript = await j.recordStatus()
+      const drawn = await j.graphCount()
       await box.fill('minecraft:diamond_block')
       await box.press('Enter')
+      // The end of the round trip, waited for on the one thing that is not transient: the graph
+      // the host rebuilds and sends back. Every status above it has already been recorded.
+      await j.waitForRedraw(drawn)
+
+      const said = await transcript()
+      // The resting line the edit started from, then the three states the write goes through.
+      // Sliced from the first change so the starting line is not part of the shape being pinned.
+      const during = said.slice(1)
+      expect(during.length, `the status line moved through: ${JSON.stringify(said)}`).toBeGreaterThanOrEqual(3)
 
       // A SENTENCE, NOT A FIELD NAME. This used to be `setStatus(change.label)`, so the whole
       // confirmation for somebody's first edit was the words "extent 2" -- no verb, no file, no
       // tense, nothing to say whether that was a request, a result or a refusal. Every
       // neighbouring path in the panel already said a sentence; this one now does too, and names
       // the file, which is the part the reader cannot see for themselves.
-      const writing = await j.waitForStatus(/^Writing .+ to .+\.\.\.$/)
-      expect(writing).toContain(EDITABLE_FILE)
+      expect(during[0], `the status line moved through: ${JSON.stringify(said)}`).toMatch(/^Writing .+ to .+\.\.\.$/)
+      expect(during[0]).toContain(EDITABLE_FILE)
 
       // AND THEN IT SAYS IT LANDED. With no acknowledgement the line simply stayed on "Writing
       // ..." for the whole engine round trip -- measured at +5.6 s with the field still editable
       // and no spinner anywhere -- and was then replaced by a card count, so the write itself was
       // never confirmed at all. The host answers the moment the bytes are on disk.
-      await j.waitForStatus(/^Saved /)
+      expect(during[1], `the status line moved through: ${JSON.stringify(said)}`).toMatch(/^Saved /)
+      expect(during[1]).toContain(EDITABLE_FILE)
 
       // ...and the line goes back to the camera once the rebuilt graph arrives, which is what it
       // says when nothing is happening.
-      await j.waitForStatus(/Showing \d+ of \d+ cards/)
+      expect(during[during.length - 1], `the status line moved through: ${JSON.stringify(said)}`).toMatch(/Showing \d+ of \d+ cards/)
 
       // The outcome, on disk, because a status line is not evidence of a write.
       expect(j.read(EDITABLE_FILE)).toContain('minecraft:diamond_block')
