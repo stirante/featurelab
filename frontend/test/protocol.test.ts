@@ -238,6 +238,13 @@ describe('decodeGenerateResult on a real response that includes entries/ruleEntr
     expect(chained!.position).toEqual({ x: -2, y: 68, z: 1 })
   })
 
+  // `scope` is a field the engine does not send yet (pack-wide vs this-run diagnostics is being
+  // split separately). Absent must decode to null and NOT to a guess, because null is what every
+  // consumer already reads as "no opinion" -- see panel.ts's isRunDiagnostic.
+  it('decodes a diagnostic with no `scope` as null rather than guessing one', () => {
+    for (const d of decoded.diagnostics) expect(d.scope).toBeNull()
+  })
+
   it('decodes the real resolved placement origin, distinct from the volume bounds', () => {
     // The plains preset's auto-Y snaps to ground height, which is NOT bounds.minY (the
     // volume's own floor) -- proving this reads the wire's dedicated `origin` field, not a
@@ -537,5 +544,105 @@ describe('decodeGenerateResult: malformed run-length arrays', () => {
     const raw = withBlocks({ rle: [0, 4] }) as Record<string, unknown>
     raw[field] = { rle: [0, 3] } // one cell short of the 2x1x2 bounds
     expect(() => decodeGenerateResult(raw)).toThrow(new RegExp(expected))
+  })
+})
+
+// --- stops: why a run placed nothing ----------------------------------------------------------
+//
+// The panel's "Placed nothing · <reason>" line is only as honest as this decode. Two sources
+// (the top-level field, or a profile's own per-feature rows) and ONE meaning for an empty
+// result: nothing stopped. The engine omits the field in exactly that case, and says so in its
+// own contract -- "a client must treat a missing field as 'no stops', never as an older engine"
+// (wire/wire.go, "# Stops"). There used to be a `stopsKnown` flag here that claimed the
+// opposite; see DecodedResult.stops for what it cost.
+describe('decodeGenerateResult: stops, and where they come from', () => {
+  function bare(extra: Record<string, unknown> = {}): unknown {
+    const cells = 4
+    return {
+      bounds: { minX: 0, minY: 0, minZ: 0, sizeX: 2, sizeY: 1, sizeZ: 2 },
+      blocks: { rle: [0, cells] },
+      baseline: { rle: [0, cells] },
+      palette: [{ name: 'minecraft:air', states: {}, kind: 1 }],
+      changed: { rle: [0, cells] },
+      removed: { rle: [0, cells] },
+      blocksChanged: 0,
+      blocksPlaced: 0,
+      blocksCarved: 0,
+      blocksReplaced: 0,
+      writesOutOfBounds: 0,
+      placementDurationMs: 0,
+      libraryBuildDurationMs: 0,
+      totalDurationMs: 0,
+      partial: false,
+      diagnostics: [],
+      ...extra,
+    }
+  }
+
+  it('takes the top-level field when the engine sends one', () => {
+    const decoded = decodeGenerateResult(
+      bare({ stops: [{ identifier: 'wiki:a', reason: 'iterations_zero', detail: 'iterations = 0', count: 412 }] }),
+    )
+    expect(decoded.stops).toEqual([{ identifier: 'wiki:a', reason: 'iterations_zero', detail: 'iterations = 0', count: 412 }])
+  })
+
+  it('reads an EMPTY top-level field as "nothing stopped"', () => {
+    const decoded = decodeGenerateResult(bare({ stops: [] }))
+    expect(decoded.stops).toEqual([])
+  })
+
+  it('recovers stops from the profile when the engine has no top-level field, attaching the feature each belongs to', () => {
+    const decoded = decodeGenerateResult(
+      bare({
+        profile: {
+          touchCounts: { rle: [0, 4] },
+          featureIdentifiers: ['wiki:a', 'wiki:b'],
+          features: [
+            { identifier: 'wiki:a', typeId: 'minecraft:scatter_feature', entered: 1, blocksWritten: 0, delegations: 0, selfMs: 0, inclusiveMs: 0, stops: [{ reason: 'iterations_zero', detail: 'iterations = 0', count: 3 }] },
+            { identifier: 'wiki:b', typeId: 'minecraft:ore_feature', entered: 1, blocksWritten: 0, delegations: 0, selfMs: 0, inclusiveMs: 0, stops: [{ reason: 'chance_failed', detail: 'chance 0.1 did not roll', count: 9, ordinal: 2 }] },
+          ],
+          attribution: { cell: [], feature: [], count: [] },
+        },
+      }),
+    )
+    expect(decoded.stops).toEqual([
+      { identifier: 'wiki:a', reason: 'iterations_zero', detail: 'iterations = 0', count: 3 },
+      { identifier: 'wiki:b', reason: 'chance_failed', detail: 'chance 0.1 did not roll', count: 9, ordinal: 2 },
+    ])
+  })
+
+  // The regression this file exists to prevent coming back. An ABSENT `stops` is the engine's
+  // stated way of saying "nothing stopped" -- the healthy case, and by far the most common one --
+  // and the decoder used to hand the panel a flag that turned it into "this engine cannot report
+  // stops", which the panel then rendered as an instruction to turn profiling on. Profiling
+  // recovers nothing when there was nothing to recover.
+  it('reads an ABSENT field as "nothing stopped", never as an engine that cannot report them', () => {
+    const decoded = decodeGenerateResult(bare())
+    expect(decoded.stops).toEqual([])
+    expect(decoded).not.toHaveProperty('stopsKnown')
+  })
+
+  // Forward tolerance, both directions: a scope the engine starts sending is carried through,
+  // and a value this package does not know becomes null rather than silently acting as "not
+  // pack" -- see normalizeDiagnostic.
+  it('carries a diagnostic `scope` through when one arrives, and nulls one it does not know', () => {
+    const decoded = decodeGenerateResult(
+      bare({
+        diagnostics: [
+          { level: 'warning', fileId: 'a.json', message: 'this run', scope: 'run' },
+          { level: 'error', fileId: 'b.json', message: 'the pack', scope: 'pack' },
+          { level: 'warning', fileId: 'c.json', message: 'who knows', scope: 'something_new' },
+        ],
+      }),
+    )
+    expect(decoded.diagnostics.map((d) => d.scope)).toEqual(['run', 'pack', null])
+  })
+
+  it('drops a malformed stop rather than carrying a row nothing can phrase', () => {
+    const decoded = decodeGenerateResult(
+      bare({ stops: [{ identifier: 'wiki:a', reason: 'no_surface', detail: 'none at y=44', count: 1 }, { identifier: 'wiki:b', count: 2 }, null] }),
+    )
+    expect(decoded.stops.length).toBe(1)
+    expect(decoded.stops[0]!.reason).toBe('no_surface')
   })
 })

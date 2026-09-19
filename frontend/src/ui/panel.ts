@@ -71,7 +71,7 @@
 //     switch (it just stops being sent) -- see sendableMaterials for the three options and why
 //     that is the one chosen. Note this changes nothing about the persistence split above: a
 //     material override is generation config, still per-run, still never persisted.
-import type { EnvironmentMode, VoxelViewer } from '../viewer.js'
+import type { EnvironmentMode, PickedCell, VoxelViewer } from '../viewer.js'
 import type {
   BiomeEntryWire,
   BlockCounts,
@@ -86,10 +86,11 @@ import type {
   MaterialSlotsWire,
   MaterialsWire,
   ResolvedBiomeWire,
+  ResultStopWire,
   RuleEntryWire,
 } from '../protocol.js'
 import { ENGINE_DEFAULT_DELEGATION_BUDGET, ENGINE_DEFAULT_PLACEMENT_TIME_LIMIT_MS, ENGINE_DEFAULT_WRITE_BUDGET } from '../protocol.js'
-import { checkboxInput, clamp, h, iconButton, makeSection, numberInput, optionalNumberInput, readFloat, readInt, readOptionalInt, row, textInput } from './dom.js'
+import { checkboxInput, clamp, guardInertActivation, h, iconButton, isInert, labelFor, makeSection, numberInput, optionalNumberInput, readFloat, readInt, readOptionalInt, row, setInert, setInertReason, textInput } from './dom.js'
 import { createDocsPanel } from './docs.js'
 import { inertSeaSlotTitle, panelDocs } from './panelDocs.js'
 
@@ -117,6 +118,42 @@ const STORAGE_KEY = (() => {
     return base
   }
 })()
+
+/** The one sentence that says why "Show heatmap" is inert, used by the View row and the REPLACED
+ * chip alike -- an inert control must show that it is inert AND say why, in the same words
+ * wherever it appears. */
+/** How long a slice drag has to pause before the view blob is written. Long enough that a drag
+ * across the whole range is one write rather than two hundred, short enough that letting go and
+ * immediately closing the panel still persists what you chose. */
+const SLICE_SAVE_DEBOUNCE_MS = 250
+
+/** What an uncommitted field says when you hover it. These inputs commit on blur or Enter, so
+ * until then the panel is showing one number and the preview is the result of another -- with
+ * nothing to say which. */
+const UNCOMMITTED_TITLE = 'Not run yet — press Enter (or Ctrl+Enter) to use this value.'
+
+const HEATMAP_NEEDS_PROFILING = 'Needs profiling: turn on "Enable profiling" in the Profiler section and run again.'
+
+/** Which sections a panel that has never been opened before starts COLLAPSED.
+ *
+ * Eight sections, all expanded, is roughly two thousand pixels of controls above a Diagnostics
+ * list -- and seven of the eight are irrelevant to a first preview. The split is by how often a
+ * control is actually touched, not by how interesting it is:
+ *
+ *   - OPEN: Feature/Rule (which feature, which seed, run it again), Environment (the preset and
+ *     the bench it implies), View (the Y cut and the lenses), Diagnostics (the answer when
+ *     something went wrong). These are the four a person moves between on every single run.
+ *   - COLLAPSED: Materials and Biome (a deliberate excursion, and both show the preset's own
+ *     values until you make one), Budget (three per-run escape hatches that start blank on
+ *     purpose -- see that section's own comment) and Profiler (off by default, so its body is
+ *     one sentence saying so).
+ *
+ * This is a DEFAULT, not a policy: the collapsed set is persisted per workspace from the first
+ * time anything is toggled, so opening the Materials section once means it is open next time,
+ * and closing Environment keeps it closed. A blob written before this constant existed is
+ * honoured exactly as it was saved -- someone who already has all eight open keeps all eight
+ * open, because that is what they last chose. */
+const DEFAULT_COLLAPSED_SECTIONS: readonly string[] = ['materials', 'biome', 'budget', 'profiler']
 
 const SIZE_XZ_MIN = 4
 const SIZE_XZ_MAX = 512
@@ -219,6 +256,100 @@ export function parseBudgetDiagnostic(message: string): BudgetDiagnostic | null 
 // Exported so a host (e.g. apps/vscode's webview/main.ts) can type-check the `kind` it passes to
 // PanelHandle.seedOpenedDocument against the exact same union this file's own mode radio/config
 // use -- see that method's own doc comment.
+/** How long the panel waits after the last keystroke before it asks the engine for a new run.
+ *
+ * Every generation control used to dispatch on its own `change`, so nudging a number spinner four
+ * times was four placements, three of which nobody wanted and all of which the engine had to
+ * finish. 350 ms is the interval the desktop build already settled on: long enough that a typed
+ * value is finished, short enough that it never feels like waiting. Committing explicitly (Enter,
+ * blur, Ctrl+Enter, any discrete control) bypasses it entirely -- a debounce is for keystrokes,
+ * not for decisions. */
+export const REGENERATE_DEBOUNCE_MS = 350
+
+/** Plain-words names for the engine's stop reasons, mirroring apps/vscode/src/graph/nodeStats.ts's
+ * own table -- the node editor and the preview must not describe one run's stop two ways. An
+ * unknown code falls back to itself, so a newer engine's reason still reads as something rather
+ * than vanishing. */
+const STOP_REASONS: Readonly<Record<string, string>> = {
+  chance_zero: 'Chance is 0',
+  chance_failed: 'Chance roll failed',
+  iterations_zero: 'No iterations',
+  condition_false: 'Condition false',
+  biome_filter_rejected: 'Biome filter rejected',
+  height_difference_rejected: 'Height difference out of range',
+  surface_threshold_rejected: 'Too close to the surface',
+  search_exhausted: 'Search ran out of positions',
+  no_surface: 'No surface to snap to',
+  no_selection: 'Nothing to pick',
+  sequence_first_failure: 'Stopped at first failure',
+  unresolved_reference: 'Reference not found',
+  recursion_guard: 'Recursion guard',
+}
+
+export interface StopDescription {
+  /** Short, for the empty-result line: `no iterations — iterations = 0 ×412`. */
+  readonly label: string
+  /** Longer, for that line's tooltip: `No iterations: iterations = 0. 412 times in this run.` */
+  readonly title: string
+}
+
+/** STOP_REASONS' entry as it reads MID-SENTENCE, after "Placed nothing · ".
+ *
+ * That table is sentence-cased because the node editor shows its values standing alone; here
+ * they continue a line, so only the first letter changes. No entry starts with a proper noun or
+ * an acronym, and an unknown code (which falls back to the raw `reason`, already lower snake
+ * case) is unharmed by it. */
+function midSentence(reason: string): string {
+  return reason.charAt(0).toLowerCase() + reason.slice(1)
+}
+
+/** How to say one stop. The count is only shown when the stop was hit more than once -- `×1` is
+ * noise, and a reader who sees a count at all should be able to trust it means "more than once".
+ *
+ * THE PLAIN REASON LEADS. The label used to be `stopped: <detail>` with the plain-English reason
+ * reachable only as a native tooltip, so the one visible sentence about a run that placed
+ * nothing was raw engine text -- an evaluated expression, out of context, in a line that had
+ * room for the words. The detail keeps its place immediately after: it is the specific number
+ * that turns "no surface to snap to" into something to go and change. */
+export function describeStop(stop: ResultStopWire): StopDescription {
+  const n = Number.isFinite(stop.count) ? Math.trunc(stop.count) : 0
+  const reason = STOP_REASONS[stop.reason] ?? stop.reason
+  const entry = typeof stop.ordinal === 'number' ? ` (entry ${String(stop.ordinal)})` : ''
+  // A lost roll is luck, and the one stop where trying another seed is the right next step.
+  const luck = stop.reason === 'chance_failed' ? ' Another seed may pass.' : ''
+  const who = stop.identifier ? `${stop.identifier} — ` : ''
+  return {
+    label: `${midSentence(reason)} — ${stop.detail}${n > 1 ? ` ×${n.toLocaleString('en-US')}` : ''}`,
+    title: `${who}${reason}${entry}: ${stop.detail}. ${n.toLocaleString('en-US')} time${n === 1 ? '' : 's'} in this run.${luck}`,
+  }
+}
+
+/** Whether a diagnostic is about the RUN that just happened rather than the pack as a whole.
+ *
+ * TOLERANT BY DESIGN: `scope` is a field the engine does not send yet (see
+ * DecodedDiagnostic.scope), and an absent one counts as this run's -- which is exactly how this
+ * panel behaved before the field existed. Only an explicit `'pack'` is excluded, so the day the
+ * engine starts separating "this file will not parse" from "this placement was refused", the
+ * empty-result line stops offering the former as an explanation for the latter with no further
+ * change here. */
+export function isRunDiagnostic(d: DecodedDiagnostic): boolean {
+  return d.scope !== 'pack'
+}
+
+/** Beyond this many characters a diagnostic gets a disclosure rather than being shown whole.
+ *
+ * A CHARACTER count, not a measured one: jsdom has no layout, a webview's own line length changes
+ * with the sidebar width, and a clamp that depends on either would behave differently in the test
+ * that guards it than in the panel it guards. ~110 characters is roughly two lines at the
+ * narrowest sidebar this panel allows, so anything under it was never going to be a wall. */
+const DIAGNOSTIC_CLAMP_CHARS = 110
+
+/** Whether this message needs a disclosure. A newline counts regardless of length: a diagnostic
+ * that came pre-formatted as several lines is exactly the "engine paragraph" case. */
+function isLongDiagnostic(message: string): boolean {
+  return message.length > DIAGNOSTIC_CLAMP_CHARS || /[\r\n]/.test(message)
+}
+
 export type Mode = 'feature' | 'rule'
 
 interface GenerationConfig {
@@ -365,6 +496,14 @@ interface ViewState {
   showCarved: boolean
   showHeatmap: boolean
   showOverflow: boolean
+  /** Whether to draw blocks with their textures WHENEVER an atlas is available.
+   *
+   * A PREFERENCE, not a claim about the current preview: the viewer can only honour it once a
+   * host has delivered an atlas (VoxelViewer.setAtlas), and until then the row is inert and says
+   * why. Defaults to true, which changes nothing for a host that never delivers one -- every
+   * committed screenshot still renders in flat colours, because there is no atlas in those
+   * runs, not because the switch was off. See the View section's texture row. */
+  showTextures: boolean
 }
 
 function defaultView(): ViewState {
@@ -386,6 +525,9 @@ function defaultView(): ViewState {
     // On by default -- see viewer.ts's showOverflow doc comment: capture-and-display is
     // automatic, unlike carved/heatmap above which are opt-in lenses on an already-shown result.
     showOverflow: true,
+    // On by default -- see ViewState.showTextures. Inert until a host supplies an atlas, so this
+    // is "use textures when there are any", not "textures are on".
+    showTextures: true,
   }
 }
 
@@ -433,6 +575,11 @@ interface PersistedState {
     showCarved?: boolean
     showHeatmap?: boolean
     showOverflow?: boolean
+    /** Absent on a save from before textures had a control -- defaults to ON (see
+     * defaultView()), unlike the other two migrations here, because "draw the textures when
+     * there are any" is what someone who has never been asked would want, and a host with no
+     * atlas is unaffected either way. */
+    showTextures?: boolean
   }
   collapsed: string[]
 }
@@ -488,6 +635,18 @@ export interface PanelOptions {
    * gains the control automatically, with no other change needed here, the moment it starts
    * passing this callback. */
   onGrowRegenerate?: (params: GenerateParamsWire) => void
+  /** Fired when the user clicks Cancel on the viewport's busy pill -- "stop the run currently in
+   * flight". The panel neither knows nor cares HOW: it only knows that a host which passed this
+   * claims it can, and a host which did not gets no Cancel button at all rather than one that
+   * looks live and does nothing (the same rule onGrowRegenerate/onReloadFiles already follow).
+   *
+   * Cancelling is not an error and not a result, so this does NOT clear the busy state by itself:
+   * the host's own reply (a result, an error, or a stale banner) is what ends the request, exactly
+   * like every other request this panel drives. */
+  onCancel?: () => void
+  /** Overrides REGENERATE_DEBOUNCE_MS for this panel. 0 dispatches every typed change
+   * immediately, which is what a test wants and nothing else does. */
+  regenerateDebounceMs?: number
 }
 
 export interface PanelHandle {
@@ -504,8 +663,9 @@ export interface PanelHandle {
    * known-good (still starting, crashed, or a request timed out). */
   setStale(stale: boolean, reason?: string): void
   /** Toggles the "request in flight" visual state (so there is always an indication that
-   * something is happening) -- a busyBanner row, a dimmed/pulsing look on the stat tiles, and the same on
-   * the 3D preview itself (VoxelViewer.setBusy). A host is expected to call `setBusy(true)`
+   * something is happening) -- a dimmed/pulsing look on the stat tiles, and the viewport's own
+   * busy pill (VoxelViewer.setBusy), which is the one live indicator and the only one that can
+   * actually stop the run. A host is expected to call `setBusy(true)`
    * the moment it dispatches a request (onConfigChange firing, or its own reload/grow trigger)
    * and `setBusy(false)` once that request settles either way -- but this is deliberately not
    * the ONLY path that can clear it: setResult/setError/setStale(true) all force it off
@@ -567,6 +727,20 @@ export interface PanelHandle {
    * re-drive the last-known config on its own trigger (e.g. a document save) without the
    * panel having to push a redundant onConfigChange first. */
   getGenerateParams(): GenerateParamsWire | null
+  /** Says why block textures are not available, for a host that knows and can put it in words.
+   *
+   * The panel can already tell WHETHER textures are available -- it asks the viewer, which knows
+   * whether an atlas was decoded -- and it says so without any help. What it cannot know is WHY
+   * not, and the answers are genuinely different actions: no atlas has been built on this
+   * machine yet, the atlas is there but failed to decode, the host was told not to fetch one.
+   * A host that knows passes the sentence; one that does not simply never calls this and the
+   * panel falls back to its own neutral wording.
+   *
+   * `available: true` is worth passing too, and means "I have delivered, or am about to deliver,
+   * an atlas" -- it does not by itself turn anything on: the viewer still has to decode one, and
+   * this panel still reports what the viewer is actually doing rather than what a host intended.
+   * Pass null to go back to the neutral wording. */
+  setTextureStatus(status: { available: boolean; reason?: string } | null): void
 }
 
 export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle {
@@ -613,10 +787,15 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     showCarved: persisted?.view.showCarved ?? defaultView().showCarved,
     showHeatmap: persisted?.view.showHeatmap ?? defaultView().showHeatmap,
     showOverflow: persisted?.view.showOverflow ?? defaultView().showOverflow,
+    showTextures: persisted?.view.showTextures ?? defaultView().showTextures,
   }
   if (view.environmentMode !== 'solid' && view.environmentMode !== 'ghost' && view.environmentMode !== 'hidden') view.environmentMode = 'solid'
 
-  const collapsedSections = new Set<string>(persisted?.collapsed ?? [])
+  // `?? DEFAULT_COLLAPSED_SECTIONS` and not `persisted?.collapsed ?? []`: the two are only
+  // different for a panel nobody has ever opened here (loadPersisted returns null), which is
+  // exactly the case the default is for. Once anything has been saved, the saved set wins whole,
+  // including an empty one -- see that constant's own doc comment.
+  const collapsedSections = new Set<string>(persisted?.collapsed ?? DEFAULT_COLLAPSED_SECTIONS)
 
   let lastResult: DecodedResult | null = null
   let lastError: string | null = null
@@ -712,6 +891,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
         showCarved: view.showCarved,
         showHeatmap: view.showHeatmap,
         showOverflow: view.showOverflow,
+        showTextures: view.showTextures,
       },
       collapsed: [...collapsedSections],
     }
@@ -840,10 +1020,102 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
    * regenerate, which never calls this function at all, still inherits the same behaviour. */
   function notifyConfigChanged(): void {
     save()
+    cancelPendingRegenerate()
     const params = buildGenerateParams()
     if (!params) return
     if (view.growSticky && opts.onGrowRegenerate) opts.onGrowRegenerate(params)
     else opts.onConfigChange?.(params)
+  }
+
+  /** The keystroke path into notifyConfigChanged: saves immediately (so nothing is lost) but
+   * holds the actual request back until typing stops -- see REGENERATE_DEBOUNCE_MS. Any explicit
+   * commit (Enter, blur, Regenerate, a discrete control) goes through notifyConfigChanged
+   * directly, which also cancels whatever this had pending, so one edit is never two runs. */
+  let pendingRegenerate = 0
+  const debounceMs = opts.regenerateDebounceMs ?? REGENERATE_DEBOUNCE_MS
+  function cancelPendingRegenerate(): void {
+    if (pendingRegenerate === 0) return
+    clearTimeout(pendingRegenerate)
+    pendingRegenerate = 0
+  }
+  function scheduleConfigChanged(): void {
+    save()
+    cancelPendingRegenerate()
+    if (debounceMs <= 0) {
+      notifyConfigChanged()
+      return
+    }
+    pendingRegenerate = setTimeout(() => {
+      pendingRegenerate = 0
+      notifyConfigChanged()
+    }, debounceMs) as unknown as number
+  }
+
+  /** Wires one text/number input so that it (a) shows an UNCOMMITTED marker the moment its value
+   * stops matching what was last sent, and (b) regenerates on its own once typing stops, instead
+   * of only on blur or Enter.
+   *
+   * The dirty marker is the honest half. These inputs commit on blur/Enter, so a typed-but-not-
+   * committed value looked exactly like a sent one -- the panel showed 64 while the preview was
+   * still the result of 32, and nothing said so. `commit` is the SAME handler the input's own
+   * `change` already ran, so there is one code path per control, not two. */
+  const committedInputs: { input: HTMLInputElement; resync: () => void }[] = []
+  function attachCommit(input: HTMLInputElement, commit: () => void): void {
+    let committed = input.value
+    let timer = 0
+    const clearTimer = (): void => {
+      if (timer === 0) return
+      clearTimeout(timer)
+      timer = 0
+    }
+    const markClean = (): void => {
+      input.classList.remove('fl-dirty')
+      input.title = ''
+    }
+    const fire = (): void => {
+      clearTimer()
+      // Nothing to send. This is also what stops one edit becoming two runs: the debounce commits
+      // while the field still has focus, and the browser then fires its own `change` on blur for
+      // the same edit.
+      if (input.value === committed) {
+        markClean()
+        return
+      }
+      markClean()
+      commit()
+      // Read back AFTER committing: a handler that clamps (Size Y above 512, a negative budget)
+      // rewrites the field, and baselining against the pre-clamp text would leave the input
+      // permanently "uncommitted" against a value it can never hold.
+      committed = input.value
+    }
+    input.addEventListener('input', () => {
+      const dirty = input.value !== committed
+      input.classList.toggle('fl-dirty', dirty)
+      input.title = dirty ? UNCOMMITTED_TITLE : ''
+      clearTimer()
+      if (!dirty) return
+      if (debounceMs <= 0) {
+        fire()
+        return
+      }
+      timer = setTimeout(fire, debounceMs) as unknown as number
+    })
+    input.addEventListener('change', fire)
+    // A programmatic write (setResult re-syncing a preset's defaults, the budget quick-fix)
+    // is by definition already committed -- re-reading the value here is what stops those from
+    // leaving a permanent, wrong "uncommitted" marker behind.
+    committedInputs.push({
+      input,
+      resync: () => {
+        committed = input.value
+        markClean()
+      },
+    })
+  }
+  /** Re-baselines every committed input against its current value -- called whenever this module
+   * writes those values itself. */
+  function resyncCommitted(): void {
+    for (const entry of committedInputs) entry.resync()
   }
 
   root.textContent = ''
@@ -854,41 +1126,255 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   staleBanner.style.display = 'none'
   const errorBanner = h('div', 'fl-banner fl-banner-error')
   errorBanner.style.display = 'none'
-  // In-flight indicator (never "no indication that anything is happening") -- see setBusy/
-  // applyBusy below for the full contract. Ordered before staleBanner/errorBanner are RENDERED
-  // (i.e. appears above them) but those two still win visually whenever both would show at
-  // once, since applyBusy(false) always fires as part of setError/setStale(true) -- see those
-  // methods' own comments for why a busy indicator can never outlive the banner that explains
-  // what actually happened.
-  const busyBanner = h('div', 'fl-banner fl-banner-busy', 'Generating…')
-  busyBanner.style.display = 'none'
-  root.append(staleBanner, errorBanner, busyBanner)
+  // role=alert for the two that report something WRONG, role=status for the rest: without these
+  // a screen reader user gets no notification at all that the engine died or a run failed --
+  // the banner simply appears, silently, somewhere they are not looking.
+  errorBanner.setAttribute('role', 'alert')
+  staleBanner.setAttribute('role', 'alert')
+  // ONE BUSY INDICATOR, AND IT IS NOT HERE. A sidebar "Generating…" banner used to appear at the
+  // same moment as the viewport's own busy pill, which already says the same word, counts the
+  // elapsed time and carries Cancel -- two live indicators for one request, in one window, one
+  // of which could do nothing about it. The banner is gone; what remains in the sidebar is the
+  // stat tiles' pending look (.fl-readout-busy), which is not a second announcement but the
+  // numbers themselves declining to read as this run's. See applyBusy.
+  root.append(staleBanner, errorBanner)
 
   // ---- always-visible counts readout (the main result, so it is kept prominent) ------------
   // ------------------------------------------------------------------------------------------
+  // The three chips are BUTTONS, and each one toggles the lens that shows what its own number
+  // counts. They already looked like toggles -- three filled, rounded, labelled rectangles -- and
+  // were inert, which is a worse lie than looking inert would have been. The loud hardcoded
+  // green/orange/blue fills are gone with them: a fill that ignores the theme cannot follow the
+  // user's own contrast settings, and a zero rendered in success green is the specific thing that
+  // made "placed nothing" read as "placed fine".
   const countsSection = h('div', 'fl-readout')
-  const placedTile = h('div', 'fl-stat fl-stat-placed')
-  const carvedTile = h('div', 'fl-stat fl-stat-carved')
-  const replacedTile = h('div', 'fl-stat fl-stat-replaced')
+  const placedTile = h('button', 'fl-stat fl-stat-placed') as HTMLButtonElement
+  const carvedTile = h('button', 'fl-stat fl-stat-carved') as HTMLButtonElement
+  const replacedTile = h('button', 'fl-stat fl-stat-replaced') as HTMLButtonElement
   for (const [tile, label] of [
     [placedTile, 'placed'],
     [carvedTile, 'carved'],
     [replacedTile, 'replaced'],
   ] as const) {
-    tile.append(h('div', 'fl-stat-value', '0'), h('div', 'fl-stat-label', label))
+    tile.type = 'button'
+    // Three lines, and the third is the one this row was missing: a stat row that is secretly
+    // three toggles reads as a stat row, so the lens each chip drives -- and whether it is
+    // currently on -- is now written on the chip in words instead of living in a native tooltip.
+    tile.append(h('div', 'fl-stat-value', '0'), h('div', 'fl-stat-label', label), h('div', 'fl-stat-lens', ''))
   }
+  // PLACED hides the surrounding terrain, so what is left on screen is what this number counted.
+  placedTile.addEventListener('click', () => {
+    setEnvironmentMode(view.environmentMode === 'hidden' ? 'solid' : 'hidden')
+  })
+  // CARVED is the exact match: the carved overlay draws the cells this number counts. It is the
+  // one chip that can be inert (a run that carved nothing has no overlay to draw), and it says
+  // so with aria-disabled rather than `disabled` -- see dom.ts's setInert for why the sentence
+  // on a dead control is the one that most needs to stay reachable.
+  carvedTile.addEventListener('click', () => {
+    if (isInert(carvedTile)) return
+    setShowCarved(!view.showCarved)
+  })
+  // REPLACED is about cells written more than once, which is what the heatmap colours. The
+  // NUMBER is real whether or not profiling was on -- the engine counts overwrites either way --
+  // so this chip is never disabled: greying out a live figure said the figure was unavailable,
+  // which was not true of anything on the chip. Only the LENS needs a profiled run, and clicking
+  // with profiling off is a request for that lens, so it arms both and re-runs rather than
+  // doing nothing.
+  replacedTile.addEventListener('click', () => {
+    if (!config.profiling) {
+      config.profiling = true
+      profilingCheckbox.checked = true
+      view.showHeatmap = true
+      heatmapCheckbox.checked = true
+      opts.viewer.setShowHeatmap(true)
+      syncHeatmapAvailability()
+      renderProfilerSection()
+      save()
+      notifyConfigChanged()
+      return
+    }
+    setShowHeatmap(!view.showHeatmap)
+  })
   countsSection.append(placedTile, carvedTile, replacedTile)
+
+  /** Keeps each chip's pressed state, lens line, tooltip and disabled reason in step with the
+   * View section rows it mirrors -- one function so a chip and its row can never disagree about
+   * a lens.
+   *
+   * A CHIP READS "ON" ONLY WHEN ITS LENS IS ACTUALLY SHOWING SOMETHING. The carved overlay is on
+   * by default, so the CARVED chip used to light up on every run including the (overwhelmingly
+   * common) ones that carved nothing -- an accent that means "you are looking at this" pointing
+   * at an empty overlay. A zero count now reads as off and the chip says why. */
+  function syncStatChips(): void {
+    const setLens = (tile: HTMLButtonElement, text: string): void => {
+      const el = tile.querySelector('.fl-stat-lens')
+      if (el) el.textContent = text
+    }
+
+    const isolated = view.environmentMode === 'hidden'
+    placedTile.setAttribute('aria-pressed', String(isolated))
+    placedTile.classList.toggle('fl-stat-on', isolated)
+    setLens(placedTile, isolated ? 'terrain hidden' : 'hide terrain')
+    // "CELLS", spelled out, because a graph editor next to this one reports the same run's
+    // per-feature figure as WRITES and the two numbers differ (79 against 110 on a measured run)
+    // while both used to be called "blocks". Neither is wrong: a feature that writes the same
+    // cell twice spends two writes on one block. Saying which of the two this tile counts is what
+    // stops the pair reading as a contradiction.
+    const placedWhat = 'Cells this run ended up placing a block into — counted once each, however many writes hit them.'
+    placedTile.title = isolated
+      ? `Terrain hidden, so only what was placed is drawn. Click to bring it back.\n${placedWhat}`
+      : `${placedWhat} Click to hide the surrounding terrain and see only them.`
+
+    // Before the first result there is no run to have carved nothing, so the chip stays live --
+    // "0" is a placeholder then, not an answer.
+    const carvedCount = lastResult?.counts.carved ?? 0
+    const carvedNothing = lastResult !== null && carvedCount === 0
+    const carvedLive = view.showCarved && !carvedNothing
+    setInert(carvedTile, carvedNothing)
+    carvedTile.setAttribute('aria-pressed', String(carvedLive))
+    carvedTile.classList.toggle('fl-stat-on', carvedLive)
+    setLens(carvedTile, carvedNothing ? 'nothing carved' : carvedLive ? 'overlay on' : 'show overlay')
+    carvedTile.title = carvedNothing
+      ? 'This run turned no cells to air, so the carved overlay has nothing to draw.'
+      : view.showCarved
+        ? 'Carved cells are drawn as a tinted volume. Click to hide them.'
+        : 'Cells this run turned to air. Click to draw them as a tinted volume.'
+
+    // Never disabled -- see the click handler for why the number being real is the whole point.
+    const canHeatmap = config.profiling
+    replacedTile.disabled = false
+    replacedTile.setAttribute('aria-pressed', String(view.showHeatmap && canHeatmap))
+    replacedTile.classList.toggle('fl-stat-on', view.showHeatmap && canHeatmap)
+    setLens(replacedTile, canHeatmap ? (view.showHeatmap ? 'heat map on' : 'show heat map') : 'heat map needs profiling')
+    replacedTile.title = canHeatmap
+      ? view.showHeatmap
+        ? 'Each touched cell is coloured by how many writes hit it. Click to stop.'
+        : 'Blocks this run overwrote. Click to colour every cell by how many writes hit it.'
+      : 'Blocks this run overwrote — a real count either way. The heat map that shows WHERE needs a profiled run: click to turn profiling on and generate again.'
+  }
   const partialBadge = h('div', 'fl-badge-partial', 'PARTIAL RESULT — cut off by budget/time limit')
   partialBadge.style.display = 'none'
+
+  // ---- the outcome, announced --------------------------------------------------------------
+  // A run that FAILS raises a role=alert banner and a run that places NOTHING shows a role=status
+  // line, but a run that simply worked announced nothing at all: the three live regions that
+  // mutate at that instant (the busy pill, the viewport notice, the host's attribution readout)
+  // are every one of them hidden by then, and the figures themselves land in plain <div>s. The
+  // single most useful sentence in the panel -- what the run actually did -- was the one a
+  // screen reader never spoke. This is that sentence, and nothing else: see announceOutcome.
+  const srStatus = h('div', 'fl-sr-status')
+  srStatus.setAttribute('role', 'status')
+  srStatus.setAttribute('aria-live', 'polite')
+
+  /** Speaks the result of a finished run, once.
+   *
+   * Deliberately silent for a run that placed, carved and replaced nothing: that case already
+   * has its own status line on screen (renderEmptyResult), and it says WHY, which is strictly
+   * more useful than three zeros read out after it. */
+  function announceOutcome(counts: BlockCounts, placementDurationMs: number, partial: boolean): void {
+    if (counts.placed === 0 && counts.carved === 0 && counts.replaced === 0) return
+    const n = (v: number): string => v.toLocaleString('en-US')
+    srStatus.textContent = `${partial ? 'Partial result. ' : ''}${n(counts.placed)} placed, ${n(counts.carved)} carved, ${n(counts.replaced)} replaced, in ${placementDurationMs.toFixed(1)} ms.`
+  }
+
+  // ---- "this run placed nothing", said once, in words -------------------------------------
+  // Three zeros and "No diagnostics." is not a report; it is the same picture a crash makes. The
+  // engine already knows WHY a feature stopped (iterations that rounded to 0, a chance roll that
+  // failed, no surface to snap to) -- this is the one line that says so where the zeros are.
+  // Hidden for every run that placed, carved or replaced anything: a result that did something
+  // needs no reassurance that it did.
+  const emptyResultEl = h('div', 'fl-empty-result')
+  emptyResultEl.style.display = 'none'
+  emptyResultEl.setAttribute('role', 'status')
+  emptyResultEl.setAttribute('aria-live', 'polite')
+  const emptyResultText = h('span', 'fl-empty-result-text')
+  // Reuses the diagnostics section's camera-jump verbatim -- the same glyph, the same action, the
+  // same tooltip -- because "show me where" is the same question here as it is there.
+  const emptyResultLocate = h('button', 'fl-diag-position') as HTMLButtonElement
+  emptyResultLocate.type = 'button'
+  emptyResultLocate.title = 'Move the camera to this cell and highlight it'
+  emptyResultLocate.style.display = 'none'
+  // The "the answer is already on screen, six sections down" control. When nothing stopped, the
+  // explanation for an empty run is nearly always a diagnostic -- and the Diagnostics section
+  // sits below the fold behind six other sections, so a line that merely said "nothing reported
+  // stopping it" was true, unhelpful, and sitting directly above the real answer.
+  const emptyResultDiagnostics = h('button', 'fl-empty-result-link') as HTMLButtonElement
+  emptyResultDiagnostics.type = 'button'
+  emptyResultDiagnostics.style.display = 'none'
+  emptyResultEl.append(emptyResultText, emptyResultLocate, emptyResultDiagnostics)
+
+  // ---- "what did I just click on" -------------------------------------------------------------
+  // CLICKING A BLOCK NOW ALWAYS ANSWERS. It used to answer only while the node editor had asked
+  // the attribution question, so in an ordinary preview -- which is every preview -- clicking a
+  // block did nothing whatsoever, in a tool whose entire subject is which block ended up where.
+  // The gesture lives in the viewer now (VoxelViewer.onPick); this line is what it says.
+  //
+  // One line, and it is the two facts a coordinate readout has to carry: WHAT (the block id, so
+  // it can be copied into a feature file) and WHERE (world x, y, z, so it can be compared with a
+  // diagnostic's own position). Whether this run placed it, carved it or merely stands on it is
+  // the third, and the one that most often ends the question.
+  const pickedEl = h('div', 'fl-picked')
+  pickedEl.style.display = 'none'
+  pickedEl.setAttribute('role', 'status')
+  pickedEl.setAttribute('aria-live', 'polite')
+  const pickedName = h('span', 'fl-picked-name')
+  const pickedWhere = h('button', 'fl-diag-position') as HTMLButtonElement
+  pickedWhere.type = 'button'
+  pickedWhere.title = 'Move the camera to this cell'
+  const pickedRole = h('span', 'fl-picked-role')
+  pickedEl.append(pickedName, pickedWhere, pickedRole)
+
+  function showPickedCell(pick: PickedCell): void {
+    // An unnamed id should never be shown as a bare number with no hint of what it is -- the
+    // palette not carrying it is a bug worth being able to SEE, not one to paper over.
+    pickedName.textContent = pick.blockName === '' ? `block id ${String(pick.blockId)} (not in this run’s palette)` : pick.blockName
+    pickedWhere.textContent = `⌖ (${String(pick.x)}, ${String(pick.y)}, ${String(pick.z)})`
+    pickedWhere.onclick = () => opts.viewer.highlightCell(pick.x, pick.y, pick.z)
+    pickedRole.textContent = pick.carved ? '· carved by this run' : pick.placed ? '· placed by this run' : '· terrain, not written by this run'
+    pickedEl.title = pick.carved
+      ? 'This cell held a block before the run and is air now. What is named is the block that used to be here.'
+      : pick.placed
+        ? 'This run wrote this cell.'
+        : 'This block is part of the environment the feature was placed into — this run did not write it.'
+    pickedEl.style.display = ''
+  }
+
+  function clearPickedCell(): void {
+    pickedEl.style.display = 'none'
+    pickedName.textContent = ''
+    pickedWhere.textContent = ''
+    pickedRole.textContent = ''
+  }
+
+  // ---- Regenerate ---------------------------------------------------------------------------
+  // Re-running the same inputs used to require CHANGING one of them, which is the opposite of
+  // what the user wanted: with an unpinned seed, "run it again" is a genuinely different answer,
+  // and with a pinned one it is how you check that a fix took. Ctrl+Enter is the shortcut because
+  // it is the one every form in this editor already uses for "submit what I typed".
+  const regenerateButton = h('button', 'fl-regen-btn', '↻ Regenerate') as HTMLButtonElement
+  regenerateButton.type = 'button'
+  regenerateButton.title = 'Runs the current settings again (Ctrl+Enter). With no seed pinned, that is a different roll; with one pinned, the same run.'
+  regenerateButton.addEventListener('click', () => {
+    regenerate()
+  })
+
+  /** The one path "run it again" takes, whatever triggered it -- the button, Ctrl+Enter, or a
+   * pending debounce being flushed. Commits any uncommitted input first, so what runs is what is
+   * on screen. */
+  function regenerate(): void {
+    resyncCommitted()
+    notifyConfigChanged()
+  }
   const durationEl = h('div', 'fl-duration')
   const buildDurationEl = h('div', 'fl-duration fl-duration-secondary')
   buildDurationEl.style.display = 'none'
 
-  /** Single point of truth for the "request in flight" visual state. Drives three
-   * things at once: the busyBanner text row, a dimmed/pulsing look on the stat tiles
-   * (.fl-readout-busy, panel.css), and the 3D preview itself (VoxelViewer.setBusy, so "the stat
-   * tiles and preview should read as pending" covers both halves of the sidebar's own readout
-   * and the canvas a host lays out beside it).
+  /** Single point of truth for the "request in flight" visual state. Drives two things: a
+   * dimmed/pulsing look on the stat tiles (.fl-readout-busy, panel.css) so the numbers on screen
+   * stop claiming to be this run's, and the 3D preview itself (VoxelViewer.setBusy), which is
+   * where the ONE live busy indicator lives -- the pill that counts elapsed time and carries
+   * Cancel. The sidebar banner this used to raise alongside it is gone; see its former
+   * declaration above.
    *
    * Called both by the public setBusy() (a host explicitly marking a request as started/
    * finished) AND, as a deliberate safety net, from setResult/setError/setStale(true) below --
@@ -901,7 +1387,6 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
    * regardless of which host (or a future one) is driving this panel. */
   function applyBusy(v: boolean): void {
     busy = v
-    busyBanner.style.display = v ? '' : 'none'
     countsSection.classList.toggle('fl-readout-busy', v)
     opts.viewer.setBusy(v)
   }
@@ -960,10 +1445,22 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   // silently reverted to the ungrown bench with nothing telling the user that happened -- the
   // reported bug the sticky half fixes. See renderGrownBanner below for the exact text each
   // state gets.
-  const grownBanner = h('div', 'fl-banner fl-banner-grown')
-  grownBanner.style.display = 'none'
+  // A BADGE ON THE ROW, not five lines under it. What growing IS -- that a grown run is a
+  // different placement, that the mode is sticky, that the bench is refit from each run's own
+  // overflow -- is a standing fact about the tool, so it lives behind the `?` (panelDocs.ts's
+  // "Result" section) like every other standing fact here. What stays on screen is only what is
+  // true of THIS run: on/off, and whether this one actually grew.
+  const grownBadge = h('span', 'fl-grow-badge')
+  grownBadge.style.display = 'none'
+  const growHelp = h('button', 'fl-help', '?') as HTMLButtonElement
+  growHelp.type = 'button'
+  growHelp.title = 'Explain Result'
+  growHelp.setAttribute('aria-label', 'Explain Result')
+  growHelp.setAttribute('aria-expanded', 'false')
+  growHelp.addEventListener('click', () => docs.toggle('readout'))
+  growStickyRow.append(grownBadge, growHelp)
 
-  root.append(countsSection, partialBadge, durationEl, buildDurationEl, growStickyRow, overflowBanner, grownBanner)
+  root.append(countsSection, srStatus, emptyResultEl, pickedEl, partialBadge, durationEl, buildDurationEl, regenerateButton, growStickyRow, overflowBanner)
 
   function renderOverflowBanner(result: DecodedResult): void {
     const count = result.counts.writesOutOfBounds
@@ -982,36 +1479,164 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   overflowBanner.title = 'Writes that landed outside the bench this run; captured ones are drawn in magenta, the rest are in Diagnostics.'
 
   const GROWN_SIZES = (from: BoundsWire, to: BoundsWire): string => `${from.sizeX}×${from.sizeY}×${from.sizeZ} → ${to.sizeX}×${to.sizeY}×${to.sizeZ}`
-  // The standing fact about every grown run, as the banner's tooltip rather than its text: the
-  // text is only ever about this run.
-  grownBanner.title = 'A grown run is a different placement (different reads, possibly different RNG draws), not the same result seen wider.'
 
-  /** Reads `lastResult` from the enclosing closure (rather than taking one as a parameter) so
-   * both setResult (a fresh result just arrived) and the sticky checkbox's own 'change' handler
-   * (no new result yet, possibly none at all) can call this the same way -- see this function's
-   * own two callers. */
+  /** The grow state, as ONE badge on the "Grow every run" row.
+   *
+   * This replaced a banner that stacked up to five permanent lines of explanation under a
+   * checkbox -- what a grown run is, that it is a different placement, that the mode is sticky,
+   * what the bench is refit from. All of that is a standing fact about the tool rather than a fact
+   * about this run, so all of it moved behind the row's own `?` (panelDocs.ts's "Result" section),
+   * and what is left here is only what changes run to run.
+   *
+   * Reads `lastResult` from the enclosing closure (rather than taking one as a parameter) so both
+   * setResult and the sticky checkbox's own 'change' handler -- which has no new result, possibly
+   * none at all -- can call it the same way. */
   function renderGrownBanner(): void {
     const result = lastResult
-    if (view.growSticky) {
-      // Sticky: visible unconditionally while the mode is on (see
-      // grownBanner's declaration above) -- one line that still distinguishes "this particular
-      // run needed growing" from "it didn't", since those remain two different facts even
-      // though the mode itself never turns off between them.
-      grownBanner.textContent =
-        result?.grown && result.preGrowBounds
-          ? `Grow every run: on · grown ${GROWN_SIZES(result.preGrowBounds, result.volume)} this run`
-          : `Grow every run: on · ${result ? 'no growth needed this run' : 'waiting for the next run…'}`
-      grownBanner.style.display = ''
+    const grew = result?.grown === true && result.preGrowBounds !== null
+    if (grew) {
+      grownBadge.textContent = `grown ${GROWN_SIZES(result!.preGrowBounds!, result!.volume)}`
+      // The one standing fact that has to travel WITH the number, because the number is exactly
+      // what invites the wrong reading: a grown run is not the same result seen wider.
+      grownBadge.title = 'This run grew the bench to fit writes that spilled outside it, then placed again at the larger size — a different placement, not the same one seen wider.'
+      grownBadge.classList.add('fl-grow-badge-grew')
+    } else if (view.growSticky && result) {
+      grownBadge.textContent = 'no growth needed'
+      grownBadge.title = 'Everything this run wrote fitted inside the bench as configured.'
+      grownBadge.classList.remove('fl-grow-badge-grew')
+    } else {
+      grownBadge.textContent = ''
+      grownBadge.classList.remove('fl-grow-badge-grew')
+    }
+    grownBadge.style.display = grownBadge.textContent === '' ? 'none' : ''
+  }
+
+  /** Picks the one diagnostic the empty-result line should send a reader to.
+   *
+   * "The relevant entry", in order: a diagnostic this run's own subject feature appears in
+   * (heading identifier or delegation chain), then any error, then whatever is first. Pack-wide
+   * diagnostics are excluded entirely (see `isRunDiagnostic`) -- a file that would not parse is
+   * worth reporting, but it is not why THIS placement produced nothing. */
+  function pickEmptyResultDiagnostic(diagnostics: readonly DecodedDiagnostic[]): DecodedDiagnostic | null {
+    const mine = diagnostics.filter(isRunDiagnostic)
+    if (mine.length === 0) return null
+    const subject = (config.mode === 'feature' ? config.featureIdentifier : config.ruleIdentifier) ?? ''
+    return mine.find((d) => subject !== '' && (d.identifier === subject || d.chain.includes(subject))) ?? mine.find((d) => d.level === 'error') ?? mine[0] ?? null
+  }
+
+  /** The "placed nothing" line -- see emptyResultEl's own declaration for why it exists.
+   *
+   * Three states:
+   *
+   *   - the run did something -> nothing is shown at all.
+   *   - something stopped -> the heaviest stop is named, in plain words first (see
+   *     `describeStop`), with the raw evaluated detail after it.
+   *   - nothing stopped, but this run produced diagnostics -> the line points AT them and the
+   *     control scrolls the Diagnostics section into view, expands it, and opens the entry it
+   *     means. This is the fix for the case that prompted it: the true explanation ("may_replace
+   *     rejected this position: it holds minecraft:air") was already on screen, roughly a
+   *     thousand pixels below the fold, behind six collapsed sections.
+   *   - nothing stopped and nothing was reported at all -> the honest weak sentence.
+   *
+   * There is deliberately no fourth state for "this engine cannot report stops". It used to
+   * exist, keyed on an inverted `stopsKnown`, and it fired for the healthy case -- see
+   * DecodedResult.stops.
+   *
+   * The stop that gets named is the one hit most often, with a count of the rest: a run that
+   * stopped at four different gates has one dominant reason and three footnotes, and leading with
+   * the footnotes is how a person learns to stop reading the line. */
+  /** The sentence `syncViewportNotice` promotes onto the 3D view, or null when this run needs no
+   * promoting. Written by renderEmptyResult, because that is the function that decides what the
+   * answer IS -- the promotion must never be a second, separately-worded copy of it. */
+  let promotedAnswer: string | null = null
+
+  /** The host's own reason the engine is not answering, while the stale banner is up -- see
+   * `setStale`. Kept here because `syncViewportNotice` is the one place that decides what the
+   * viewport says, and a second writer to the same line is how two of them start disagreeing. */
+  let staleReason: string | null = null
+
+  /** Puts the one-line answer ON the view, beside the thing it describes.
+   *
+   * The readout under the canvas is the best writing in this panel and the easiest thing in the
+   * window to miss: when a run places nothing, the 3D view does not change, and the explanation
+   * for that is a line of text in a sidebar the eye has no reason to travel to. So exactly one
+   * line goes onto the viewport -- never the diagnostics, never the counts, never a second copy
+   * of anything already legible as a picture. A run that placed something is its own answer and
+   * gets no banner at all; what it gets instead is nothing in the way of looking at it. */
+  function syncViewportNotice(): void {
+    // STALE WINS, because it is the only one of these that is about the picture itself being
+    // wrong. When the engine stops answering, the viewport goes on drawing the PREVIOUS run's
+    // mesh -- a complete, confident, out-of-date picture -- and the only thing that said so was
+    // a banner in the sidebar. Someone watching the 3D view (which is what you watch while you
+    // wait for a run) saw a preview that simply never changed. The reason goes where the stale
+    // picture is.
+    if (staleReason !== null) {
+      opts.viewer.setNotice({ text: staleReason, tone: 'warn', title: 'The 3D view is still showing the last run that finished, not the one you asked for.' })
       return
     }
-    // Not sticky: the original, single-result-only behaviour -- visible only while the CURRENT
-    // result itself came from an explicit one-shot grow click.
-    if (!result?.grown || !result.preGrowBounds) {
-      grownBanner.style.display = 'none'
+    if (promotedAnswer !== null) {
+      opts.viewer.setNotice({ text: promotedAnswer, tone: 'empty', title: emptyResultEl.title })
       return
     }
-    grownBanner.textContent = `Re-run: bench grown ${GROWN_SIZES(result.preGrowBounds, result.volume)} to fit out-of-bounds writes`
-    grownBanner.style.display = ''
+    if (lastResult?.partial === true) {
+      opts.viewer.setNotice({ text: 'Partial result — the run was cut off by a budget or the time limit', tone: 'warn', title: 'What is on screen is what had been placed when the run stopped, not the finished feature. Raise the budget it names in Diagnostics, or reduce what the feature is asked to do.' })
+      return
+    }
+    opts.viewer.setNotice(null)
+  }
+
+  function renderEmptyResult(result: DecodedResult | null): void {
+    emptyResultLocate.style.display = 'none'
+    emptyResultDiagnostics.style.display = 'none'
+    promotedAnswer = null
+    if (result === null || result.counts.placed > 0 || result.counts.carved > 0 || result.counts.replaced > 0) {
+      emptyResultEl.style.display = 'none'
+      return
+    }
+    // Tolerant of a result built before `stops` existed (a hand-made fixture, an older host
+    // feeding a decoded shape of its own): absent and empty both mean "nothing stopped", which
+    // is the engine's own stated contract for the field.
+    const stops = [...(result.stops ?? [])].sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
+    const top = stops[0]
+    const diagnostics = result.diagnostics ?? []
+    if (top) {
+      const described = describeStop(top)
+      const more = stops.length - 1
+      emptyResultText.textContent = `Placed nothing · ${described.label}${more > 0 ? ` (+${String(more)} more)` : ''}`
+      emptyResultEl.title = described.title
+      promotedAnswer = emptyResultText.textContent
+      // Mark the stopping node's own area when this run left something to point at: a diagnostic
+      // carrying BOTH the stopping feature's identifier and a cell is the only data that can
+      // honestly locate a stop, since a stop itself has no position on the wire. Nothing is
+      // invented when there is none -- an arbitrary cell would be worse than no marker.
+      const located = diagnostics.find((d) => d.position !== null && (d.identifier === top.identifier || d.chain.includes(top.identifier)))
+      if (located?.position) {
+        const pos = located.position
+        emptyResultLocate.textContent = `⌖ (${String(pos.x)}, ${String(pos.y)}, ${String(pos.z)})`
+        emptyResultLocate.onclick = () => opts.viewer.highlightCell(pos.x, pos.y, pos.z)
+        emptyResultLocate.style.display = ''
+      }
+      emptyResultEl.style.display = ''
+      return
+    }
+    const runDiagnostics = diagnostics.filter(isRunDiagnostic)
+    const target = pickEmptyResultDiagnostic(diagnostics)
+    if (target) {
+      emptyResultText.textContent = 'Placed nothing · '
+      emptyResultDiagnostics.textContent = `see Diagnostics (${String(runDiagnostics.length)})`
+      emptyResultDiagnostics.title = `Nothing reported stopping this run, but it reported ${String(runDiagnostics.length)} diagnostic${runDiagnostics.length === 1 ? '' : 's'}. Opens the Diagnostics section at "${target.identifier}".`
+      emptyResultDiagnostics.onclick = () => revealDiagnostic(target)
+      emptyResultDiagnostics.style.display = ''
+      emptyResultEl.title = ''
+      // The viewport gets the whole sentence, link text included -- it has no button to click
+      // there, so "see Diagnostics (3)" has to read as a fact rather than as an orphaned label.
+      promotedAnswer = `Placed nothing · ${runDiagnostics.length.toLocaleString('en-US')} diagnostic${runDiagnostics.length === 1 ? '' : 's'} — see the sidebar`
+    } else {
+      emptyResultText.textContent = 'Placed nothing · nothing reported stopping it'
+      emptyResultEl.title = 'Every feature this run entered ran to completion and wrote no blocks, and it reported nothing about why. A filter or an aggregate does that normally; a leaf doing it usually means it was placed somewhere it had nothing to place onto.'
+      promotedAnswer = emptyResultText.textContent
+    }
+    emptyResultEl.style.display = ''
   }
 
   function renderCounts(counts: BlockCounts, placementDurationMs: number, libraryBuildDurationMs: number, partial: boolean): void {
@@ -1026,6 +1651,8 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       buildDurationEl.style.display = 'none'
     }
     partialBadge.style.display = partial ? '' : 'none'
+    announceOutcome(counts, placementDurationMs, partial)
+    syncStatChips()
   }
 
   // ---- the documentation panel: one `?` per section head opens it (see docs.ts) -----------
@@ -1054,6 +1681,12 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     }
     return made
   }
+  // The "Result" documentation has no section of its own (its subject is the always-visible
+  // readout above the sections), so the `?` on the "Grow every run" row is its button: registering
+  // it here is what gives it the same aria-expanded bookkeeping and focus-return every section's
+  // own `?` gets, rather than a second, half-wired kind of help button.
+  growHelp.setAttribute('aria-controls', 'fl-docs')
+  helpButtons.set('readout', growHelp)
 
   // ==========================================================================================
   // ---- Feature/Rule section ----------------------------------------------------------------
@@ -1197,13 +1830,13 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   // above. There is deliberately no Origin Y control -- see GenerationConfig.originTouched.
   const originXInput = numberInput(config.originX)
   const originZInput = numberInput(config.originZ)
-  originXInput.addEventListener('change', () => {
+  attachCommit(originXInput, () => {
     config.originX = readInt(originXInput, config.originX)
     config.originTouched = true
     originXInput.value = String(config.originX)
     notifyConfigChanged()
   })
-  originZInput.addEventListener('change', () => {
+  attachCommit(originZInput, () => {
     config.originZ = readInt(originZInput, config.originZ)
     config.originTouched = true
     originZInput.value = String(config.originZ)
@@ -1215,7 +1848,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   // actionable. Empty means "let the preset choose", which is not the same as 0: 0 is a real
   // seed, which is why wire.GenerateParams.seed is a pointer.
   const seedInput = optionalNumberInput(config.seed, { min: 0 })
-  seedInput.addEventListener('change', () => {
+  attachCommit(seedInput, () => {
     const v = readOptionalInt(seedInput, config.seed)
     config.seed = v === null || v < 0 ? null : v
     seedInput.value = config.seed === null ? '' : String(config.seed)
@@ -1231,6 +1864,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     // surfacing the value rather than reshuffling invisibly.
     config.seed = Math.floor(Math.random() * 0xffffffff)
     seedInput.value = String(config.seed)
+    resyncCommitted()
     notifyConfigChanged()
   })
 
@@ -1238,7 +1872,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   seedRowControl.append(seedInput, randomSeedButton)
 
   const repeatInput = numberInput(config.repeatCount, { min: REPEAT_MIN, max: REPEAT_MAX })
-  repeatInput.addEventListener('change', () => {
+  attachCommit(repeatInput, () => {
     config.repeatCount = clamp(readInt(repeatInput, config.repeatCount), REPEAT_MIN, REPEAT_MAX)
     repeatInput.value = String(config.repeatCount)
     notifyConfigChanged()
@@ -1312,10 +1946,10 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     minYInput.value = String(config.minY)
     notifyConfigChanged()
   }
-  sizeXInput.addEventListener('change', applySizeChange)
-  sizeYInput.addEventListener('change', applySizeChange)
-  sizeZInput.addEventListener('change', applySizeChange)
-  minYInput.addEventListener('change', applySizeChange)
+  attachCommit(sizeXInput, applySizeChange)
+  attachCommit(sizeYInput, applySizeChange)
+  attachCommit(sizeZInput, applySizeChange)
+  attachCommit(minYInput, applySizeChange)
 
   envSelect.addEventListener('change', () => {
     config.env = envSelect.value
@@ -1400,11 +2034,25 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     ]
     const reason = buildsSea ? '' : inertSeaSlotTitle(getEnvironment(config.env)?.label ?? config.env, environments)
     for (const [slotRow, input] of slots) {
-      input.disabled = !buildsSea
+      // INERT, NOT DISABLED -- the same correction the CARVED chip, "Block textures" and "Show
+      // heatmap" already took, arriving late at the three controls that need it most: the
+      // reason here is not "unavailable" but "your value is being KEPT and not sent", which is
+      // the kind of sentence a person goes looking for. `disabled` took all three out of the
+      // tab order (measured: reachable=false for every one) together with the only copy of it.
+      //
+      // `readOnly` is what actually stops the editing, because aria-disabled is an announcement
+      // and nothing more -- a plain aria-disabled text input still accepts typing. readonly
+      // keeps the control focusable and in the tab order, which is the whole point.
+      setInert(input, !buildsSea)
+      input.readOnly = !buildsSea
       slotRow.classList.toggle('fl-row-inert', !buildsSea)
       // An input with a title of its own overrides the row's; blank falls back to the row's.
       if (reason) input.title = reason
       else input.removeAttribute('title')
+      // ...and the same sentence as a real accessible description, which a `title` on the row
+      // above was never going to be. No visible element: the standing rule for these three is
+      // that the panel writes no paragraph under them (see this function's header).
+      setInertReason(input, reason)
     }
   }
 
@@ -1427,12 +2075,12 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     config.materialOverride = { ...config.materialOverride, [field]: value }
     notifyConfigChanged()
   }
-  topMaterialInput.addEventListener('change', () => applyMaterialOverride('topMaterial', topMaterialInput.value))
-  midMaterialInput.addEventListener('change', () => applyMaterialOverride('midMaterial', midMaterialInput.value))
-  foundationMaterialInput.addEventListener('change', () => applyMaterialOverride('foundationMaterial', foundationMaterialInput.value))
-  seaFloorMaterialInput.addEventListener('change', () => applyMaterialOverride('seaFloorMaterial', seaFloorMaterialInput.value))
-  seaMaterialInput.addEventListener('change', () => applyMaterialOverride('seaMaterial', seaMaterialInput.value))
-  seaFloorDepthInput.addEventListener('change', () => applyMaterialOverride('seaFloorDepth', Math.max(0, readFloat(seaFloorDepthInput, 0))))
+  attachCommit(topMaterialInput, () => applyMaterialOverride('topMaterial', topMaterialInput.value))
+  attachCommit(midMaterialInput, () => applyMaterialOverride('midMaterial', midMaterialInput.value))
+  attachCommit(foundationMaterialInput, () => applyMaterialOverride('foundationMaterial', foundationMaterialInput.value))
+  attachCommit(seaFloorMaterialInput, () => applyMaterialOverride('seaFloorMaterial', seaFloorMaterialInput.value))
+  attachCommit(seaMaterialInput, () => applyMaterialOverride('seaMaterial', seaMaterialInput.value))
+  attachCommit(seaFloorDepthInput, () => applyMaterialOverride('seaFloorDepth', Math.max(0, readFloat(seaFloorDepthInput, 0))))
 
   const materialResetButton = h('button', 'fl-wide-btn', 'Reset to preset materials') as HTMLButtonElement
   materialResetButton.type = 'button'
@@ -1502,7 +2150,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     syncBiomeInputs()
     notifyConfigChanged()
   })
-  biomeTagsInput.addEventListener('change', () => {
+  attachCommit(biomeTagsInput, () => {
     config.biomeTagsText = biomeTagsInput.value
     config.biomeTagsOverrideEnabled = true
     notifyConfigChanged()
@@ -1584,7 +2232,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     input.placeholder = defaultValue.toLocaleString('en-US')
     const badge = h('span', 'fl-budget-badge', 'override')
     badge.classList.toggle('fl-hidden', get() === null)
-    input.addEventListener('change', () => {
+    attachCommit(input, () => {
       const value = readOptionalInt(input, get())
       set(value)
       input.value = value === null ? '' : String(value)
@@ -1660,6 +2308,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     target.set(newValue)
     target.input.value = String(newValue)
     target.badge.classList.remove('fl-hidden')
+    resyncCommitted()
     notifyConfigChanged()
   }
 
@@ -1674,6 +2323,29 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   const sliceMaxInput = h('input', 'fl-slice-slider fl-slice-slider-primary') as HTMLInputElement
   sliceMaxInput.type = 'range'
   const sliceMaxLabel = h('span', 'fl-slice-label', '')
+
+  /** A slider drag fires `input` on every pixel of travel, and each one used to write the whole
+   * persisted blob to localStorage synchronously. The VALUES are applied immediately (the viewer
+   * coalesces the re-mesh they imply itself, see VoxelViewer.setSlice); only the WRITE waits for
+   * the drag to pause, and a `change` -- which is what releasing a slider fires -- flushes it on
+   * the spot rather than leaving the last position of a drag owed to a timer. */
+  let sliceSaveTimer = 0
+  function flushSliceSave(): void {
+    if (sliceSaveTimer === 0) return
+    clearTimeout(sliceSaveTimer)
+    sliceSaveTimer = 0
+    save()
+  }
+  function applySlice(min: number, max: number): void {
+    opts.viewer.setSlice(min, max)
+    if (sliceSaveTimer !== 0) clearTimeout(sliceSaveTimer)
+    sliceSaveTimer = setTimeout(() => {
+      sliceSaveTimer = 0
+      save()
+    }, SLICE_SAVE_DEBOUNCE_MS) as unknown as number
+  }
+  sliceMinInput.addEventListener('change', flushSliceSave)
+  sliceMaxInput.addEventListener('change', flushSliceSave)
 
   sliceMinInput.addEventListener('input', () => {
     let min = Number(sliceMinInput.value)
@@ -1698,8 +2370,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     view.sliceMinY = min
     view.sliceMaxY = max
     sliceMinLabel.textContent = String(min)
-    opts.viewer.setSlice(min, max)
-    save()
+    applySlice(min, max)
   })
   sliceMaxInput.addEventListener('input', () => {
     let max = Number(sliceMaxInput.value)
@@ -1714,8 +2385,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     view.sliceMinY = min
     view.sliceMaxY = max
     sliceMaxLabel.textContent = String(max)
-    opts.viewer.setSlice(min, max)
-    save()
+    applySlice(min, max)
   })
 
   const sliceMinRow = h('div', 'fl-row')
@@ -1730,15 +2400,18 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   const sliceMinLabelEl = h('label', 'fl-row-label', 'Min Y (cut)')
   sliceMinRow.title = 'Hides everything below this Y in the result; a display cut, not the Environment section\'s bench floor.'
   sliceMinRow.append(sliceMinLabelEl, sliceMinInput, sliceMinLabel)
+  labelFor(sliceMinLabelEl, sliceMinInput)
   const sliceMaxRow = h('div', 'fl-row fl-row-primary')
   const sliceMaxLabelEl = h('label', 'fl-row-label', 'Max Y (cut)')
   sliceMaxRow.title = 'Hides everything above this Y in the result.'
   sliceMaxRow.append(sliceMaxLabelEl, sliceMaxInput, sliceMaxLabel)
+  labelFor(sliceMaxLabelEl, sliceMaxInput)
 
   const envModeRow = h('div', 'fl-row')
   envModeRow.title = 'How the untouched terrain around the feature is drawn: solid, see-through, or not at all.'
   envModeRow.append(h('label', 'fl-row-label', 'Environment'))
   const envModeGroup = h('div', 'fl-radio-group')
+  const envModeRadios: HTMLInputElement[] = []
   for (const mode of ['solid', 'ghost', 'hidden'] as const) {
     const optionLabel = h('label', 'fl-radio-option')
     const radio = h('input') as HTMLInputElement
@@ -1748,30 +2421,176 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     radio.checked = view.environmentMode === mode
     radio.addEventListener('change', () => {
       if (!radio.checked) return
-      view.environmentMode = mode
-      opts.viewer.setEnvironmentMode(mode)
-      save()
+      setEnvironmentMode(mode)
     })
+    envModeRadios.push(radio)
     optionLabel.append(radio, document.createTextNode(mode[0]?.toUpperCase() + mode.slice(1)))
     envModeGroup.append(optionLabel)
   }
   envModeRow.append(envModeGroup)
 
   const carvedCheckbox = checkboxInput(view.showCarved)
-  carvedCheckbox.addEventListener('change', () => {
-    view.showCarved = carvedCheckbox.checked
-    opts.viewer.setShowCarved(view.showCarved)
-    save()
-  })
+  carvedCheckbox.addEventListener('change', () => setShowCarved(carvedCheckbox.checked))
   const carvedRow = row('Show carved', carvedCheckbox, 'Draws the cells the feature turned to air as a translucent tinted volume.')
 
   const heatmapCheckbox = checkboxInput(view.showHeatmap)
-  heatmapCheckbox.addEventListener('change', () => {
-    view.showHeatmap = heatmapCheckbox.checked
-    opts.viewer.setShowHeatmap(view.showHeatmap)
-    save()
-  })
+  // Inert, not removed -- see dom.ts's setInert. The reason this row is inert lives in the row's
+  // own title (HEATMAP_NEEDS_PROFILING), and `disabled` took the row's only reachable copy of
+  // that sentence out of the tab order.
+  guardInertActivation(heatmapCheckbox)
+  heatmapCheckbox.addEventListener('change', () => setShowHeatmap(heatmapCheckbox.checked))
   const heatmapRow = row('Show heatmap', heatmapCheckbox, 'Colours each touched cell by how many writes hit it; needs profiling on the run that produced this result.')
+
+  /** Enables/disables "Show heatmap" against whether the next run will actually record what it
+   * needs. The heatmap has always been meaningless without profiling; the control just did not
+   * say so, so turning it on looked like a toggle that did nothing. Disabled controls carry their
+   * reason as their tooltip -- the panel's standing rule, applied to one more control. */
+  function syncHeatmapAvailability(): void {
+    setInert(heatmapCheckbox, !config.profiling)
+    heatmapRow.classList.toggle('fl-row-inert', !config.profiling)
+    heatmapRow.title = config.profiling
+      ? 'Colours each touched cell by how many writes hit it.'
+      : HEATMAP_NEEDS_PROFILING
+    // The row's `title` is a tooltip on a wrapper div: not this checkbox's name, not its
+    // description, and reachable by nothing but a hovering mouse. Measured, the accessible
+    // description of this control while inert was "". See dom.ts's setInertReason.
+    setInertReason(heatmapCheckbox, config.profiling ? '' : HEATMAP_NEEDS_PROFILING)
+    syncStatChips()
+  }
+
+  // ---- the three view lenses, each with ONE setter -------------------------------------------
+  // Each of these is now reachable from three places (the View row, the stat chip, and -- for the
+  // environment and the grid -- the viewport overlay), so each gets exactly one function that
+  // writes the state, the control, the viewer and the persisted blob. Three call sites updating
+  // four things each is how a checkbox and a chip start disagreeing.
+  function setShowCarved(value: boolean): void {
+    view.showCarved = value
+    carvedCheckbox.checked = value
+    opts.viewer.setShowCarved(value)
+    syncStatChips()
+    save()
+  }
+  function setShowHeatmap(value: boolean): void {
+    view.showHeatmap = value
+    heatmapCheckbox.checked = value
+    opts.viewer.setShowHeatmap(value)
+    syncStatChips()
+    save()
+  }
+  function setEnvironmentMode(mode: EnvironmentMode): void {
+    view.environmentMode = mode
+    for (const radio of envModeRadios) radio.checked = radio.value === mode
+    opts.viewer.setEnvironmentMode(mode)
+    syncStatChips()
+    save()
+  }
+  function setShowGrid(value: boolean): void {
+    view.showGrid = value
+    gridCheckbox.checked = value
+    opts.viewer.setShowGrid(value)
+    save()
+  }
+  /** The preference is recorded whether or not it can be honoured right now: turning textures on
+   * before an atlas exists has to mean "and when one does, use it", or the switch would have to
+   * be found and flipped again at a moment nobody is watching for. */
+  function setShowTextures(value: boolean): void {
+    view.showTextures = value
+    opts.viewer.setTexturesEnabled(value)
+    syncTextureAvailability()
+    save()
+  }
+
+  // ---- block textures ------------------------------------------------------------------------
+  // THE SWITCH GOES WHERE THE PERSON LOOKING AT FLAT COLOURS IS. Textured rendering has existed
+  // for a while and was reachable only from the editor's settings.json (apps/vscode's
+  // featurelab.blockTextures), which is to say: not from the preview it changes. It is also the
+  // single largest readability difference this preview can make -- "is that podzol or is that
+  // dirt" is answerable at a glance with textures and a guess without them.
+  //
+  // What this row promises is deliberately narrow: "draw textures when there are any". Whether
+  // there ARE any is the host's business (it fetches the atlas), so this row is inert -- and says
+  // which of the two reasons it is inert for -- until one arrives. It never claims textures are
+  // on when they are not, which is the specific failure the old setting had: switching it on with
+  // no atlas built changed the settings file and nothing else.
+  const textureCheckbox = checkboxInput(view.showTextures)
+  // Inert, not removed -- see dom.ts's setInert. This is the row whose tooltip IS the
+  // explanation ("No block texture atlas is available on this machine…"), and it is the exact
+  // case that comment was written about.
+  guardInertActivation(textureCheckbox)
+  textureCheckbox.addEventListener('change', () => setShowTextures(textureCheckbox.checked))
+  const textureRow = row('Block textures', textureCheckbox, 'Draws each block with its own texture instead of one flat colour.')
+  /** The honest footnote: why textures are unavailable, or which blocks they could not cover.
+   * One line, hidden whenever there is nothing to say. */
+  const textureNote = h('div', 'fl-note fl-texture-note')
+  // A STABLE id, because this div is the accessible description of the checkbox above it
+  // whenever it is on screen (see syncTextureAvailability). It had none, so the one element in
+  // the panel that holds "why textures are off" was unreferenceable -- the checkbox's computed
+  // description was the empty string while it was inert.
+  textureNote.id = 'fl-texture-note'
+  textureNote.style.display = 'none'
+
+  /** What a host has told us about its own ability to supply an atlas -- see
+   * PanelHandle.setTextureStatus. Null while it has said nothing, which is not the same as
+   * "unavailable": a host that simply does not implement textures should not make this panel
+   * assert a reason it does not have. */
+  let hostTextureStatus: { available: boolean; reason?: string } | null = null
+
+  /** Keeps the texture row honest about three different states, and never lets the checkbox
+   * claim more than the viewer is doing.
+   *
+   * The unresolved list is the part worth having. A block the atlas cannot answer for still
+   * DRAWS -- in its flat palette colour, inside the same textured pass -- so on screen it is
+   * indistinguishable from a block whose texture happens to be flat. Naming them is the
+   * difference between "textures are on" and "textures are on, and these four are not textured",
+   * which is exactly the question somebody asks when one block in their feature looks wrong. */
+  function syncTextureAvailability(): void {
+    const report = opts.viewer.getTextureReport()
+    const available = report.hasAtlas
+    setInert(textureCheckbox, !available)
+    // ONE STATE, REPORTED THE SAME WAY IN BOTH PLACES. This used to fall back to the stored
+    // PREFERENCE (`view.showTextures`) when no atlas existed, while the viewport's own Textures
+    // button reported what is actually being DRAWN -- so with the preference on and no atlas,
+    // the sidebar checkbox read checked=true and the toolbar button read pressed=false for one
+    // and the same state, which is a contradiction a screen reader hears as two answers. Both
+    // now report the drawing. The preference itself is not lost (setShowTextures still records
+    // it, and this checkbox ticks itself the moment an atlas makes it true); what it no longer
+    // does is claim textures are on when nothing is textured.
+    textureCheckbox.checked = report.enabled
+    textureRow.classList.toggle('fl-row-inert', !available)
+    /** Why the checkbox is inert: the host's own sentence when it gave one, else this panel's
+     * neutral wording. Named, because it is now needed in three places -- the row's tooltip,
+     * the visible note, and the checkbox's accessible description -- and three copies of one
+     * sentence is how two of them come to disagree. */
+    const unavailableReason = hostTextureStatus?.reason ?? 'No block texture atlas is available on this machine, so the preview draws one flat colour per block.'
+    textureRow.title = available
+      ? report.enabled
+        ? 'Each block is drawn with its own texture. Turn off for one flat colour per block.'
+        : 'One flat colour per block. Turn on to draw the pack’s block textures.'
+      : unavailableReason
+
+    const unresolved = report.unresolved
+    if (report.enabled && unresolved.length > 0) {
+      const shown = unresolved.slice(0, 3).join(', ')
+      const more = unresolved.length - Math.min(3, unresolved.length)
+      textureNote.textContent = `${unresolved.length.toLocaleString('en-US')} of ${report.blocks.toLocaleString('en-US')} blocks have no texture in the atlas: ${shown}${more > 0 ? `, +${String(more)} more` : ''}`
+      textureNote.title = 'These blocks are drawn in their flat palette colour even with textures on — the atlas has no image for them (a pack block, or a texture the atlas builder could not resolve). Everything else in this run is textured.'
+      textureNote.style.display = ''
+    } else if (!available) {
+      // WAS `!available && hostTextureStatus?.reason`: a host that implements no textures at all
+      // says nothing, so this branch did not fire, so the note stayed display:none -- and the
+      // checkbox beside it was inert with its explanation nowhere on the page. The panel's own
+      // neutral wording is exactly what that case is for.
+      textureNote.textContent = unavailableReason
+      textureNote.removeAttribute('title')
+      textureNote.style.display = ''
+    } else {
+      textureNote.textContent = ''
+      textureNote.style.display = 'none'
+    }
+    // Described FROM the visible note when there is one (no second, hidden copy for an AT to
+    // read out twice); from a hidden span only if the note is not rendered. See setInertReason.
+    setInertReason(textureCheckbox, available ? '' : unavailableReason, textureNote)
+  }
 
   const overflowCheckbox = checkboxInput(view.showOverflow)
   overflowCheckbox.addEventListener('change', () => {
@@ -1782,35 +2601,60 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   const overflowViewRow = row('Show overflow', overflowCheckbox, 'Draws the writes that landed outside the bench in magenta; showing them changes nothing about the run.')
 
   const gridCheckbox = checkboxInput(view.showGrid)
-  gridCheckbox.addEventListener('change', () => {
-    view.showGrid = gridCheckbox.checked
-    opts.viewer.setShowGrid(view.showGrid)
-    save()
-  })
+  gridCheckbox.addEventListener('change', () => setShowGrid(gridCheckbox.checked))
 
-  // Two framing controls: "Frame view" fits what's actually occupied right now (feature +
-  // visible environment/carved cells, respecting the current Y slice -- see
-  // VoxelViewer.frameContent's own doc comment for why this replaced a plain frameAll() call
-  // here), which is what a user wants nearly every time. "Frame volume" is the old whole-box
-  // behaviour (frameAll(), air included) kept as a secondary control for the one time that
-  // still matters: seeing where a feature sits relative to the volume it was asked to fill.
-  const frameButton = h('button', 'fl-wide-btn', 'Frame view  (R)') as HTMLButtonElement
+  // Two framing controls that DIFFER. "Frame feature" fits the cells this run actually touched;
+  // "Frame bench" fits the whole box. They used to be the same picture whenever the environment
+  // was solid -- which is the default -- because "what is occupied" included every terrain cell,
+  // so a 53-block feature was framed as a postage stamp in the middle of the bench and the two
+  // buttons only diverged once the terrain was hidden, which is exactly what the first button's
+  // own tooltip promised as their distinction. See VoxelViewer.frameContent.
+  const frameButton = h('button', 'fl-wide-btn', 'Frame feature  (R)') as HTMLButtonElement
   frameButton.type = 'button'
-  frameButton.title = 'Fits the camera to what is occupied right now, respecting the Y cut.'
+  frameButton.title = 'Fits the camera to the cells this run placed, carved or overwrote, respecting the Y cut. Falls back to the visible terrain when this run touched nothing.'
   frameButton.addEventListener('click', () => opts.viewer.frameContent())
 
-  const frameVolumeButton = h('button', 'fl-wide-btn', 'Frame volume  (Shift+R)') as HTMLButtonElement
+  const frameVolumeButton = h('button', 'fl-wide-btn', 'Frame bench  (Shift+R)') as HTMLButtonElement
   frameVolumeButton.type = 'button'
-  frameVolumeButton.title = 'Fits the camera to the whole bench, air included.'
+  frameVolumeButton.title = 'Fits the camera to the whole bench, air included — where the feature sits in the volume it was given.'
   frameVolumeButton.addEventListener('click', () => opts.viewer.frameAll())
 
-  viewBody.append(sliceMinRow, sliceMaxRow, envModeRow, carvedRow, heatmapRow, overflowViewRow, row('Show grid', gridCheckbox, 'Draws the bench\'s outline and floor grid.'), frameButton, frameVolumeButton)
+  viewBody.append(sliceMinRow, sliceMaxRow, envModeRow, textureRow, textureNote, carvedRow, heatmapRow, overflowViewRow, row('Show grid', gridCheckbox, 'Draws the bench\'s outline and floor grid.'), frameButton, frameVolumeButton)
 
   // ==========================================================================================
   // ---- Diagnostics section -------------------------------------------------------------------
   // ==========================================================================================
   const { section: diagSection, body: diagBody, header: diagHeader } = section('diagnostics', 'Diagnostics')
   const MAX_LISTED_DIAGNOSTICS = 300
+
+  /** What `renderDiagnostics` just drew, so another part of the panel can send a reader to ONE
+   * of these rows rather than to the section and a scroll. Rebuilt on every render; `expand`
+   * un-clamps a row whose text is behind a "Show more" disclosure, because arriving at a
+   * diagnostic still truncated is arriving nowhere. */
+  let diagItems: { diag: DecodedDiagnostic; item: HTMLElement; expand: () => void }[] = []
+
+  /** Opens the Diagnostics section at `target` -- the empty-result line's "see Diagnostics (N)"
+   * control (see `renderEmptyResult`).
+   *
+   * Scrolling is guarded because jsdom implements no layout and therefore no `scrollIntoView`;
+   * everything this does that a test can observe (the section expanded, the row marked, its text
+   * un-clamped) happens before the scroll either way. */
+  function revealDiagnostic(target: DecodedDiagnostic | null): void {
+    if (diagSection.classList.contains('fl-collapsed')) {
+      diagSection.classList.remove('fl-collapsed')
+      diagHeader.setAttribute('aria-expanded', 'true')
+      collapsedSections.delete('diagnostics')
+      save()
+    }
+    for (const entry of diagItems) entry.item.classList.remove('fl-diag-revealed')
+    const hit = diagItems.find((e) => e.diag === target) ?? diagItems[0]
+    const scrollTo = hit?.item ?? diagSection
+    if (hit) {
+      hit.expand()
+      hit.item.classList.add('fl-diag-revealed')
+    }
+    if (typeof scrollTo.scrollIntoView === 'function') scrollTo.scrollIntoView({ block: 'nearest' })
+  }
 
   /** True when `identifier` names a features/*.json entry the last result actually loaded --
    * the one case a chain segment (or the diagnostic's own leading identifier) can reliably be
@@ -1867,6 +2711,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     diagHeader.classList.toggle('fl-section-header-warning', errorCount === 0 && warningCount > 0)
 
     diagBody.textContent = ''
+    diagItems = []
     if (lastError) {
       diagBody.append(h('div', 'fl-diag-item fl-diag-error', `generation failed: ${lastError}`))
     }
@@ -1927,7 +2772,32 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
         body.append(posBtn)
       }
 
-      body.append(h('div', 'fl-diag-text', d.message))
+      // ONE LINE, with a disclosure. Engine diagnostics are prose written for a log -- several
+      // sentences, sometimes a whole paragraph -- and rendering every one of them in full turned
+      // a list of five problems into a wall nobody scrolls. Clamped to a line, the LIST is
+      // readable (which is what a count in the header promises), and the full text is one click
+      // away on the one that matters. The count stays in the section header either way.
+      const text = h('div', 'fl-diag-text fl-diag-text-clamped', d.message)
+      body.append(text)
+      // Un-clamping this row from outside the section -- see `revealDiagnostic`. A row with no
+      // disclosure is already whole, so its `expand` is a no-op rather than a special case at
+      // every call site.
+      let expand = (): void => {}
+      if (isLongDiagnostic(d.message)) {
+        const more = h('button', 'fl-diag-more', 'Show more') as HTMLButtonElement
+        more.type = 'button'
+        more.setAttribute('aria-expanded', 'false')
+        more.title = 'Show the full text of this diagnostic'
+        const setClamped = (clamped: boolean): void => {
+          text.classList.toggle('fl-diag-text-clamped', clamped)
+          more.textContent = clamped ? 'Show more' : 'Show less'
+          more.setAttribute('aria-expanded', String(!clamped))
+        }
+        more.addEventListener('click', () => setClamped(!text.classList.contains('fl-diag-text-clamped')))
+        expand = () => setClamped(false)
+        body.append(more)
+      }
+      diagItems.push({ diag: d, item, expand })
 
       // One-click budget fix: without it, "the diagnostic says which budget and at what count, but
       // the user must then scroll to the Budget section and type a number" -- recognized here
@@ -1965,6 +2835,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     config.profiling = profilingCheckbox.checked
     notifyConfigChanged()
     renderProfilerSection()
+    syncHeatmapAvailability()
   })
   profilerBody.append(row('Enable profiling', profilingCheckbox, 'Records per-cell write counts and per-feature cost on the next run; off by default because it adds overhead.'))
 
@@ -2064,13 +2935,20 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   renderEnvironmentOptions()
   renderBiomeOptions()
 
-  // ---- keyboard shortcut: frame view (mirrors viewer.ts's own handleKeyDown -- see that
-  // method's doc comment for why plain 'r' vs shift+'r' ('R') need no separate modifier check)
+  // ---- keyboard shortcut: Ctrl+Enter, and ONLY Ctrl+Enter.
+  //
+  // This listener used to also handle 'r'/'R' for the two framing actions -- which VoxelViewer's
+  // own handleKeyDown already handles, on `window`, for the same keystroke. A keydown on the
+  // document bubbles to the window, so both fired: every press of R framed the view twice. The
+  // viewer owns the camera and therefore owns its keys; what is left here is the one shortcut
+  // that belongs to the sidebar, because what it re-runs is the sidebar's own state.
   document.addEventListener('keydown', (ev) => {
-    const target = ev.target
-    if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
-    if (ev.key === 'r') opts.viewer.frameContent()
-    else if (ev.key === 'R') opts.viewer.frameAll()
+    // Checked BEFORE any input guard, deliberately: "run what I just typed" is the one shortcut
+    // whose whole purpose is to be usable from inside the field being typed into.
+    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+      ev.preventDefault()
+      regenerate()
+    }
   })
 
   // apply restored view state to the viewer immediately, before any data exists
@@ -2079,8 +2957,47 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   opts.viewer.setShowCarved(view.showCarved)
   opts.viewer.setShowHeatmap(view.showHeatmap)
   opts.viewer.setShowOverflow(view.showOverflow)
+  // Harmless before an atlas exists (the viewer simply records the request and keeps drawing flat
+  // colours), and the whole point of recording it: the moment a host delivers one, onTexturesChanged
+  // below re-applies this preference rather than the host having to decide on the user's behalf.
+  opts.viewer.setTexturesEnabled(view.showTextures)
   opts.viewer.setSlice(view.sliceMinY, view.sliceMaxY)
 
+  // The on-canvas overlay and the sidebar are two affordances for one set of settings, so each
+  // has to follow the other. This is the overlay -> sidebar direction; every setter above is the
+  // other one (they all call into the viewer, which re-syncs the overlay itself).
+  opts.viewer.onViewChange = (state) => {
+    if (state.environmentMode !== view.environmentMode) {
+      view.environmentMode = state.environmentMode
+      for (const radio of envModeRadios) radio.checked = radio.value === state.environmentMode
+    }
+    if (state.showGrid !== view.showGrid) {
+      view.showGrid = state.showGrid
+      gridCheckbox.checked = state.showGrid
+    }
+    syncStatChips()
+    save()
+  }
+  // An atlas arriving (or failing to) is a change in what this row can honestly offer, and it
+  // happens asynchronously, long after this panel was built. Re-applying the remembered
+  // preference here is what makes "textures when there are any" true without the host having to
+  // know the preference exists.
+  opts.viewer.onTexturesChanged = () => {
+    if (view.showTextures !== opts.viewer.getTexturesEnabled() && opts.viewer.getTextureReport().hasAtlas) {
+      opts.viewer.setTexturesEnabled(view.showTextures)
+      return // the call above re-enters this handler, which then syncs the row
+    }
+    syncTextureAvailability()
+  }
+  // Click-to-identify, always armed -- see pickedEl.
+  opts.viewer.onPick = (pick) => showPickedCell(pick)
+  // Cancel exists on the pill only for a host that can actually stop a run -- see
+  // PanelOptions.onCancel.
+  opts.viewer.setCancelHandler(opts.onCancel ? () => opts.onCancel?.() : null)
+
+  syncHeatmapAvailability()
+  syncStatChips()
+  syncTextureAvailability()
   renderDiagnostics([])
 
   return {
@@ -2089,6 +3006,13 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       // pending", whether or not the host also called setBusy(false) itself.
       applyBusy(false)
       errorBanner.style.display = 'none'
+      // A result IS the engine answering, so nothing about this preview is stale any more --
+      // including the viewport notice that said so (see setStale/syncViewportNotice). Hosts do
+      // post stale:false at the start of every regenerate, but a notice claiming the picture is
+      // out of date, sitting on the picture that just replaced it, is not a thing to leave to a
+      // message ordering this file does not control.
+      staleBanner.style.display = 'none'
+      staleReason = null
       lastResult = result
       lastError = null
       resolvedOriginY = result.origin.y
@@ -2147,7 +3071,14 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       opts.viewer.setVolume(volume, result.palette)
       opts.viewer.setSlice(displayMin, displayMax)
 
+      // A fresh run re-interns cell indices and may well not contain the block that was picked
+      // at all, so last run's identification is not this run's -- and the viewer's own marker is
+      // left alone deliberately, since it may equally be a diagnostic's (see viewer.onPick).
+      clearPickedCell()
       renderCounts(result.counts, result.placementDurationMs, result.libraryBuildDurationMs, result.partial)
+      renderEmptyResult(result)
+      syncViewportNotice()
+      syncTextureAvailability()
       renderOverflowBanner(result)
       renderGrownBanner()
       renderDiagnostics(result.diagnostics)
@@ -2165,6 +3096,11 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       renderBiomeOptions()
       syncMaterialInputs()
       syncBiomeInputs()
+      // Everything above may have rewritten an input this module also watches for uncommitted
+      // edits -- a value THIS file just wrote is committed by definition, and leaving it marked
+      // would be the marker crying wolf.
+      resyncCommitted()
+      syncHeatmapAvailability()
       save()
     },
     setError(message: string | null): void {
@@ -2176,6 +3112,12 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
         // not the host's own catch/finally also called setBusy(false) -- the error banner must
         // always win over a lingering "Generating…" state, never race it.
         applyBusy(false)
+        // A failed run has no counts, so the "placed nothing" line would be describing the
+        // PREVIOUS result while the banner above it describes this one. The promoted copy of
+        // that line goes with it, for the same reason.
+        emptyResultEl.style.display = 'none'
+        promotedAnswer = null
+        opts.viewer.setNotice(null)
         errorBanner.textContent = `generation failed: ${message}`
         errorBanner.style.display = ''
       }
@@ -2184,6 +3126,8 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     setStale(stale: boolean, reason?: string): void {
       if (!stale) {
         staleBanner.style.display = 'none'
+        staleReason = null
+        syncViewportNotice()
         return
       }
       // Safety net (see applyBusy's own doc comment): the engine is confirmed not-good (crashed,
@@ -2196,6 +3140,9 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       applyBusy(false)
       staleBanner.textContent = reason ?? 'The featurelab engine process is not responding. This preview may be out of date.'
       staleBanner.style.display = ''
+      // The same sentence, onto the view it is about -- see syncViewportNotice.
+      staleReason = staleBanner.textContent
+      syncViewportNotice()
     },
     setBusy(v: boolean): void {
       applyBusy(v)
@@ -2250,6 +3197,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
           minYInput.value = String(config.minY)
         }
       }
+      resyncCommitted()
       syncMaterialInputs()
       syncBiomeInputs()
     },
@@ -2263,6 +3211,10 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     },
     getGenerateParams(): GenerateParamsWire | null {
       return buildGenerateParams()
+    },
+    setTextureStatus(status: { available: boolean; reason?: string } | null): void {
+      hostTextureStatus = status
+      syncTextureAvailability()
     },
   }
 }

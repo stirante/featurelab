@@ -16,8 +16,8 @@
 //     reaches the wire unmodified.
 import { describe, expect, it, afterEach } from 'vitest'
 import { fileURLToPath } from 'node:url'
-import { PreviewController } from '../src/previewController.js'
-import { EngineProcess } from '../src/engineProcess.js'
+import { EngineDisposedError, PreviewController } from '../src/previewController.js'
+import { EngineProcess, type EngineNotification } from '../src/engineProcess.js'
 
 const FAKE_ENGINE = fileURLToPath(new URL('./fixtures/loadpack-fake-engine.mjs', import.meta.url))
 
@@ -47,16 +47,18 @@ class TestPreviewController extends PreviewController {
 // a seam: EngineProcess directly (already covered by engineProcess.test.ts) plus
 // PreviewController's request-shaping/caching logic against a real EngineProcess pointed at the
 // fake engine via the same spawnFn override EngineProcess itself exposes for tests.
-function makeController(): PreviewController {
-  const ctl = new PreviewController(process.execPath) as PreviewController & { engine?: EngineProcess }
+function makeController(onProgress?: (note: EngineNotification) => void): PreviewController {
+  const ctl = new PreviewController(process.execPath, () => {}, onProgress)
   // Monkeypatch: replace the lazily-constructed engine with one driving the fake script, by
-  // pre-seeding the private field via a cast -- avoids needing a second constructor parameter
-  // in production code just for tests. See ensureEngine()'s own "either never started, or
-  // crashed" contract: as long as this engine reports !isCrashed(), ensureEngine() reuses it
-  // verbatim, which is exactly what every assertion below needs to hold.
+  // handing it to the controller's own attachEngine via a cast -- avoids needing a second
+  // constructor parameter in production code just for tests, while still going through the
+  // production code that decides which of the engine's events the host hears. See ensureEngine()'s
+  // own "either never started, or crashed" contract: as long as this engine reports
+  // !isCrashed(), ensureEngine() reuses it verbatim, which is exactly what every assertion below
+  // needs to hold.
   const engine = new EngineProcess(process.execPath, [FAKE_ENGINE])
   engine.start()
-  ;(ctl as unknown as { engine: EngineProcess }).engine = engine
+  ;(ctl as unknown as { attachEngine(engine: EngineProcess): void }).attachEngine(engine)
   return ctl
 }
 
@@ -312,3 +314,112 @@ async function requestCounts(ctl: PreviewController): Promise<{ loadCount: numbe
   const engine = (ctl as unknown as { engine: EngineProcess }).engine
   return (await engine.request('loadCount')) as { loadCount: number; reloadFileCount: number }
 }
+
+// ---------------------------------------------------------------------------
+// The engine's own progress, on its way to the host.
+//
+// EngineProcess raises it and progress.ts turns it into words; this is the link between them,
+// and it is the link that did not exist. Until it did, a loadPack that the engine was reporting
+// on once a second reached the host as nothing at all.
+// ---------------------------------------------------------------------------
+describe('progress notifications', () => {
+  it('forwards a progress line for a running request to the host, without disturbing the response', async () => {
+    const seen: EngineNotification[] = []
+    const ctl = makeController((note) => seen.push(note))
+    current = ctl
+
+    const summary = await ctl.loadPackSummary('/pack/a', 2000)
+
+    // The response is exactly what it always was -- the notification is an extra line in front
+    // of it, not a change to it.
+    expect(summary).toMatchObject({ featureCount: 1 })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ kind: 'progress', method: 'loadPack', phase: 'features', files: 8070, elapsedMs: 1755 })
+  })
+
+  it('costs a controller with nobody listening nothing at all', async () => {
+    // Every caller that predates this -- and every test above -- passes no sink. The default has
+    // to be a no-op rather than a requirement, or adding progress would have been a breaking
+    // change to a constructor half the extension uses.
+    const ctl = makeController()
+    current = ctl
+    await expect(ctl.loadPackSummary('/pack/a', 2000)).resolves.toMatchObject({ featureCount: 1 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A disposed controller stays disposed.
+//
+// THE BUG THIS PINS, in the words of the person who hit it: "I changed
+// featurelab.binaryPath and the preview kept running the old engine." dispose() nulled `engine`,
+// and ensureEngine() reads a null `engine` as "never started" and spawns `binaryPath` again -- so
+// the controller extension.ts had just thrown away rebuilt itself on the next request, against
+// the OLD binary, with its own copy of the pack loaded and no probe ever run against it. A panel
+// captures its controller at construction and cannot be re-bound, so this was silent and
+// permanent for that panel: the run succeeded, the picture updated, and the engine answering was
+// the one the user believed they had stopped using.
+//
+// Measured before the fix, in this same harness: dispose() followed by generate() spawned a
+// second process. That is what the first case below now forbids.
+// ---------------------------------------------------------------------------
+describe('a disposed PreviewController', () => {
+  it('refuses the next generate instead of restarting the old binary', async () => {
+    const ctl = makeController()
+    current = ctl
+    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
+
+    ctl.dispose()
+
+    await expect(ctl.generate('/pack/a', { feature: 'f2' }, 2000)).rejects.toThrow(EngineDisposedError)
+    // And it did not quietly start one on the way to refusing.
+    expect((ctl as unknown as { engine: EngineProcess | null }).engine).toBeNull()
+  })
+
+  it('names the binary and the remedy, because the panel holding it cannot do anything else', async () => {
+    const ctl = makeController()
+    current = ctl
+    ctl.dispose()
+
+    const err: Error = await ctl.generate('/pack/a', { feature: 'f1' }, 2000).then(
+      () => new Error('the disposed controller answered instead of refusing'),
+      (e: unknown) => e as Error,
+    )
+
+    // The path, because "which engine is this" is the question somebody who just changed the
+    // setting is actually asking.
+    expect(err.message).toContain(process.execPath)
+    expect(err.message).toMatch(/binaryPath/)
+    // And a thing to DO. A panel cannot swap its own controller, so the only honest instruction
+    // is to open a new one.
+    expect(err.message).toMatch(/open it again|reopen/i)
+  })
+
+  it('refuses every other request on the same object, not only generate', async () => {
+    const ctl = makeController()
+    current = ctl
+    ctl.dispose()
+
+    await expect(ctl.loadPackSummary('/pack/a', 2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.reloadPack('/pack/a', 2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.reloadPackFile('/pack/a', 'features/x.json', 2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.graph('/pack/a', 2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.listTypes(2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.loadAtlas(2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.listEnvironments(2000)).rejects.toThrow(EngineDisposedError)
+  })
+
+  it('says so before it is asked, so a holder can report it rather than wait to fail', async () => {
+    const ctl = makeController()
+    current = ctl
+    expect(ctl.isDisposed()).toBe(false)
+    ctl.dispose()
+    expect(ctl.isDisposed()).toBe(true)
+  })
+
+  it('tolerates being disposed twice, which is what a torn-down window does', () => {
+    const ctl = makeController()
+    current = ctl
+    ctl.dispose()
+    expect(() => ctl.dispose()).not.toThrow()
+  })
+})

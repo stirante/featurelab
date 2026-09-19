@@ -181,6 +181,82 @@ export function colorForBlockName(name: string): number {
   return hashColor(name)
 }
 
+// --- write-attribution series ----------------------------------------------------------------
+//
+// The colours the attribution overlay paints one WRITER each in (viewer.ts's
+// setAttributionGroups). Until there was a legend there was only ever one of them, because a
+// second unexplained colour on a voxel preview is a riddle rather than an answer; with a legend
+// naming each one, telling two writers apart is the whole point -- "which of these blocks are
+// mine" and "where do we overlap" are the two questions somebody clicks a node to ask.
+//
+// CHOSEN AGAINST THE OVERLAYS ALREADY ON SCREEN, not just against each other. This preview
+// already spends the warm half of the wheel: carved is a warm orange (#ff5a3c), the captured
+// out-of-bounds overlay is magenta (#ff26d9), the heatmap runs teal -> yellow -> red and
+// highlightCell's marker is yellow. So every entry here lives in the blue/green corner nothing
+// else occupies, and none of them is a red, an orange or a pink. The first is the exact
+// blue-violet the single-writer overlay has always used, so a preview with one writer looks
+// unchanged.
+//
+// AND CHOSEN AGAINST COLOUR VISION, which the first version of this series was not. Its violet
+// (#b07bff) and its blue-violet were CIE76 ΔE 17.7 apart in normal vision and 10.3 apart under
+// simulated protanopia -- and the blue-violet is not just any entry, it is always the node the
+// user clicked, so the one row that has to be findable was the one row that dissolved. Two more
+// pairs (cyan/slate under deuteranopia, blue/violet-vs-slate under tritanopia) sat under 20.
+//
+// Every pair here is at least ΔE 25 apart in normal vision AND under Machado 2009 severity-1.0
+// protan, deutan and tritan simulation -- worst case 28.4 (tritan, #76e6f8 vs #1faa26); see
+// test/colors.test.ts, which recomputes all four and fails if any pair drops under 25. The
+// separation is bought with LIGHTNESS as much as hue, because a dichromat's remaining chromatic
+// axis is roughly blue-yellow alone and six hues out of one corner cannot be told apart on it.
+//
+// THE ORDER IS PART OF THE ANSWER. Writers are coloured in list order with the selected node
+// first (see previewPanel.ts's attributionGroupsFor), so the sequence is arranged so that the
+// FIRST few are the furthest apart: two writers are 45.0 apart at worst, three 38.2, four 33.2,
+// five 29.0. The common cases get the easiest picture, rather than every case getting the
+// six-writer one.
+const ATTRIBUTION_SERIES: readonly number[] = [
+  0x6b73ff, // blue-violet -- the original, and what one writer alone still gets
+  0xc9f294, // pale green
+  0x76e6f8, // sky
+  0x123f63, // deep navy
+  0x8e9199, // slate
+  0x1faa26, // green
+]
+
+/** How many writers can be told apart by colour before the series repeats. A host with more
+ * than this to show should group the rest rather than hand over a seventh that looks like the
+ * first -- see `attributionColor`. */
+export const ATTRIBUTION_SERIES_LENGTH = ATTRIBUTION_SERIES.length
+
+/** The packed 0xRRGGBB colour for writer `index`, cycling past the end of the series.
+ *
+ * Cycling rather than throwing, because the mesher asks this per cell and a bad index is a host
+ * bug that should show up as two writers sharing a colour, not as a preview that fails to draw.
+ * A negative index (which is what a cell with no writer would produce) answers with the first
+ * entry for the same reason. */
+export function attributionColorPacked(index: number): number {
+  const n = ATTRIBUTION_SERIES.length
+  const i = Number.isFinite(index) && index > 0 ? Math.trunc(index) % n : 0
+  return ATTRIBUTION_SERIES[i] as number
+}
+
+/** `attributionColorPacked` as the 0..1 RGB triple the mesher's `colorOverride` wants. Cached,
+ * because it is called once per meshed cell and allocating a fresh triple per call would be the
+ * only allocation in that loop. */
+const ATTRIBUTION_RGB: readonly (readonly [number, number, number])[] = ATTRIBUTION_SERIES.map((c) => [((c >> 16) & 0xff) / 255, ((c >> 8) & 0xff) / 255, (c & 0xff) / 255] as const)
+
+export function attributionColor(index: number): readonly [number, number, number] {
+  const n = ATTRIBUTION_RGB.length
+  const i = Number.isFinite(index) && index > 0 ? Math.trunc(index) % n : 0
+  return ATTRIBUTION_RGB[i] as readonly [number, number, number]
+}
+
+/** The series as CSS hex strings, for a legend that has to draw the same colours the geometry
+ * is painted in. One source, so a swatch can never name a colour the overlay does not use. */
+export function attributionColorCss(index: number): string {
+  return `#${attributionColorPacked(index).toString(16).padStart(6, '0')}`
+}
+
 // --- runtime tint channels (textured rendering) ---------------------------------------------
 //
 // Vanilla bakes grass, foliage and water as GREYSCALE textures and multiplies them by a colour

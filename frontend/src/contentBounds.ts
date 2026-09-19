@@ -23,6 +23,17 @@ export interface ContentBoundsOpts {
    * is true; a feature-changed cell counts regardless (the feature mesh pass is independent of
    * environment visibility). */
   environmentVisible: boolean
+  /** Whether environment cells should count toward the box AT ALL, independently of whether the
+   * environment pass is drawing them.
+   *
+   * Defaults to true, which is the old behaviour. False is what "frame the FEATURE" means: with
+   * a solid environment -- the default -- every terrain cell counts as occupied, so the occupied
+   * box is the terrain's box, and framing it frames the bench. A 53-block feature then renders
+   * as a postage stamp, and "frame what is occupied" and "frame the whole bench" become the same
+   * picture until the terrain is hidden. `environmentVisible` cannot express this on its own:
+   * it answers "is the environment drawn", and lying to it would also be lying to a caller that
+   * genuinely wants the visible terrain framed. */
+  includeEnvironment?: boolean
   /** VoxelViewer.getShowCarved() -- whether the translucent carved-overlay pass (baseline
    * shape at cells the feature carved to air) is currently drawing anything. */
   showCarved: boolean
@@ -58,6 +69,7 @@ export interface ContentBounds {
 export function computeOccupiedBounds(volume: ViewerVolume, palette: readonly ViewerPaletteEntry[], opts: ContentBoundsOpts): ContentBounds | null {
   const { minX, minY: volMinY, minZ, sizeX, sizeY, sizeZ, data, changed, removed } = volume
   const { sliceMinY, sliceMaxY, environmentVisible, showCarved, showOverflow, overflowBlocks } = opts
+  const environmentCounts = environmentVisible && opts.includeEnvironment !== false
 
   let minXi = Infinity
   let minYi = Infinity
@@ -105,7 +117,7 @@ export function computeOccupiedBounds(volume: ViewerVolume, palette: readonly Vi
         if (!occupied) {
           const id = data[index] as number
           const kind = kindById[id] ?? 'air'
-          if (kind !== 'air') occupied = changed[index] === 1 || environmentVisible
+          if (kind !== 'air') occupied = changed[index] === 1 || environmentCounts
         }
         if (!occupied) continue
 

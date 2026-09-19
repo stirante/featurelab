@@ -155,3 +155,35 @@ export function computeClipPlanes(distance: number, contentRadius: number): { ne
   const far = Math.max(near + 1, distance + contentRadius + 200)
   return { near, far }
 }
+
+/** The dolly ceiling for a volume of `contentRadius` -- how far out the camera may be scrolled
+ * before OrbitControls stops it.
+ *
+ * This used to be `max(500, radius * 40)`, which is a limit in name only: forty radii out, a
+ * 32x48x32 bench subtends a few dozen pixels, so "zoomed out" and "the preview is empty" look
+ * the same, and getting back needs a frame click rather than a scroll. Six radii still leaves
+ * comfortable room around a framed fit (`fitBoxToView` lands near two), while keeping the bench
+ * an object rather than a speck. The absolute floor is what keeps a tiny volume (radius is
+ * itself floored at 4) from becoming unscrollable. */
+export function maxDollyDistance(contentRadius: number): number {
+  return Math.max(64, contentRadius * 6)
+}
+
+/** Whether `inner` sits entirely inside `outer`, allowing `slack` world units of overhang on
+ * every side.
+ *
+ * The test behind viewer.ts's re-frame rule. A preview that framed once and never again is
+ * correct right up until the next run puts its content somewhere else -- then the camera is
+ * pointed at the space where the last result was, which on screen is indistinguishable from a
+ * run that placed nothing. Slack is what stops a result one block taller than the last from
+ * yanking the camera on every save: only content that genuinely escaped the framed box counts. */
+export function boxContains(outer: Box3, inner: Box3, slack = 0): boolean {
+  return (
+    inner.minX >= outer.minX - slack &&
+    inner.maxX <= outer.maxX + slack &&
+    inner.minY >= outer.minY - slack &&
+    inner.maxY <= outer.maxY + slack &&
+    inner.minZ >= outer.minZ - slack &&
+    inner.maxZ <= outer.maxZ + slack
+  )
+}
