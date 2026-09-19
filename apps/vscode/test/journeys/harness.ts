@@ -422,6 +422,21 @@ export interface Journey {
   waitForNode(id: string): Promise<void>
   waitForNodeGone(id: string): Promise<void>
   waitForStatus(match: RegExp): Promise<string>
+  /** Waits for a status line matching `match` that the editor has marked as an ERROR, and
+   * returns it.
+   *
+   * SEPARATE FROM waitForStatus BECAUSE MATCHING THE TEXT IS NOT ENOUGH, and the difference is
+   * a race a journey cannot otherwise win. Every write in webview/graph.ts announces itself
+   * before it leaves -- `Writing places_block to features/blocked_gold_block.json...` -- and
+   * only then does the refusal replace it. A wait written as `waitForStatus(/<the file>/)`
+   * therefore matches the ANNOUNCEMENT, which is an ordinary info line, whenever the round trip
+   * has not finished within the first poll: green on a fast machine, "expected false to be true"
+   * on a slow one, and about nothing either way.
+   *
+   * A give-up reports the status it did see and whether it was marked as an error, because
+   * "the refusal was never marked" and "no refusal ever arrived" are different bugs and a bare
+   * timeout tells them apart for nobody. */
+  waitForErrorStatus(match: RegExp): Promise<string>
   /** How many graphs the page has received. Paired with waitForRedraw to wait out a round trip
    * that leaves the visible state unchanged. */
   graphCount(): Promise<number>
@@ -786,6 +801,30 @@ export async function openJourney(options: OpenJourneyOptions = {}): Promise<Jou
         match.source,
         { timeout: WAIT_MS },
       )
+      return (await page.textContent('#flg-status')) ?? ''
+    },
+    waitForErrorStatus: async (match) => {
+      try {
+        await page.waitForFunction(
+          (source: string) => {
+            const host = document.getElementById('flg-status')
+            if (host === null) return false
+            // BOTH, in one predicate rather than one wait and one assertion: the text has to be
+            // about the thing asked for AND the editor has to have called it a failure. Split
+            // across two steps, the second reads whatever the first happened to stop on.
+            return new RegExp(source).test(host.textContent ?? '') && host.classList.contains('flg-status-error')
+          },
+          match.source,
+          { timeout: WAIT_MS },
+        )
+      } catch {
+        const text = (await page.textContent('#flg-status')) ?? ''
+        const marked = ((await page.getAttribute('#flg-status', 'class')) ?? '').includes('flg-status-error')
+        throw new Error(
+          `journey harness: waited ${String(WAIT_MS)}ms for an ERROR status matching ${match.source}. ` +
+            `The status line says ${JSON.stringify(text)} and is ${marked ? 'marked as an error' : 'NOT marked as an error'}.`,
+        )
+      }
       return (await page.textContent('#flg-status')) ?? ''
     },
     waitForPost: async (what, match) => {

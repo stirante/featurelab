@@ -379,12 +379,51 @@ describe('panel.ts real-layout: expanded sections never clip a control row', () 
       // checkbox's accessible description), and a reason ellipsised mid-sentence loses exactly
       // the actionable half. It is a wrapped sentence, not a paragraph: still one statement,
       // still about this run.
-      const tall = await page.$$eval('#fl-sidebar .fl-banner, #fl-sidebar .fl-note, #fl-sidebar .fl-info', (els) =>
+      //
+      // MEASURED OFF THE CONTENT BOX AND THE ELEMENT'S OWN LINE-HEIGHT, which is not what it
+      // used to do and is the difference between a number that means "this wrapped" and one
+      // that means "this has padding".
+      //
+      // It read `getBoundingClientRect().height / (fontSize * 1.4)`: a BORDER box, divided by a
+      // guess at the leading. `.fl-banner` sets `padding: 6px 8px` and its variants a 1px
+      // border, so a banner of one single line measured 1.87 by that arithmetic against a
+      // threshold of 2 -- 6% of clear air, none of it about text. On GitHub's Linux runners, in
+      // a font a little wider than the one this was written against, a banner that fits on one
+      // line here took two there and it reported 2.62. That banner is gone (63f689a replaced the
+      // grow paragraph with a badge on its own row), so this test is green again on its own --
+      // but the trap it fell into is still set for the next banner anyone adds, and the number
+      // it prints in a failure is still wrong by a constant nobody would think to subtract.
+      //
+      // Content box over computed line-height: one line is 1.00 and two lines are 2.00, in any
+      // font, at any padding.
+      const surfaces = await page.$$eval('#fl-sidebar .fl-banner, #fl-sidebar .fl-note, #fl-sidebar .fl-info', (els) =>
         els
           .filter((el) => (el as HTMLElement).offsetHeight > 0 && !el.classList.contains('fl-texture-note'))
-          .map((el) => ({ text: (el.textContent ?? '').slice(0, 40), lines: el.getBoundingClientRect().height / (parseFloat(getComputedStyle(el).fontSize) * 1.4) }))
-          .filter((entry) => entry.lines >= 2),
+          .map((el) => {
+            const style = getComputedStyle(el)
+            // `line-height: normal` computes to a used value in Chromium, so this is a number;
+            // the font size is the fallback for anywhere it is not.
+            const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2
+            return {
+              text: (el.textContent ?? '').slice(0, 40),
+              // clientHeight is the content box plus padding; the padding comes back off, so
+              // what is left is the text.
+              lines: (el.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / lineHeight,
+              // Whether this surface can wrap AT ALL. The generic `.fl-note`/`.fl-info` rule is
+              // `white-space: nowrap` with an ellipsis, so those two are one line by
+              // construction whatever the font does; `.fl-banner` is not, and is therefore the
+              // only one of the three a wider font can turn into a paragraph.
+              wraps: !style.whiteSpace.startsWith('nowrap') && style.whiteSpace !== 'pre',
+            }
+          }),
       )
+      // THE CHECK HAS TO HAVE SOMETHING TO CHECK. At the time of writing exactly one of these
+      // three is on screen in this state, and it is an `.fl-info`, which cannot wrap -- so a
+      // filter that found nothing would be indistinguishable from a panel with no status lines
+      // in it, and this assertion would go on passing over an empty list for as long as anybody
+      // left it there.
+      expect(surfaces.length, 'no status line is visible at all, so the rule below is being applied to nothing').toBeGreaterThan(0)
+      const tall = surfaces.filter((entry) => entry.lines >= 2)
       expect(tall).toEqual([])
     } finally {
       await page.close()

@@ -128,9 +128,29 @@ describe('editing a field', () => {
       j.remove('features/blocked_gold_block.json')
       await type(field(j, 'places_block'), 'minecraft:emerald_block')
 
-      const said = await j.waitForStatus(/blocked_gold_block\.json/)
-      expect(await j.statusIsError()).toBe(true)
-      expect(said.toLowerCase()).toMatch(/cannot find|no such file|reading/)
+      // WAITED FOR AS ONE CONDITION -- the file named AND the line marked as a failure -- and
+      // not as a text match followed by a separate assertion about the class.
+      //
+      // THE RACE, WATCHED RATHER THAN GUESSED AT. Sampling #flg-status every millisecond from
+      // the keystroke onwards shows exactly two states:
+      //
+      //   info   Writing places_block: block name to features/blocked_gold_block.json...
+      //   ERROR  Error: applyEdits: reading features/blocked_gold_block.json: open
+      //          <pack>/features/blocked_gold_block.json: no such file or directory
+      //
+      // The first is webview/graph.ts announcing the write before it leaves. It names this file,
+      // so `waitForStatus(/blocked_gold_block\.json/)` matches it -- and `page.waitForFunction`
+      // polls on the next animation frame, so whether it matches the announcement or the refusal
+      // depends entirely on whether an engine round trip finished inside one frame. It does on
+      // an idle desktop and does not on a runner with the rest of this suite beside it, which is
+      // how this came to report "expected false to be true" about a status the refusal had not
+      // reached yet.
+      //
+      // See waitForErrorStatus, whose give-up says which of the two halves was missing.
+      const said = await j.waitForErrorStatus(/blocked_gold_block\.json/)
+      // The REASON, and no longer "reading" as an alternative: that word was in this list to let
+      // the in-flight announcement through, and the announcement is no longer what is matched.
+      expect(said.toLowerCase()).toMatch(/cannot find|no such file|does not exist/)
 
       // Nothing was written. Not a recreated file, not a half-applied one.
       expect(j.exists('features/blocked_gold_block.json')).toBe(false)

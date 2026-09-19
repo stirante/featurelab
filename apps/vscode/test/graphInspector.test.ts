@@ -2771,14 +2771,62 @@ window.__ready = true
     const page = await load(freshScatterForm({ distribution: { x: { distribution: 'uniform', extent: [-5, 15] } } }))
     try {
       const row = page.locator('.flg-ins-row[data-key="extent"]').first()
+      // WHAT IS THERE. Asserted before what is not, because a guard that only counts absences
+      // passes just as happily over a chip that has been emptied: delete the stepper and every
+      // `toBe(0)` below still holds. The word and the two buttons ARE the number/expression
+      // distinction, which is the whole reason an extent end is a Molang control and not an
+      // <input>.
+      const chips = row.locator('.flg-ins-chip')
+      expect(await chips.count(), 'an extent has two ends').toBe(2)
+      expect(await row.locator('.flg-molang-mode').count(), 'the chip lost the word that says which kind of value this is').toBe(2)
+      expect(await row.locator('.flg-molang-stepper').count(), 'the chip lost its stepper').toBe(2)
+      expect(await row.locator('.flg-molang-step').count(), 'a stepper is one fewer and one more').toBe(4)
+      // AND WHAT IS NOT: the three controls that are wider than the column they would sit in.
       expect(await row.locator('.flg-molang-templates').count(), 'the iterations template menu is in an extent chip').toBe(0)
       expect(await row.locator('.flg-molang-tonumber').count(), '"Back to N" is as wide as the chip it sits in').toBe(0)
       expect(await row.locator('.flg-molang-write').count(), 'the "the file will get" line is a sentence').toBe(0)
-      // Both chips are still on one line, and nothing pokes out of the sidebar.
-      const tops = await row.locator('.flg-ins-chip').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
-      expect(tops.length).toBe(2)
-      expect(tops[0]).toBe(tops[1])
-      expect(await row.evaluate((el) => el.getBoundingClientRect().width)).toBeLessThanOrEqual(SIDEBAR_WIDTH)
+
+      // IT FITS, ASKED AS A RELATIONSHIP AND NOT AS A NUMBER OF PIXELS.
+      //
+      // This used to read `tops[0] === tops[1]` -- both chips on one line -- and that is a claim
+      // about the width of a GLYPH, not about this layout. `.flg-ins-chip` is `flex: 1 1 9ch` in
+      // expression mode (see INSPECTOR_STYLESHEET), and `ch` is the advance of "0" in whatever
+      // font the host supplies. This harness supplies none, so the stack falls through
+      // `--vscode-font-family` to `-apple-system, 'Segoe UI', system-ui, sans-serif`: Segoe UI on
+      // Windows, and on Linux whatever fontconfig calls the system sans, whose "0" is wider. The
+      // two ends then wrap onto two lines, `.flg-ins-chips` being `flex-wrap: wrap` on purpose,
+      // and the assertion failed with "expected 290 to be 346" -- two chip tops one row apart,
+      // reported as though it were a fact about the inspector.
+      //
+      // Wrapping is not the defect. Overflowing is, and being squeezed to a fragment is, and
+      // those are what is asked below -- on this page, in this page's own font, at any width a
+      // glyph happens to have.
+      const geometry = await row.evaluate((el) => {
+        const chipEls = [...el.querySelectorAll('.flg-ins-chip')] as HTMLElement[]
+        return {
+          rowWidth: el.getBoundingClientRect().width,
+          chips: chipEls.map((chip) => ({
+            width: chip.getBoundingClientRect().width,
+            // Overflow of the chip's own CONTENT past its box: the mode word, the stepper and
+            // the box between them, laid out at this font, against the room the chip was given.
+            overflow: chip.scrollWidth - chip.clientWidth,
+          })),
+        }
+      })
+      // The two ends share the column EVENLY. This is what the one-line assertion was really
+      // holding: a wide control smuggled into one end takes its room from the other, and the
+      // pair stops being two ends of one value and becomes a big box and a sliver. Equal to
+      // within a pixel, because flexbox rounds.
+      expect(Math.abs(geometry.chips[0]!.width - geometry.chips[1]!.width), 'one end of the extent is wider than the other').toBeLessThanOrEqual(1)
+      // NEITHER END IS A FRAGMENT. `flex-basis: 9ch` with `min-width: 0` will happily shrink a
+      // chip until its contents spill; nothing on screen says so, which is exactly why it is
+      // measured. Compared against the chip's own content rather than against a pixel count, so
+      // it means the same thing in every font.
+      for (const [index, chip] of geometry.chips.entries()) {
+        expect(chip.overflow, `end ${String(index)} of the extent is narrower than the controls inside it`).toBeLessThanOrEqual(1)
+      }
+      // And nothing pokes out of the sidebar.
+      expect(geometry.rowWidth).toBeLessThanOrEqual(SIDEBAR_WIDTH)
       expect(await page.locator('.flg-inspector').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
     } finally {
       await page.close()
