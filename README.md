@@ -64,11 +64,25 @@ array, **44.9 KB** encoded, in 9,145 runs. A denser pack encodes less well —
 the ratio is a property of the volume, not a constant — but the order holds. `wire`'s package doc comment carries the
 full field-by-field spec.
 
-`check` loads a pack and prints every diagnostic (empty array, exit 0, if
-none):
+`check` loads a pack, prints every diagnostic as a table and a summary line,
+and exits non-zero if any of them is an error — including a delegation whose
+`places_feature` names something the pack does not define, which is invisible
+in any single file:
 
 ```
-go run ./cmd/featurelab check --pack <path-to-pack>
+$ go run ./cmd/featurelab check --pack <path-to-pack>
+LEVEL    FILE                       MESSAGE
+error    features/scatter.json      wiki:scatter: $.minecraft:scatter_feature.places_feature: delegates to "wiki:gold_blok", which no loaded file defines. ... -- did you mean "wiki:gold_block"?
+
+1 error, 0 warnings, 4 notes
+```
+
+Add `--json` for the machine-readable array (the levels are `error`,
+`warning` and `info`; a conventional directory the pack simply does not have
+is `info`, not a warning):
+
+```
+go run ./cmd/featurelab check --pack <path-to-pack> --json
 ```
 
 `serve` speaks one JSON object per line on stdin, one back on stdout — the
@@ -76,8 +90,25 @@ protocol the VS Code extension and `check` both drive:
 
 ```
 $ echo '{"method":"loadPack","params":{"dir":"docs/wiki/tools/fixtures"}}' | go run ./cmd/featurelab serve
-{"id":null,"result":{"warnings":[...],"featureCount":55,"structureCount":1,"ruleCount":2,"biomeCount":0}}
+{"id":null,"result":{"warnings":[...],"featureCount":55,"structureCount":1,"ruleCount":2,"biomeCount":0,"fileCounts":{"features":55,...},"diagnostics":[...]}}
 ```
+
+The counts are what the pack can **use**; `fileCounts` is what was read off
+disk. A pack with one unparseable feature file answers `"featureCount":55`
+beside `"fileCounts":{"features":56}` and a `diagnostics` entry naming that
+file — with `line`/`column` when the parser knew them — rather than counting
+the broken file as a feature and saying nothing. Each diagnostic carries a
+`scope`: `"pack"` for something wrong with the files on disk (identical for
+every run), `"run"` for what happened in the `generate` being answered. A
+`generate` response carries both; `loadPack` and `check` only ever carry
+`"pack"`.
+
+A long call — `generate`, `generateGrown`, `graph` — can be stopped part-way by
+sending `{"method":"cancel","params":{"id":<that request's id>}}` on the same
+stream. The cancelled request answers with an error carrying
+`"code":"cancelled"` rather than a half-finished result, and cancelling an id
+that has already finished (or never existed) is a no-op that answers
+`{"cancelled":false}`.
 
 ### Block textures
 
@@ -116,15 +147,25 @@ untextured those are the blocks a preview tells you the least about.
 `featurelab blocktable --pack <dir>` prints the resolved table without building
 anything.
 
-Textures are an enhancement: offline, declined, or switched off
-(`featurelab.blockTextures` in VS Code, `FEATURELAB_BLOCK_TEXTURES=0` for the
-desktop app), the preview draws the flat colours it has always drawn and says
-why. The committed images under `docs/wiki/images/` and `apps/vscode/docs/` are
-rendered with textures pinned OFF, and both pipelines assert it rather than
-trusting a default, so what they look like never depends on whether the machine
-that regenerated them happens to have an atlas. The single exception is the
-before/after figure on the wiki page above, which needs both halves by
-definition and has its own script
+That resolution follows `terrain_texture.json` into a `.texture_set.json` when a
+path names one, and it reads a block's `permutations` as well as its top-level
+components — so a block whose art depends on a block state is drawn per state
+rather than always in its default faces. One entry it cannot read costs that
+entry only, and a `variations` list resolves to its first entry (the game rolls
+a weighted die per block; a preview that did the same would change on every
+reload). The wiki page above has the whole of it.
+
+Textures are an enhancement: offline, declined, or switched off — either by the
+setting that prepares them (`featurelab.blockTextures` in VS Code,
+`FEATURELAB_BLOCK_TEXTURES=0` for the desktop app) or by the preview sidebar's
+own **Block textures** switch, which decides whether an atlas that exists is
+drawn — the preview draws the flat colours it has always drawn and says why. Every committed image that contains blocks — `docs/wiki/images/` and
+`apps/vscode/docs/panel-*.png` — is rendered with textures pinned OFF, and both
+pipelines assert it rather than trusting a default, so what they look like never
+depends on whether the machine that regenerated them happens to have an atlas.
+(`apps/vscode/docs/graph-*.png` are of the node editor, which draws no blocks.)
+The single exception is the before/after figure on the wiki page above, which
+needs both halves by definition and has its own script
 (`docs/wiki/tools/generate-texture-figure.mjs`).
 
 ### VS Code extension
@@ -142,6 +183,21 @@ npm run --workspace apps/vscode package     # builds cmd/featurelab for the host
 into the VSIX — the extension never requires the engine to be on `PATH`.
 Set `featurelab.binaryPath` in VS Code settings to point at a locally built
 `cmd/featurelab` binary during development instead.
+
+The listing's own material is regenerated, not hand-maintained:
+
+```
+node scripts/capture-screenshots.mjs        # apps/vscode/docs/panel-*.png
+node scripts/capture-graph-screenshots.mjs  # apps/vscode/docs/graph-*.png (needs `compile` first)
+node scripts/make-icon.mjs --check          # apps/vscode/media/icon.png, plus a 32px legibility copy
+```
+
+All three take `--out <dir>` so a change can be looked at without overwriting
+what is committed. The graph capture asserts, per shot, that the overlay
+surfaces the filename claims are open and that every other one is closed —
+without that, an overlay left up by an earlier step is photographed under the
+next shot's name and nothing fails. `apps/vscode/CHANGELOG.md` is the
+user-facing history.
 
 ### Desktop app
 

@@ -37,7 +37,7 @@ if [ "$goos" = "windows" ]; then
 fi
 
 echo "build-headless: GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -o $work/$binname ./cmd/featurelab"
-GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -o "$work/$binname" ./cmd/featurelab
+GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${version#v}" -o "$work/$binname" ./cmd/featurelab
 
 mkdir -p "$outdir"
 archive_base="featurelab-${version}-${goos}-${goarch}"

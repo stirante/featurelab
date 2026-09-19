@@ -60,8 +60,11 @@ function runCLI(args) {
 }
 
 function checkFixturePack() {
-  console.log(`[2/4] featurelab check --pack ${path.relative(repoRoot, fixturesPack)}`)
-  const diagnostics = runCLI(['check', '--pack', fixturesPack])
+  console.log(`[2/4] featurelab check --pack ${path.relative(repoRoot, fixturesPack)} --json`)
+  // --json is required, not decoration: `check` prints a human table by default and only this
+  // flag gives back the array runCLI parses. Without it this step reads a text summary as JSON
+  // and dies one line later on a brace it never found.
+  const diagnostics = runCLI(['check', '--pack', fixturesPack, '--json'])
   const errors = diagnostics.filter((d) => d.level === 'error')
   if (errors.length > 0) {
     throw new Error(`featurelab check reported ${errors.length} error diagnostic(s):\n${JSON.stringify(errors, null, 2)}`)

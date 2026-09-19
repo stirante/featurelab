@@ -9,7 +9,7 @@
 // every target platform; that is CI/release-automation work, done by scripts/release/ rather
 // than here.
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,8 +27,14 @@ if (!existsSync(goModulePath)) {
 
 mkdirSync(binDir, { recursive: true })
 
-console.log(`build-binary: go build -o ${outPath} ./cmd/featurelab  (cwd=${repoRoot})`)
-const result = spawnSync('go', ['build', '-o', outPath, './cmd/featurelab'], {
+// The extension reports the engine's version in its log, and "unknown" there is a step backwards
+// when someone is diagnosing a mismatched binary. The extension's own version is the honest answer
+// for a bundled engine: they ship together.
+const version = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8')).version
+const ldflags = `-X main.buildVersion=${version}`
+
+console.log(`build-binary: go build -ldflags "${ldflags}" -o ${outPath} ./cmd/featurelab  (cwd=${repoRoot})`)
+const result = spawnSync('go', ['build', '-ldflags', ldflags, '-o', outPath, './cmd/featurelab'], {
   cwd: repoRoot,
   stdio: 'inherit',
 })

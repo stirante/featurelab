@@ -79,12 +79,11 @@ subcommand that can touch a resource pack:
 subject is the download.
 
 ::: warning
-There is also a `--yes` flag, and **it is not a safe way to script this**. Its own help text says
-it answers the build prompt and "does NOT by itself permit a download"; measured behaviour is the
-opposite — `featurelab textures --yes` on a machine with nothing cached prints the notice and
-then fetches the whole 150 MB, with or without a terminal. Only `FEATURELAB_VANILLA_DOWNLOAD=0`
-reliably stops it. Use `--status` to find out where a machine stands and `--download` when you
-actually mean it; treat `--yes` as "download, quietly" until that flag and its help agree.
+There is also a `--yes` flag, and **it is not a safe way to script this**. `featurelab textures
+--yes` on a machine with nothing cached prints the notice and then fetches the whole 150 MB, with
+or without a terminal — its help text now says so ("this PERMITS fetching Mojang's sample resource
+pack"), where it once claimed the opposite. Only `FEATURELAB_VANILLA_DOWNLOAD=0` reliably stops
+it. Use `--status` to find out where a machine stands and `--download` when you actually mean it.
 :::
 
 ::: warning
@@ -120,12 +119,15 @@ an edge one.
 |---|---|---|
 | Nothing built yet | Flat colours, and the offer. | Accept it, or `featurelab textures --download`. |
 | Declined | Flat colours, no further questions. | `featurelab textures --download`, or delete `.featurelab-textures-declined.json` from the atlas directory. |
+| `featurelab.blockTextures` off | Flat colours, nothing fetched, built or asked — and the preview's **Block textures** row naming the setting that did it. | Turn the setting back on. |
 | Offline, or a proxy that breaks TLS | One ordinary error, said once. Nothing half-written is left behind. | Point `FEATURELAB_VANILLA_PACK` at a checkout. |
 | Built from an older pinned tag | A "rebuilding will pick up the newer textures" note. | Rebuild. It needs no network if the assets are cached. |
 | An atlas that exists and cannot be read | A "could not be read" note naming the directory. | `featurelab textures --rebuild`. |
+| No resource pack found for this pack | Vanilla blocks textured, the pack's own blocks flat, and a note saying which. | Link the resource pack from the behaviour pack manifest's `dependencies`, or pass `--resource-pack <dir>`. |
 
-In VS Code those land as a warning plus a **Feature Lab** output channel; in the desktop app in
-the toolbar notice line; in the CLI on stdout.
+In VS Code those land as a warning plus a line in the shared **Feature Lab** output channel, which
+**Feature Lab: Show Log** opens and which every error notification's **Show log** button opens too;
+in the desktop app in the toolbar notice line; in the CLI on stdout.
 
 ## Your own blocks
 
@@ -143,6 +145,17 @@ The tool resolves them the way the game does:
 - **`minecraft:geometry`** decides the shape. `minecraft:geometry.full_block` and
   `minecraft:geometry.cross` are drawn as what they say. Legacy `minecraft:block_shape` is read
   too.
+- **`permutations` override both, per block state.** A block's top-level components are its
+  *default* look; every permutation whose Molang `condition` holds is then applied over it, in
+  file order, with the later one winning — the same order the game applies them in, so a pack that
+  writes a general rule first and a specific exception after it renders the right way round. The
+  condition goes through a real Molang parser rather than a pattern match for
+  `q.block_state('x') == 'y'`, because mis-reading a condition means drawing the wrong texture
+  with nothing said. `q.block_state` reads the state map; any other query resolves to 0, as it
+  does in the engine, and is reported as a note rather than quietly evaluated.
+  The state sets are enumerated from the block's own `description.states` — the cross product of
+  just those states the conditions actually read, which is what keeps it small. A block whose
+  conditions read a state it never declared keeps its default faces, with a note saying so.
 - **Every shape `terrain_texture.json` writes a path in is read**: a bare string, an array of
   them, a `{"path": …, "overlay_color": …}` object, an array of those, and a
   `{"variations": [{"path": …, "weight": …}, …]}` list. A path may name a `.texture_set.json`
@@ -152,7 +165,13 @@ The tool resolves them the way the game does:
   a preview that did the same would show you different textures on every reload.
 - **One entry the tool cannot read costs that entry only.** It is skipped, the rest of the file
   loads, and the reason is printed against every block face that wanted it — so an unusual entry
-  never leaves a whole pack untextured and silent.
+  never leaves a whole pack untextured and silent. The printed list stops at twenty; a pack that
+  ships no resource pack at all would otherwise print one line per block. `featurelab blocktable`
+  lists every one.
+- **A texture smaller than a cell is upscaled, not rejected.** An 8×8 or 4×4 image is
+  nearest-neighbour scaled into the sheet. Rejecting it — which is what used to happen — dropped
+  that one block to a flat colour while every vanilla block beside it kept its picture. Nothing in
+  vanilla is smaller than a cell; a pack's own blocks routinely are.
 - The **resource pack is found by the manifest UUID link**, not by path: your behaviour pack's
   `dependencies[]` names your resource pack's `header.uuid`. Sibling directories and the
   `com.mojang/development_{behavior,resource}_packs` layout are both searched, with directory
@@ -161,7 +180,8 @@ The tool resolves them the way the game does:
 
 ::: warning
 **A block whose `minecraft:geometry` names a real resource-pack model draws as a textured full
-cube**, not as that model. The textures are right; the silhouette is not. This is reported rather
+cube**, not as that model — whether that geometry is written on the block's top-level components
+or on a permutation. The textures are right; the silhouette is not. This is reported rather
 than hidden: the note rides on the block in the atlas table, and a host shows only the notes for
 blocks *this preview actually placed* — a pack with 202 blocks and 120 such notes has nothing to
 say about a preview that placed neither of them.
@@ -182,14 +202,20 @@ doors and trapdoors are rarely placed by features**, so those are not
 modelled: they draw as full cubes, which is what they did before textures existed and is never
 worse than that.
 
-**One block state changes the drawing: `pillar_axis`.** A log lying on its side gets its end
-grain on the faces it actually lies on, and its bark turns with it. That one is driven because a
-log with its rings on the wrong faces is wrong in a way anyone can see. The rest —
-`top_slot_bit`, `weirdo_direction`/`upside_down_bit`, `cardinal_direction` /
-`facing_direction` / `minecraft:block_face`, `height`, `growth`/`age` — are not, each because
-features rarely place a block carrying it. `vine_direction_bits` is driven for vines; a
-vine placed with no bits at all is drawn on all four sides, which is a deliberate choice — a
-preview must show that something is there.
+**Which block states change the drawing depends on whose block it is.**
+
+For **your own blocks**, any state a `permutations` condition reads changes it: the face set is
+looked up by block name *and* states, so a lamp with a `lit` state draws lit when it is lit. See
+*Your own blocks* above for how the enumeration works and what it does not cover.
+
+For **vanilla blocks**, whose appearance is hard-coded in the game rather than declared in JSON,
+one state is driven: **`pillar_axis`**. A log lying on its side gets its end grain on the faces it
+actually lies on, and its bark turns with it — a log with its rings on the wrong faces is wrong in
+a way anyone can see. The rest — `top_slot_bit`, `weirdo_direction`/`upside_down_bit`,
+`cardinal_direction` / `facing_direction` / `minecraft:block_face`, `height`, `growth`/`age` — are
+not, each because features rarely place a block carrying it. `vine_direction_bits` is driven for
+vines; a vine placed with no bits at all is drawn on all four sides, which is a deliberate
+choice — a preview must show that something is there.
 
 **Grass and leaves are tinted, not baked.** Vanilla ships those textures greyscale, to be
 multiplied by a biome colour at runtime; drawn untinted they look grey and wrong. Each face
@@ -215,10 +241,27 @@ Approximations, stated rather than hidden:
 
 ## Turning it off
 
-| Host | Switch | Default |
-|---|---|---|
-| VS Code extension | `featurelab.blockTextures` | on — and setting it to `false` also stops it ever asking anything |
-| Desktop app | `FEATURELAB_BLOCK_TEXTURES` | unset means on; `0` turns it off |
+There are two switches, and they answer different questions.
+
+| Switch | Where it lives | What it decides | Default |
+|---|---|---|---|
+| **Block textures** | The preview's own **View** section | Whether textures are **drawn**. Remembered, per workspace. | on |
+| `featurelab.blockTextures` | VS Code settings | Whether this machine **prepares** an atlas at all: looks for your resource pack, offers the download, builds. | on |
+| `FEATURELAB_BLOCK_TEXTURES` | Desktop app environment | Both at once, for that app. Unset means on; `0` turns it off. | unset |
+
+The editor's setting is about **preparation, not drawing**. Switched on, the extension looks for
+the pack's resource pack, puts the question if a download is what would happen next, builds the
+atlas and hands it to the preview *whatever that preview's own switch happens to be set to* — an
+atlas is a thing to have, and what to draw with it is the panel's decision, not the host's.
+Switched off, nothing is fetched, built or asked about at all — and the panel is told **that**, by
+name, so the sidebar row reads as a setting somebody switched off ("Block textures are switched
+off by the `featurelab.blockTextures` setting…") rather than as a checkbox that does nothing when
+you click it.
+
+The switch that changes the picture is the one in the preview, which is where the person looking
+at flat colours actually is — the old arrangement put it in `settings.json`, two windows away from
+what it changed. It is inert, and says which of the two reasons it is inert for, until an atlas
+arrives; turning it on before then is still recorded, and means "and when one arrives, use it".
 
 Textures come on as soon as an atlas exists, which is what makes this a feature rather than a
 setting nobody finds. One thing is deliberately excluded from that, and it is the reason the
@@ -233,10 +276,14 @@ assertion over there unconditional.
 
 ## Pitfalls
 
-- **Editing a block's JSON does not always restale the atlas.** A pack's block definitions are
-  fingerprinted by file count, total size and newest modification time — not by content — so an
-  edit that preserves all three is missed until the next rebuild. `featurelab textures --pack
-  <dir> --rebuild` settles it.
+- **What restales the atlas is content, not file stats.** The pack half of the fingerprint hashes
+  every `blocks/**/*.json` in the behaviour pack (found by walking, so an added or deleted file
+  counts), both manifests, `terrain_texture.json`, every texture file behind it and every
+  `.texture_set.json` those name. Repainting a 16×16 texture is caught even when the edit
+  preserves the file's size and mtime, which is the normal case and which the old
+  count/size/newest-mtime summary missed silently. What is *not* hashed is the vanilla half and
+  the rest of the resource pack's `textures/` subtree; `featurelab textures --pack <dir> --rebuild`
+  settles anything the fingerprint does not cover.
 - **A pack must be named for its own blocks to be in the sheet.** `featurelab textures` with no
   `--pack` builds a vanilla-only atlas. The editor and the desktop app pass the pack they have
   open; the CLI does not guess.
