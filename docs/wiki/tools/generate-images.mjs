@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // generate-images.mjs -- the wiki's image pipeline. Regenerates every screenshot listed in
 // images.manifest.mjs from scratch: builds the featurelab CLI, runs `featurelab check` and
-// `featurelab generate` against the committed fixtures/ pack, then renders each result through
+// `featurelab generate` against the two committed packs (fixtures/ and figure-fixtures/ -- see
+// where they are resolved below for which entry uses which and why), then renders each result through
 // the REAL featurelab-frontend voxel viewer (frontend/dist -- built output, a library import,
 // not a fork) in a headless Chromium page and screenshots it.
 //
@@ -29,7 +30,7 @@
 // with deviceScaleFactor pinned to 1, and VoxelViewer's own frameContent() -- a pure function
 // of the decoded volume (see render-entry.mjs's own doc comment on why: no orbiting, no
 // animation settling on a random frame, one deterministic camera fit per volume). Re-running
-// this exact command against an unchanged fixtures/ pack reproduces byte-identical PNGs.
+// this exact command against unchanged packs reproduces byte-identical PNGs.
 import { execFileSync } from 'node:child_process'
 import { chromium } from 'playwright'
 import * as esbuild from 'esbuild'
@@ -41,7 +42,25 @@ import { IMAGES } from './images.manifest.mjs'
 
 const toolsDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(toolsDir, '..', '..', '..')
+// TWO PACKS, AND WHY. `fixtures/` is the product's pack: the worked examples every page quotes,
+// and the pack the VS Code extension's journey and scale tests copy and drive, the desktop app's
+// listPackItems test loads, and goldentest's placement baseline digests. Its SHAPE is load-bearing
+// for all of those -- how many features it holds, in what order they lay out, which node the
+// arrow keys reach next -- so a file added to it is a change to the product's tests, and adding
+// sixty of them broke five of them.
+//
+// `figure-fixtures/` is this pipeline's own pack: the panel scenes written to make a comparison
+// figure legible, plus a handful of fixtures whose numbers the prose measures but no picture
+// shows. Nothing outside docs/ reads it, so it can grow with the documentation at the
+// documentation's own rate.
+//
+// Five features are in BOTH, copied rather than shared: ceiling_slab_block, rng_marker,
+// single_block_pumpkin, snap_pumpkin_to_floor and threshold_marker are delegates a panel scene
+// runs, and a pack the engine can load has to resolve its own delegates. Copies, not a shared
+// directory, is the whole point: each pack stands alone, `featurelab check` is clean on each,
+// and neither one's contents move because the other's did.
 const fixturesPack = path.join(toolsDir, 'fixtures')
+const figuresPack = path.join(toolsDir, 'figure-fixtures')
 const imagesDir = path.resolve(toolsDir, '..', 'images')
 const binPath = path.join(repoRoot, 'bin', process.platform === 'win32' ? 'featurelab.exe' : 'featurelab')
 const frontendDist = path.join(repoRoot, 'frontend', 'dist', 'index.js')
@@ -65,25 +84,87 @@ function runCLI(args) {
 }
 
 function checkFixturePack() {
-  console.log(`[2/4] featurelab check --pack ${path.relative(repoRoot, fixturesPack)} --json`)
-  // --json is required, not decoration: `check` prints a human table by default and only this
-  // flag gives back the array runCLI parses. Without it this step reads a text summary as JSON
-  // and dies one line later on a brace it never found.
-  const diagnostics = runCLI(['check', '--pack', fixturesPack, '--json'])
-  const errors = diagnostics.filter((d) => d.level === 'error')
-  if (errors.length > 0) {
-    throw new Error(`featurelab check reported ${errors.length} error diagnostic(s):\n${JSON.stringify(errors, null, 2)}`)
+  // BOTH packs, every run. A figure is only as trustworthy as the pack behind it, and a pack
+  // this pipeline never checks is a pack nobody checks -- nothing outside docs/ loads
+  // figure-fixtures/ at all.
+  for (const [step, pack] of [
+    ['2a/4', fixturesPack],
+    ['2b/4', figuresPack],
+  ]) {
+    console.log(`[${step}] featurelab check --pack ${path.relative(repoRoot, pack)} --json`)
+    // --json is required, not decoration: `check` prints a human table by default and only this
+    // flag gives back the array runCLI parses. Without it this step reads a text summary as JSON
+    // and dies one line later on a brace it never found.
+    const diagnostics = runCLI(['check', '--pack', pack, '--json'])
+    const errors = diagnostics.filter((d) => d.level === 'error')
+    if (errors.length > 0) {
+      throw new Error(
+        `featurelab check --pack ${path.relative(repoRoot, pack)} reported ${errors.length} error diagnostic(s):\n${JSON.stringify(errors, null, 2)}`,
+      )
+    }
+    console.log(`        ok -- ${diagnostics.length} diagnostic(s), none at error level`)
   }
-  console.log(`       ok -- ${diagnostics.length} diagnostic(s), none at error level`)
 }
 
-function generateFeature(entry) {
+/** Every identifier each pack defines, read off the files themselves rather than written down
+ * here: a table of "which pack holds wiki:x" that has to be maintained by hand is a table that
+ * goes stale the first time a fixture moves. */
+function packIndex() {
+  const index = new Map()
+  for (const pack of [fixturesPack, figuresPack]) {
+    for (const sub of ['features', 'feature_rules']) {
+      const dir = path.join(pack, sub)
+      if (!fs.existsSync(dir)) continue
+      for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith('.json')) continue
+        const doc = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf-8'))
+        for (const root of Object.values(doc)) {
+          const id = root?.description?.identifier
+          // FIRST writer wins, and fixtures/ is read first on purpose. The five features that
+          // are in both packs belong to the product's pack; the figure pack's copies exist only
+          // so a panel scene's delegate resolves, and an image OF one of those five (there is
+          // one, wiki:pumpkin_patch_block) is an illustration of the product's fixture.
+          if (typeof id === 'string' && !index.has(id)) index.set(id, pack)
+        }
+      }
+    }
+  }
+  return index
+}
+
+const PACK_OF = packIndex()
+
+/** The pack an entry is generated against: the one that defines its subject.
+ *
+ * A figure's panels must all come from the same pack, and this refuses one that does not -- not
+ * because the CLI could not run it, but because a figure whose panels are drawn from two packs
+ * is a figure whose panels no single `featurelab generate` command reproduces, and every panel
+ * on this site is meant to be reproducible by hand from the command the page prints. */
+function packFor(entry) {
+  const subjects = entry.panels ? entry.panels.map((panel) => panel.feature) : [entry.rule ?? entry.feature]
+  const packs = new Set(
+    subjects.map((id) => {
+      const pack = PACK_OF.get(id)
+      if (pack === undefined) throw new Error(`images.manifest.mjs entry ${entry.id}: ${id} is in neither fixture pack`)
+      return pack
+    }),
+  )
+  if (packs.size > 1) {
+    throw new Error(
+      `images.manifest.mjs entry ${entry.id}: its panels span both fixture packs (${[...packs].map((p) => path.relative(repoRoot, p)).join(', ')}) -- ` +
+        `move them into one, or the figure cannot be reproduced by one command`,
+    )
+  }
+  return [...packs][0]
+}
+
+function generateFeature(entry, pack) {
   // An entry names EITHER a feature or a rule. A rule goes through the CLI's own --rule mode,
   // which runs it once per chunk the bench covers from that chunk's corner (see
   // docs/site/features/feature_rules.md) rather than once at an origin -- so a rule entry usually wants a
   // --size spanning more than one chunk, and its `minY` matters more than a feature's does.
   const subject = entry.rule ? ['--rule', entry.rule] : ['--feature', entry.feature]
-  const args = ['generate', '--pack', fixturesPack, ...subject, '--env', entry.env, '--seed', String(entry.seed)]
+  const args = ['generate', '--pack', pack, ...subject, '--env', entry.env, '--seed', String(entry.seed)]
   // A couple of entries float the origin above the surface on purpose (see
   // images.manifest.mjs's own doc comment) -- everything else relies on the CLI's own default
   // (x=0,z=0, preset auto Y).
@@ -109,9 +190,15 @@ function generateFeature(entry) {
 // (an entry with `panels` -- see images.manifest.mjs). Every panel is generated with the entry's
 // own env/seed/origin/size/minY and only its `feature` swapped in, which is the whole point of a
 // comparison figure: the panels differ in the one thing the manifest says they differ in.
+// The pack is resolved once for the whole entry (see packFor) so every panel of a figure is
+// generated against the same one.
 function generateEntry(entry) {
-  if (!entry.panels) return generateFeature(entry)
-  return entry.panels.map((panel) => ({ label: panel.label, result: generateFeature({ ...entry, panels: undefined, rule: undefined, feature: panel.feature }) }))
+  const pack = packFor(entry)
+  if (!entry.panels) return generateFeature(entry, pack)
+  return entry.panels.map((panel) => ({
+    label: panel.label,
+    result: generateFeature({ ...entry, panels: undefined, rule: undefined, feature: panel.feature }, pack),
+  }))
 }
 
 async function bundleRenderEntry() {

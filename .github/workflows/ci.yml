@@ -87,6 +87,18 @@ jobs:
         if: always()
         run: go test -tags webkit2_41 -count=1 -v -run 'TestFixtureDigest' ./goldentest/
 
+      # The documentation's own pack (docs/wiki/tools/figure-fixtures) is loaded by nothing
+      # else here: the placement baseline above digests docs/wiki/tools/fixtures, and the
+      # extension's journeys copy that same pack. The figure fixtures used to ride along in
+      # both, which is exactly the coupling that was removed -- so this step is what stops a
+      # figure fixture that no longer loads from reaching a docs build. It is `check`, not a
+      # digest: a placement baseline over the figure pack would put the documentation's churn
+      # back in front of a Go test, and the figures are already pinned byte for byte by
+      # generate-images.mjs re-rendering them.
+      - name: featurelab check (documentation figure pack)
+        if: always()
+        run: go run ./cmd/featurelab check --pack docs/wiki/tools/figure-fixtures
+
       # Tests that need an external pack set via FEATURELAB_PACK_DIR skip on CI runners.
       # This step always runs (even if go test failed) and lists exactly which suites were
       # skipped, in the job summary and as a workflow warning annotation, so a green check is

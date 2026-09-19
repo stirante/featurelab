@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:single_block_feature": {
+    "description": { "identifier": "wiki:pumpkin_patch_block" },
+    "enforce_placement_rules": false,
+    "enforce_survivability_rules": false,
+    "places_block": [
+      { "block": "minecraft:pumpkin", "weight": 3 },
+      { "block": "minecraft:jack_o_lantern", "weight": 1 }
+    ],
+    "may_replace": ["minecraft:air"],
+    "may_attach_to": { "bottom": "minecraft:grass_block" }
+  }
+}

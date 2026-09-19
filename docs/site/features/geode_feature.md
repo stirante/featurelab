@@ -279,7 +279,7 @@ Not a plain ascending sweep, and the order is what decides which cell receives w
 
 ### The fixtures
 
-The worked example is [`geode_amethyst.json`](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures/features). The three range fixtures are `geode_wall_5_6.json`, `geode_wall_6_7.json` and `geode_offset_pinned.json` — one-point geodes whose single ball makes the point's own position readable off the result.
+The worked example is [`geode_amethyst.json`](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures/features), in the product's pack. The three range fixtures — `geode_wall_5_6.json`, `geode_wall_6_7.json` and `geode_offset_pinned.json`, one-point geodes whose single ball makes the point's own position readable off the result — were written for this page and are committed in the documentation's own pack, [`docs/wiki/tools/figure-fixtures/features/`](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures/features); pass that directory as `--pack` to reproduce the three commands above.
 
 ## See also
 

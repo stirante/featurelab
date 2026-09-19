@@ -122,7 +122,7 @@ The dominant class is **range bounds**, and it is not a docs problem: the engine
 inconsistent. Thirteen `tree_feature` keys sample inclusive of their maximum; geode's `min`/`max`
 pairs are exclusive; most of the rest are exclusive. There is no rule to apply, so **measure**.
 
-Measuring means `featurelab generate` against the committed fixture pack — the way every number on
+Measuring means `featurelab generate` against a committed fixture pack — the way every number on
 this site was checked:
 
 ```sh
@@ -132,6 +132,27 @@ featurelab generate --pack docs/wiki/tools/fixtures --feature wiki:<id> --env vo
 Add the fixture and commit it, put the exact command on the page, and say what it produced in
 *How this page was checked*. A claim with no command behind it is a claim nobody can re-check when
 the target version moves.
+
+### Which pack a new fixture goes in
+
+There are two, and the difference is ownership, not content.
+
+| Pack | Holds | Who else reads it |
+|---|---|---|
+| `docs/wiki/tools/fixtures` | The worked examples the pages quote — the pack that shipped with the engine. | The VS Code extension's journey and scale tests copy and drive it, the desktop app loads it, and `goldentest`'s placement baseline digests every chain in it. |
+| `docs/wiki/tools/figure-fixtures` | Everything written *for the documentation*: the panel scenes behind the comparison figures, and the fixtures whose numbers the prose measures but no picture shows. | Nothing outside `docs/`. |
+
+**A new fixture goes in `figure-fixtures` unless it is a worked example a reader is meant to
+copy.** The product's pack is not a scratchpad: its *shape* is what those tests assert about — how
+many features it holds, how they lay out, which card the arrow keys reach next — so a file added
+to it is a change to the product's tests. Sixty were added across the figure waves and five tests
+broke, silently, one of them only on a full sequential run.
+
+Five features are in both packs, copied rather than shared (`ceiling_slab_block`, `rng_marker`,
+`single_block_pumpkin`, `snap_pumpkin_to_floor`, `threshold_marker`): a panel scene delegates to
+them, and a pack the engine can load has to resolve its own delegates. Both packs therefore stand
+alone, `featurelab check` is clean on each, and `generate-images.mjs` picks the pack that defines
+an entry's subject rather than being told. A figure whose panels span both packs is refused.
 
 ## The checks
 
