@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:aggseq_panel_scatter" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": {
+      "iterations": 12,
+      "x": { "distribution": "uniform", "extent": [-3, 4] },
+      "y": 0,
+      "z": { "distribution": "uniform", "extent": [-3, 4] }
+    }
+  }
+}

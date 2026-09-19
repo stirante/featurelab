@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:growplant_panel_up" },
+    "features": ["wiki:growplant_panel_floor_plate", "wiki:growplant_panel_ceiling_plate", "wiki:growplant_panel_vine_up"]
+  }
+}

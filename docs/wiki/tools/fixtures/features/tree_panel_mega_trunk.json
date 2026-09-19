@@ -1,0 +1,38 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "wiki:tree_panel_mega_trunk"
+    },
+    "mega_trunk": {
+      "trunk_height": {
+        "base": 15
+      },
+      "trunk_width": 2,
+      "trunk_block": "minecraft:oak_log",
+      "branches": {
+        "branch_length": 5,
+        "branch_slope": 0.5,
+        "branch_interval": {
+          "range_min": 2,
+          "range_max": 3
+        },
+        "branch_altitude_factor": {
+          "min": 0.2,
+          "max": 0.9
+        }
+      }
+    },
+    "canopy": {
+      "leaf_block": "minecraft:oak_leaves",
+      "canopy_offset": {
+        "min": -1,
+        "max": 0
+      }
+    },
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:oak_leaves"
+    ]
+  }
+}

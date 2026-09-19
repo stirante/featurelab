@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:multipart_panel_2" },
+    "features": [ "wiki:multipart_panel_anchor", "wiki:multipart_panel_column_2" ]
+  }
+}

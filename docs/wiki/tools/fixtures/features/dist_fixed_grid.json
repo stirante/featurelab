@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:dist_fixed_grid" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": {
+      "iterations": 64,
+      "x": { "distribution": "fixed_grid", "extent": [0, 15], "step_size": 2 },
+      "y": 0,
+      "z": { "distribution": "fixed_grid", "extent": [0, 15], "step_size": 2 }
+    }
+  }
+}

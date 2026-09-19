@@ -1,0 +1,8 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:veg_panel_floor_slab" },
+    "places_feature": "wiki:veg_panel_slab_grid",
+    "distribution": { "iterations": 1, "x": -2, "y": -4, "z": -2 }
+  }
+}

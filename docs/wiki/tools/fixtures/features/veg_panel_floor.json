@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:veg_panel_floor" },
+    "features": ["wiki:veg_panel_floor_slab", "wiki:veg_panel_ceiling_slab", "wiki:veg_panel_patch_floor"]
+  }
+}

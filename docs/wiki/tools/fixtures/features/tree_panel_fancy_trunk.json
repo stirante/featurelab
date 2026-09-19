@@ -1,0 +1,35 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "wiki:tree_panel_fancy_trunk"
+    },
+    "fancy_trunk": {
+      "trunk_height": {
+        "base": 15,
+        "variance": 1,
+        "scale": 0.8
+      },
+      "trunk_width": 1,
+      "trunk_block": "minecraft:oak_log",
+      "width_scale": 0.6,
+      "foliage_altitude_factor": 0.3,
+      "branches": {
+        "slope": 0.381,
+        "density": 1,
+        "min_altitude_factor": 0.2
+      }
+    },
+    "canopy": {
+      "leaf_block": "minecraft:oak_leaves",
+      "canopy_offset": {
+        "min": -1,
+        "max": 0
+      }
+    },
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:oak_leaves"
+    ]
+  }
+}

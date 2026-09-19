@@ -1,0 +1,8 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:snap_panel_ceiling_block" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": { "iterations": 1, "x": 0, "y": 4, "z": 0 }
+  }
+}

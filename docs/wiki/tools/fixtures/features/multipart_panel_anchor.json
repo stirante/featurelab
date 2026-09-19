@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:multipart_panel_anchor" },
+    "places_feature": "wiki:multipart_panel_anchor_block",
+    "distribution": {
+      "iterations": 1,
+      "x": 0,
+      "y": -1,
+      "z": 0
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:dist_inverse_gaussian" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": {
+      "iterations": 64,
+      "x": { "distribution": "inverse_gaussian", "extent": [0, 15] },
+      "y": 0,
+      "z": { "distribution": "inverse_gaussian", "extent": [0, 15] }
+    }
+  }
+}

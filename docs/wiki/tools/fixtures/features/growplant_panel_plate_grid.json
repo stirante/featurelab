@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:growplant_panel_plate_grid" },
+    "places_feature": "wiki:ceiling_slab_block",
+    "distribution": {
+      "iterations": 9,
+      "x": { "distribution": "fixed_grid", "extent": [0, 2], "step_size": 1 },
+      "y": 0,
+      "z": { "distribution": "fixed_grid", "extent": [0, 2], "step_size": 1 }
+    }
+  }
+}

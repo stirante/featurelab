@@ -1,0 +1,8 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:growplant_panel_ceiling_plate" },
+    "places_feature": "wiki:growplant_panel_plate_grid",
+    "distribution": { "iterations": 1, "x": -1, "y": 6, "z": -1 }
+  }
+}

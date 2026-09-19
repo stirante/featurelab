@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "wiki:snap_panel_floor" },
+    "features": ["wiki:snap_panel_floor_block", "wiki:snap_panel_ceiling_block", "wiki:snap_panel_snap_floor"]
+  }
+}

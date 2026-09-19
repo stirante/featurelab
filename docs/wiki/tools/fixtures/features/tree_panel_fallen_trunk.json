@@ -1,0 +1,26 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "wiki:tree_panel_fallen_trunk"
+    },
+    "fallen_trunk": {
+      "log_length": {
+        "range_min": 6,
+        "range_max": 7
+      },
+      "trunk_block": "minecraft:oak_log"
+    },
+    "canopy": {
+      "leaf_block": "minecraft:oak_leaves",
+      "canopy_offset": {
+        "min": -1,
+        "max": 0
+      }
+    },
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:oak_leaves"
+    ]
+  }
+}

@@ -10,6 +10,13 @@
 // of the terrain column) the way the first three entries always have; a couple of the newer
 // ones deliberately float the origin in open air above the surface, for a feature type whose
 // whole point is what happens between the requested origin and where a delegate actually lands.
+//
+// An entry with `panels` instead of `feature` is a comparison FIGURE: every panel is generated
+// with the entry's own env/seed/origin/size/minY and only the panel's `feature` differs, and all
+// of them are rendered into one labelled grid (`columns` across). `framing: 'volume'` fits every
+// panel's camera to the request volume rather than to the cells the run wrote, so the panels
+// share one camera -- see render-entry.mjs's __flRenderPanels for why that is the right choice
+// for a figure and the wrong one for a single image.
 export const IMAGES = [
   {
     id: 'single-block-pumpkin',
@@ -27,6 +34,55 @@ export const IMAGES = [
     seed: 9,
     out: 'scatter-feature-pumpkin-patch.png',
     note: '14 scatter iterations delegating to the same single_block_feature above -- 12 attach, 2 fail (rolling terrain under the flat Y=0 offset) and are skipped, exactly as the feature type contract predicts.',
+  },
+  {
+    id: 'scatter-distribution-kinds',
+    // A FIGURE (see the doc comment at the top): the six `distribution` kinds a scatter axis can
+    // name, one panel each, with everything else held identical -- 64 iterations, an extent of
+    // [0, 15] on x and z, y pinned to 0, seed 42, the void preset so nothing but the placements
+    // is visible, and the same 18x4x18 volume framed the same way in every panel.
+    //
+    // Two things in the fixtures are scaffolding for the picture, not part of what it shows:
+    //
+    //  - wiki:dist_panel_<kind> is a one-iteration scatter with bare axes x: -8, z: -8 wrapped
+    //    around wiki:dist_<kind>, the fixture the page actually quotes. The CLI centres its
+    //    volume on the origin and has no way to offset it, and a [0, 15] extent spreads from the
+    //    origin in the positive direction only, so without the wrapper half the spread would be
+    //    outside an 18-wide volume. A bare axis spends no random draw, so the inner scatter's
+    //    positions are exactly those of running wiki:dist_<kind> alone -- verified by comparing
+    //    the changed-cell sets: every panel is the bare fixture's own cells shifted by (-8, -8).
+    //  - the grid kinds carry step_size 2, which the other four kinds do not read. 2 is chosen so
+    //    64 iterations is exactly one visit per lattice cell (an 8x8 lattice over 16 cells): a
+    //    step of 4 gives 16 cells visited four times each, which reads as "the grid is sparse"
+    //    when what happened is "48 rounds landed on a cell already filled".
+    //
+    // Why [0, 15] and not [-8, 7]: the grid kinds compute (low + index * step) % (high - low + 1)
+    // and do not re-base the result into [low, high], so a negative low end does not centre a
+    // grid on the origin -- it puts the first few cells on the negative side and the rest at
+    // 0..14, which the page documents as a mistake. Every kind is therefore shown with the extent
+    // a feature rule actually uses, and the wrapper does the centring.
+    //
+    // 'volume' framing, not content: gaussian's 48 cells sit in a 12x11 box and inverse_gaussian's
+    // 55 cover the full 16x16, so a content fit would zoom each panel differently and the figure
+    // would show the camera moving. All six panels are the same 18x4x18 request volume, so a
+    // volume fit is one camera for all of them.
+    env: 'void',
+    seed: 42,
+    origin: '0,1,0',
+    size: '18x4x18',
+    minY: 0,
+    framing: 'volume',
+    columns: 3,
+    panels: [
+      { label: 'uniform', feature: 'wiki:dist_panel_uniform' },
+      { label: 'gaussian', feature: 'wiki:dist_panel_gaussian' },
+      { label: 'inverse_gaussian', feature: 'wiki:dist_panel_inverse_gaussian' },
+      { label: 'triangle', feature: 'wiki:dist_panel_triangle' },
+      { label: 'fixed_grid', feature: 'wiki:dist_panel_fixed_grid' },
+      { label: 'jittered_grid', feature: 'wiki:dist_panel_jittered_grid' },
+    ],
+    out: 'scatter-feature-distribution-kinds.png',
+    note: 'The six distribution kinds with identical parameters (64 iterations, extent [0, 15] on x and z, seed 42). Distinct cells per panel at this seed: uniform 54 (spread flat over 0..14 -- the top end is excluded), gaussian 48 (a cluster in the middle, 2..13, never reaching either end), inverse_gaussian 55 (the corners and edges, with the middle empty), triangle 57 (a looser cluster that does reach 0 and 15), fixed_grid 64 (an 8x8 lattice, every other block), jittered_grid 64 (one placement somewhere inside each 2x2 lattice cell).',
   },
   {
     id: 'ore-diamond-vein',
@@ -103,6 +159,68 @@ export const IMAGES = [
     note: 'A deliberately asymmetric 1x4x2 structure (fixtures/structures/wiki/lamp_post.mcstructure, see docs/wiki/tools/gen-fixture-structures.mjs) -- cobblestone foundation, oak_log shaft, a glowstone lantern offset to one side -- placed with facing_direction "east" so the rotation is actually visible.',
   },
   {
+    id: 'structure-facing-direction',
+    // A FIGURE (see the doc comment at the top): the four cardinal `facing_direction` values, one
+    // panel each, from ONE origin at ONE seed with every other field held identical -- the same
+    // wiki:facing_post structure, the same empty `constraints`, the same plains preset, seed 1,
+    // the same 3x5x3 volume framed the same way. The four fixtures differ in that one word and
+    // nothing else, and "south" is written out rather than omitted so the panel that shows the
+    // default reads like the other three in the file.
+    //
+    // WHY NOT THE LAMP POST THE PAGE'S OWN EXAMPLE USES, because the first build of this entry
+    // was refused. Four of wiki:lamp_post's five cells sit ON the structure's own origin column,
+    // and rotateXZ leaves that column exactly where it is in all four rotations -- so four fifths
+    // of every panel was shared and only the single glowstone lantern moved. west against north
+    // came out 1.84% different, under the pipeline's own threshold: the shared thing was blocking
+    // the figure, which is the same mistake the tree and snap entries paid for. wiki:facing_post
+    // (see gen-fixture-structures.mjs) is the same five cells and the same blocks rearranged: the
+    // post stands on the lantern's ARM cell, one along local +Z, and a gold marker is left alone
+    // on the origin cell. Four of the five cells then move, the marker stays, and the footprint is
+    // still only 3x3 -- which is what keeps each cell large in its own panel.
+    //
+    // Local +Z and not the diagonal, which also cleared the gate (6.9%) and was rejected anyway.
+    // facing_direction names where the structure's local +Z ends up, so a post on that cell lands
+    // DUE SOUTH of the marker for "south", due west for "west" and so on, and the picture answers
+    // the question a reader actually has. A post on the diagonal cell lands southeast for "south"
+    // and southwest for "west" -- a quarter turn, correctly, but a caption nobody can use -- and
+    // it stands between the camera and the marker in the "south" panel, hiding the pivot in the
+    // one panel that shows the default.
+    //
+    // The footprint is what sets the scale here, not the height: these panels are 250x650, far
+    // taller than they are wide, so the camera fits the volume by its WIDTH and a wider volume
+    // buys nothing but smaller blocks. A TALLER post buys nothing either -- it pushes the camera
+    // back by as much as it adds (a seven-cell post measured 4.4% between the closest pair against
+    // this four-cell one's 4.6%) -- so the post is the lamp post's own height and the marker and
+    // post read as one small L that turns. 3x5x3 is the smallest volume holding all four post
+    // positions (world x/z -1..1) plus the surface row below them, and all four panels report 0
+    // writes out of bounds.
+    //
+    // min-y 62, one row below the resolved origin, puts the plains surface layer at the floor of
+    // the volume: the ghosted 3x3 plate under each post is that one layer, identical in all four
+    // panels, and it is the reference that makes "which side" read as a direction at all. Nothing
+    // else of the terrain is in the frame.
+    //
+    // No slice and no envMode override: the whole structure stands in open air above the surface.
+    // One asymmetry, stated here and on the page rather than left to be noticed: the viewer's own
+    // fixed camera looks from the +X/+Y/+Z corner (viewer.ts's DEFAULT_FRAME_DIR), i.e. from the
+    // south-east, so in the "east" panel the post stands between the camera and the marker and
+    // clips its near corner. The marker is fully visible in the other three.
+    env: 'plains',
+    seed: 1,
+    minY: 62,
+    size: '3x5x3',
+    framing: 'volume',
+    columns: 4,
+    panels: [
+      { label: 'south', feature: 'wiki:structure_panel_south' },
+      { label: 'west', feature: 'wiki:structure_panel_west' },
+      { label: 'north', feature: 'wiki:structure_panel_north' },
+      { label: 'east', feature: 'wiki:structure_panel_east' },
+    ],
+    out: 'structure-template-feature-facing-direction.png',
+    note: 'The four cardinal facing_direction values over one 1x4x2 structure from one origin at seed 1. Every panel places the same 5 cells, and the only one that does not move is the gold marker on the structure\'s own origin cell at (0, 63, 0) -- that cell is the pivot, so every rotation leaves it exactly there. The four-block post is the figure, and it stands in the named direction from that marker every time: world (0, 1) for "south", (-1, 0) for "west", (0, -1) for "north", (1, 0) for "east". Closest panel pair: south / west at 4.6% differing.',
+  },
+  {
     id: 'snap-pumpkin-to-floor',
     feature: 'wiki:snap_pumpkin_to_floor',
     env: 'plains',
@@ -135,6 +253,62 @@ export const IMAGES = [
     origin: '0,71,0',
     out: 'sequence-feature-snap-then-scatter.png',
     note: 'sequence_feature chaining wiki:snap_pumpkin_to_floor (finds the floor under a floating origin, places a pumpkin there) into wiki:pumpkin_patch (scatters around wherever step 1 actually landed, NOT the original floating origin) -- the origin-threading contrast with aggregate_feature above.',
+  },
+  {
+    id: 'aggregate-sequence-origin',
+    // A FIGURE (see the doc comment at the top): the ONE behavioural difference between
+    // minecraft:aggregate_feature and minecraft:sequence_feature -- what origin each entry of the
+    // list receives -- with everything else held identical. The two panels are byte-for-byte the
+    // same JSON but for the type id: the same two entries in the same order
+    // (wiki:snap_pumpkin_to_floor then wiki:aggseq_panel_scatter), the same plains preset, the
+    // same seed 42, the same floating origin (0, 71, 0), the same volume and the same camera.
+    //
+    // Why these two delegates and not the two the pages' own examples use. The figure has to
+    // isolate WHERE the second entry ran, so the second entry must place wherever it is put:
+    // wiki:pumpkin_patch (the pages' own scatter) delegates to wiki:pumpkin_patch_block, which
+    // needs grass under it, so at the aggregate's unthreaded origin -- 8 blocks up in open air --
+    // it would place nothing at all, and the panel would read as "the aggregate is broken"
+    // rather than as "the aggregate ran it somewhere else". wiki:aggseq_panel_scatter delegates
+    // to wiki:rng_marker, which attaches to nothing and places unconditionally, so both panels
+    // place the same eleven cells and the only thing that moves is their height.
+    //
+    // What the picture therefore shows, verified by reading the changed-cell coordinates out of
+    // both runs: an identical cloud of ten markers at identical x/z, at world Y 71 in the
+    // aggregate panel and world Y 63 in the sequence panel, plus the one pumpkin at (0, 63, 0)
+    // that wiki:snap_pumpkin_to_floor puts on the floor in BOTH panels -- it is entry one, and
+    // entry one gets the same origin either way. The eight-block gap is the whole figure.
+    // 11 cells per panel: 12 scatter rounds, two of which land on a cell already filled.
+    //
+    // Seed 42 rather than the 1 and 9 the two pages' own examples use, and the reason is the
+    // pumpkin. The scatter's extent spans the origin, so at some seeds one marker lands on the
+    // scatter's own (0, 0) offset -- which in the SEQUENCE panel is exactly the cell the pumpkin
+    // is standing on, and the marker overwrites it (verified at seed 3: the sequence panel comes
+    // out 11 cells with stone at (0, 63, 0) and no pumpkin anywhere, while the aggregate panel
+    // keeps its pumpkin, because there the markers are 8 blocks up). That difference is real
+    // behaviour -- two entries of an aggregate genuinely contend for a cell -- but it is not what
+    // this figure is about, and it removes the one element the two panels share. At 42 no round
+    // lands on (0, 0) and the pumpkin is in both.
+    //
+    // Volume: 10x12x10 from min-y 62, i.e. world x/z -5..4 and world Y 62..73. Tight on purpose,
+    // and tightened twice (see the tree entry's own account of what the 2%-difference gate
+    // costs): the markers span x/z -3..3, so a wider volume would shrink the cloud towards the
+    // middle of its own panel and leave the two panels differing over a few percent of mostly
+    // empty air. min-y 62 puts the volume floor at the plains surface layer, so the terrain is
+    // one ghosted plane under the picture instead of filling it -- the same trick the tree
+    // figure uses, and the reason the eight-block lift is legible as a height at all.
+    env: 'plains',
+    seed: 42,
+    origin: '0,71,0',
+    minY: 62,
+    size: '10x12x10',
+    framing: 'volume',
+    columns: 2,
+    panels: [
+      { label: 'aggregate_feature', feature: 'wiki:aggseq_panel_aggregate' },
+      { label: 'sequence_feature', feature: 'wiki:aggseq_panel_sequence' },
+    ],
+    out: 'aggregate-sequence-feature-origin.png',
+    note: 'The one difference between the two types, from one origin at one seed: the same two entries -- wiki:snap_pumpkin_to_floor then a 12-round scatter of markers -- run first as an aggregate_feature and then as a sequence_feature, from a floating origin (0, 71, 0) eight blocks above the plains surface. Both panels place the same 11 cells: the pumpkin at (0, 63, 0), where entry one snapped to the floor in both, and 10 markers at identical x/z. In the aggregate panel those markers are at world Y 71, because entry two was given the aggregate\'s own origin -- the floating one, in open air. In the sequence panel they are at world Y 63, because entry two was given the position entry one RETURNED. Closest (only) panel pair: 7.7% differing.',
   },
   {
     id: 'threshold-deep-gold',
@@ -229,7 +403,12 @@ export const IMAGES = [
     env: 'plains',
     seed: 1,
     out: 'vegetation-patch-feature-floor-pumpkins.png',
-    note: 'surface: "floor" -- a 9x9 ground patch (horizontal_radius 4) re-surfaced with grass_block (replaceable_blocks ["minecraft:air"], so it only touches cells that were already air above the existing ground), then wiki:pumpkin_patch_block (the same single_block_feature from the Single Block Features page) delegated onto roughly 60% of the kept cells. Ordinary surface feature, ghosted environment, no slice needed.',
+    // The note here used to say the fixture's replaceable_blocks was ["minecraft:air"] and that
+    // the patch "only touches cells that were already air above the existing ground". Both
+    // halves were wrong -- the fixture lists grass_block, dirt and stone, and the ground layer is
+    // written INTO the solid surface, never into the air above it -- so it is corrected here
+    // against the fixture and against the run's own changed cells.
+    note: 'surface: "floor" -- horizontal_radius 4, so an 11x11 walk whose 9x9 interior is kept outright and whose outer ring is kept per column at extra_edge_column_chance 0.3. 66 cells change at this seed: 13 of them minecraft:dirt turning into the ground_block one row below the ground layer (the extra_deep_block_chance hits -- the ground layer itself is already grass_block almost everywhere, and a cell that already holds ground_block is counted rather than rewritten), and 53 pumpkins and jack o\'lanterns from wiki:pumpkin_patch_block (the same single_block_feature from the Single Block Features page) on the columns that won their vegetation_chance 0.6 roll. Ordinary surface feature, ghosted environment, no slice needed.',
   },
   {
     id: 'vegetation-patch-ceiling-roots',
@@ -270,6 +449,162 @@ export const IMAGES = [
     envMode: 'solid',
   },
   {
+    id: 'partially-exposed-blob-exposed-face',
+    // A FIGURE (see the doc comment at the top): `exposed_face: "up"` against
+    // `exposed_face: "down"`, two panels, from ONE origin at (0,47,0) on the ocean preset's
+    // seabed with every other field held identical -- the same radius 3, the same magma, the
+    // same seed, the same volume framed the same way. The two fixtures differ in that one word
+    // and nothing else, which is the only way to show a key that changes no geometry at all.
+    //
+    // placement_probability_per_valid_position is 1.0, not the page example's 0.5, and that is
+    // the whole reason the figure works: at 0.5 the probability knocks its own holes in both
+    // panels and the eye cannot tell a refused cell from an unlucky one. At 1.0 the water test
+    // is the ONLY thing deciding anything, so every cell missing from a panel is missing
+    // because of the word in its label.
+    //
+    // WHY THE SEABED AND NOT A DRY CAVE. exposed_face reads the world, not the JSON: in ground
+    // with no water anywhere the two panels are byte-identical and the pipeline's own
+    // near-identical-panels refusal would (correctly) reject the figure. The ocean preset's
+    // seabed at this column -- sand up to y 46, water from y 47 -- is the scene that makes the
+    // difference exist at all.
+    //
+    // VOLUME, and why 9x9x9 from min-y 42 is not a framing choice but a correctness one. The
+    // water test reads each candidate's six face neighbours, and a neighbour outside the
+    // previewed volume reads back as not-water -- the permissive answer (see the page's own
+    // `--size` warning). The candidate cube is x/z -3..3 and y 43..49 around the floor cell at
+    // (0, 46, 0), so the volume has to hold that cube PLUS one cell of margin on every side:
+    // x/z -4..4 and y 42..50. 9x9x9 from min-y 42 is exactly that box and no larger, and both
+    // panels reproduce the default 32x48x32 volume's own results cell for cell (199 and 164,
+    // same coordinates) -- verified by comparing the changed-cell sets, not just the counts.
+    // Anything smaller changes the result; anything larger buys nothing and shrinks the blob.
+    //
+    // THE SLICE IS AT 46, AND BOTH NEIGHBOURING VALUES WERE TRIED AND REJECTED. This entry cut
+    // twice before it cut right, and both failures are the same lesson from opposite sides.
+    //
+    //  - No slice at all, environment 'ghost' (what this entry was first written as): the
+    //    pipeline's panel comparison PASSED it at 5.9% differing, and the picture was still
+    //    useless. A blob buried in sand on five sides is face-occluded exactly as the ore vein
+    //    is -- ghosting the sand makes it translucent but leaves it a solid neighbour to the
+    //    mesher, so every face of the blob that touches sand is culled. Both panels were a
+    //    ghosted blue box with one tan quad floating in it. The 2% gate proves two panels
+    //    differ; it cannot prove either one shows the subject.
+    //  - Slice at 47, to keep up's three y-47 cells and show the water that does the refusing:
+    //    REFUSED by the pipeline at 0.43% differing. Row y 47 is water across the middle of
+    //    both panels, and water drawn over the top of the blob hides the whole of the
+    //    difference underneath it. The shared element is the water, and that is the same trap
+    //    the snap-to-surface figure's ceiling plate cost a render for.
+    //
+    // 46 is the one cut that works, and not by luck: the y-46 layer IS the difference (49 cells
+    // against 17), so ending the slice there turns the difference into the picture's own top
+    // face, the largest surface the viewer's fixed camera sees. With environment 'solid' the
+    // sand around and between the magma reads as material rather than haze, so a missing cell
+    // is visibly seabed rather than visibly nothing. The cost is up's three cells at y 47,
+    // which are above the cut and not in the picture -- named on the page rather than implied.
+    //
+    // What the two panels show, read off each result's own changed-cell coordinates: both place
+    // three complete 7x7 layers at y 43, 44 and 45, buried on all six sides and identical. They
+    // differ only above that. up keeps a fourth complete 7x7 layer at y 46 and three more cells
+    // at y 47 where the seabed rises a block; down keeps 17 of that layer's 49 cells -- the two
+    // outer edge rows at z -3 and z 3 plus three cells beside them, which are exactly the
+    // columns holding sand or gravel rather than water at y 47 -- and nothing at y 47. 199
+    // cells against 164; closest (only) panel pair 5.4% differing.
+    env: 'ocean',
+    seed: 1,
+    origin: '0,47,0',
+    size: '9x9x9',
+    minY: 42,
+    framing: 'volume',
+    columns: 2,
+    panels: [
+      { label: 'up', feature: 'wiki:blob_panel_up' },
+      { label: 'down', feature: 'wiki:blob_panel_down' },
+    ],
+    slice: { minY: 42, maxY: 46 },
+    envMode: 'solid',
+    out: 'partially-exposed-blob-feature-exposed-face.png',
+    note: 'exposed_face "up" against exposed_face "down" from one origin at (0,47,0) on the ocean preset\'s seabed -- sand up to y 46, water from y 47 -- with placement_probability_per_valid_position at 1.0 so the water test is the only thing deciding anything. Both panels fill the same three complete 7x7 layers at y 43, 44 and 45, buried on all sides. up also keeps the whole y-46 layer (49 cells) and three cells at y 47: 199 in all. down keeps 17 of the y-46 layer -- the columns with sand or gravel above them rather than water -- and nothing at y 47: 164 in all. Everything else in the two files is identical. Both panels are cut away at y 46 so that layer is the top face you see; the pale material is the seabed itself, and up\'s three cells at y 47 are above the cut.',
+  },
+  {
+    id: 'tree-trunk-kinds',
+    // A FIGURE (see the doc comment at the top): the eight trunk keys a tree body can name, one
+    // panel each, from ONE origin at ONE seed with everything else held as identical as the
+    // schema allows -- the same oak_log, the same plains preset, seed 3, the same 20x12x20 volume
+    // framed the same way, and a nominal trunk height of 9 everywhere.
+    //
+    // Four things in the fixtures are scaffolding for the picture, not part of what it shows:
+    //
+    //  - THE CANOPY IS SHRUNK TO A MARKER. A tree body must carry a canopy key -- buildTreeFeature
+    //    rejects a file without one for six of the eight trunks -- and an ordinary crown buries the
+    //    thing this figure is about: at canopy_offset {-3, 0} the plain `canopy` adds ~80 leaves
+    //    that hide the trunk completely, and the first render of this figure had four panels that
+    //    were the same green blob. Every panel therefore writes `canopy` with canopy_offset
+    //    {"min": -1, "max": 0}: a 3x3 layer and a single cell above it, 10 cells at most. That is
+    //    small enough to leave the log skeleton visible and big enough to show WHERE each trunk
+    //    hands its canopy over, which is itself one of the differences between them -- poplar_trunk
+    //    gets only 4 of its 10 cells, because its four branch stubs and its own continuing column
+    //    occupy the rest of that layer.
+    //  - cherry_trunk writes that canopy at cherry_trunk.branches.branch_canopy rather than on the
+    //    feature body, because that is where a cherry tree's canopy is read from; a body-level
+    //    canopy key on a cherry tree is accepted and grows nothing. fallen_trunk keeps the
+    //    body-level key, which it also never grows -- both are stated on the page.
+    //  - may_grow_on, base_block and may_grow_through are written on none of the eight.
+    //    may_grow_through is inert on seven of them in this tool (the diagnostic says so) and on
+    //    the plain trunk it only matters with can_be_submerged, which no panel sets; the other two
+    //    would only add a ground-fixup cell under some panels and not others. Leaving all three out
+    //    keeps the eight bodies as close to identical as the schema allows and the pack's `check`
+    //    clean.
+    //  - min-y 63 puts the volume's floor at the plains surface, so the terrain is below the
+    //    picture rather than filling it. The ghosted diamond under each tree is that one floor
+    //    layer, and it is the same in all eight panels, which is what makes the scale comparable.
+    //
+    // Per-kind values that could NOT be shared, because the schemas genuinely differ. Each height
+    // field is the narrowest range that samples 15, so no panel's shape is one draw away from a
+    // different one: trunk and poplar_trunk trunk_height [15, 16) = 15 (exclusive max);
+    // acacia_trunk, cherry_trunk and mega_trunk trunk_height.base 15 with no intervals; fancy_trunk
+    // {base 15, variance 1, scale 0.8}; mangrove_trunk {base 15, height_rand_a 0, height_rand_b 0}.
+    // fallen_trunk has no height at all, only log_length, set to [6, 7) so its log stays inside the
+    // shared volume. The branch sub-object each kind requires or is defined by is written at a
+    // comparable size.
+    //
+    // WHAT THE PANEL-DIFFERENCE GATE ACTUALLY COST, because the next figure will pay it too. This
+    // entry was refused three times before it was written. At an ordinary crown, nineteen of the
+    // twenty-eight pairs were under 2%. With the crown cut to one cell and a 20x12x20 volume, six
+    // pairs still were: the four one-wide columns (trunk, cherry_trunk, mangrove_trunk,
+    // poplar_trunk) are the same shape, and at that volume a tree was about 2% of its own panel, so
+    // "the same shape" and "the same picture" were indistinguishable. Three changes fixed it, and
+    // only the first was about the trees: the crown went from 1 cell to 10 so a canopy's POSITION
+    // reads; mangrove_trunk's and cherry_trunk's branches were lengthened so their defining feature
+    // is bigger than a nub; and the volume was tightened to 12x19x10, which meant shortening
+    // fallen_trunk's log and pulling fancy_trunk's width_scale to 0.6 so the two widest panels
+    // stopped setting the frame for the other six. mega_trunk's branch_altitude_factor is {0.2, 0.9}
+    // rather than a vanilla-like {0.6, 0.8} for the same reason: the narrower band put every branch
+    // level above the trunk's own top and the panel was a bare 2x2 pillar. Closest pair now:
+    // trunk / poplar_trunk at 2.9%.
+    //
+    // Volume: 12x19x10 from min-y 63. Verified against the 40x24x40 volume this was tuned at --
+    // every one of the eight panels writes exactly the same cells at the same coordinates in both,
+    // and all eight report 0 writes out of bounds -- so the tight volume is framing only, not a
+    // boundary artifact of the kind the ore entry below documents.
+    env: 'plains',
+    seed: 3,
+    minY: 63,
+    size: '12x19x10',
+    framing: 'volume',
+    columns: 4,
+    panels: [
+      { label: 'trunk', feature: 'wiki:tree_panel_trunk' },
+      { label: 'acacia_trunk', feature: 'wiki:tree_panel_acacia_trunk' },
+      { label: 'cherry_trunk', feature: 'wiki:tree_panel_cherry_trunk' },
+      { label: 'fallen_trunk', feature: 'wiki:tree_panel_fallen_trunk' },
+      { label: 'fancy_trunk', feature: 'wiki:tree_panel_fancy_trunk' },
+      { label: 'mangrove_trunk', feature: 'wiki:tree_panel_mangrove_trunk' },
+      { label: 'mega_trunk', feature: 'wiki:tree_panel_mega_trunk' },
+      { label: 'poplar_trunk', feature: 'wiki:tree_panel_poplar_trunk' },
+    ],
+    out: 'tree-feature-trunk-kinds.png',
+    note: 'The eight trunk keys, from one origin at seed 3, every trunk 15 blocks tall and every crown cut to a 10-cell marker so the log skeleton is what the picture shows. Cells per panel, logs + leaves: trunk 24 = 15 + 9 (a dead straight column, crown on top); acacia_trunk 27 = 19 + 8 (the column leans and carries one diagonal side branch, and the crown sits on the branch, not on the trunk); cherry_trunk 28 = 20 + 8 (a column with one horizontal branch, and the crown at the branch tip); fallen_trunk 5 = 5 + 0 (a log lying on the ground -- it grows no crown at all, whatever canopy key the file writes); fancy_trunk 405 = 105 + 300 (a trunk that stops short of its own foliage, a limb out to each foliage coordinate, and a canopy on every one of them); mangrove_trunk 38 = 30 + 8; mega_trunk 78 = 69 + 9 (a 2x2 column with branches radiating at drawn angles); poplar_trunk 23 = 19 + 4 (a straight column whose crown sits four cells below the top, so the trunk spears up through it -- and the crown loses five of its ten cells to that column and to the four branch stubs it sits on).',
+  },
+  {
     id: 'tree-acacia-branching',
     feature: 'wiki:acacia_branching_tree',
     env: 'plains',
@@ -297,7 +632,7 @@ export const IMAGES = [
     env: 'plains',
     seed: 1,
     out: 'horizontal-tree-decoration-feature-fallen-log.png',
-    note: "A seven-block fallen oak trunk (pillar_axis x) with leaf litter scattered along it. Every tuft sits on a NORTH or SOUTH side: bark_side_only refuses the two x-facing cut ends of an x-axis log, so west and east draws place nothing. The gaps are the ten-probe adjacency rule, which refuses a tuft next to an existing one -- five tufts from seven attempts.",
+    note: "A seven-block fallen oak trunk (pillar_axis x) with leaf litter scattered along it -- five tufts from seven attempts. Every tuft sits on a NORTH or SOUTH side: bark_side_only refuses the two x-facing cut ends of an x-axis log, so the two attempts that placed nothing are the two whose side came up west or east (2 of 7, not the half an even four-way pick would average). The ten-probe adjacency rule refuses NOTHING at this seed: re-running the same scene with allow_adjacent true -- and again with bark_side_only off as well -- reproduces the same five tufts in the same cells with the same growth states, which is what leaves the bark rule as the only possible cause of the two gaps. The rule does fire at other seeds (at seed 18, allow_adjacent adds a third tuft one cell west of an existing one); it just does not fire here, and the page says so rather than letting the spacing read as its work.",
     // The scene is built by the fixture pack itself, not by an environment preset: no preset
     // provides a horizontal log, and bark_side_only needs one at the origin to mean anything.
     // wiki:fallen_log_with_litter is an aggregate that lays the trunk first and then runs the
@@ -311,6 +646,70 @@ export const IMAGES = [
     seed: 7,
     out: 'multipart-block-column-feature-dripstone-spike.png',
     note: 'A seven-block column at the rarest of the three weighted heights, which is the only one that shows the whole role vocabulary: base at the bottom, four repeats of middle_block, then frustum and tip. The commoner draws of 2 and 4 place a shorter column that skips middle entirely.',
+  },
+  {
+    id: 'multipart-weighted-heights',
+    // A FIGURE (see the doc comment at the top): the three heights the page's own example lists
+    // in weighted_heights -- 2, 4 and 7 -- one panel each, from ONE origin at ONE seed with
+    // everything else held identical. The three fixtures differ in the single `value` inside
+    // weighted_heights and in nothing else.
+    //
+    // WHY A DEGENERATE weighted_heights PER PANEL RATHER THAN THREE SEEDS OF THE PAGE'S OWN
+    // FIXTURE. A figure has to hold the seed still and change one word; three seeds of
+    // wiki:dripstone_spike would change the seed, which is the one thing a panel comparison may
+    // not do. Each panel therefore carries a one-entry weighted_heights whose value is its own
+    // label. A one-entry list still sums to a non-zero weight, so all three panels take the same
+    // draw and reach the walk at the same point -- the panels differ in the outcome, not in what
+    // it cost.
+    //
+    // FOUR BLOCKS, NOT THE EXAMPLE'S TWO, and that IS the figure. The page's dripstone example
+    // writes dripstone_block for both base and middle and pointed_dripstone for both frustum and
+    // tip, so a render of it cannot show where one role ends and the next begins -- which is the
+    // whole question "which roles appear at which height" asks. The panels use four flatly
+    // different blocks instead: gold_block for base, lapis_block for middle, redstone_block for
+    // frustum, diamond_block for tip. Nobody would build a spike out of those; nobody can
+    // misread which cell is which role either, and the page says so beside the picture.
+    //
+    // THE STONE CUBE UNDER EACH COLUMN is scaffolding, wiki:multipart_panel_anchor: a
+    // single_block stone laid one cell BELOW the origin by a one-iteration scatter with bare
+    // x/y/z (the dist_panel_* idiom -- a bare axis spends no random value, so the column's own
+    // outcome is exactly what running wiki:multipart_panel_column_<n> alone gives). It is the
+    // one element all three panels share, and it is deliberately at the BOTTOM of the frame: the
+    // shared thing is what blocks the view in a figure (the tree figure's canopy, the
+    // snap figure's ceiling plate, the blob figure's water), and a cube under a column that
+    // grows upward occludes none of it. What it buys is the reference that makes the comparison
+    // read at all -- all three columns start on the same cell, so the panels differ in where
+    // they END -- and it is where may_place_on would look, which is the next thing a reader asks.
+    //
+    // Volume: 3x8x3 from min-y 0 with the origin at (0,1,0), i.e. world x/z -1..1 and world Y
+    // 0..7 -- the anchor cube at Y 0 and the tallest column's seven cells at Y 1..7, with one
+    // cell of margin on each side and none above. Tight on purpose: at the 32-wide preset
+    // default a one-block-wide column is a hairline and all three panels are the same empty
+    // frame. All three panels report 0 writes out of bounds. 'volume' framing, not content: the
+    // three columns are 3, 5 and 8 cells tall, so a content fit would zoom each panel to its own
+    // column and the figure would show the camera moving instead of the height changing.
+    //
+    // The margin is free, which is worth knowing before anyone tries to buy scale by removing
+    // it: the camera fit floors each axis's half-extent at 2 blocks (viewer.ts's
+    // FRAME_MIN_HALF_EXTENT), so a 1-block and a 3-block footprint frame identically. Re-rendered
+    // at --size 1x8x1 this entry produces a byte-identical PNG (sha256 fc4c8cb4...), and what
+    // actually sets the distance here is that floored footprint against a 332px-wide panel, not
+    // the column's own height. Shrinking the volume further changes nothing; the margin is kept
+    // because it is honest about where the column's neighbours are.
+    env: 'void',
+    seed: 1,
+    origin: '0,1,0',
+    size: '3x8x3',
+    minY: 0,
+    framing: 'volume',
+    columns: 3,
+    panels: [
+      { label: 'height 2', feature: 'wiki:multipart_panel_2' },
+      { label: 'height 4', feature: 'wiki:multipart_panel_4' },
+      { label: 'height 7', feature: 'wiki:multipart_panel_7' },
+    ],
+    out: 'multipart-block-column-feature-weighted-heights.png',
+    note: 'The three heights the page\'s example lists in weighted_heights -- 2, 4 and 7 -- from one origin at one seed, with the four roles written as four different blocks so the boundaries between them are visible: gold base, lapis middle, redstone frustum, diamond tip. Read off each run\'s own changed cells: height 2 places frustum and tip and NO base and no middle; height 4 places base, one middle, frustum and tip; height 7 places base, FOUR middles, frustum and tip. The grey cube under each column is one shared stone block laid one cell below the origin, so all three columns visibly start from the same cell.',
   },
   {
     id: 'tree-fancy-oak',
@@ -353,6 +752,33 @@ export const IMAGES = [
     // Deliberately the same band as the origin-0 entry so the two images are directly
     // comparable; this origin's own carve happens to reach world Y 8-54 rather than 8-52, and
     // the extra two rows are outside the slice in both.
+    //
+    // NOT MERGED INTO A `panels` FIGURE WITH cave-carver-tunnels, and the reason is measured
+    // rather than aesthetic. A figure's panels share ONE --origin and ONE --size (see
+    // generateEntry: only `feature` is swapped per panel), and this pair's whole claim is that
+    // the carve lands in the chunk column containing the origin -- two world positions 96 blocks
+    // apart. Holding both inside one volume needs it at least 144 wide, and three things follow:
+    //
+    //  - The bench changes, so the numbers change. underground_stone scatters its ore blobs
+    //    across whatever volume it is given, and most ores are NOT on the carver's diggable list,
+    //    so the same fixture at the same seed and the same origin carves 3,229 cells at the
+    //    preset 32-wide volume and 3,240 at 128 wide -- the differing cells are exactly the ones
+    //    where one bench put a coal/redstone/lapis/gold blob and the other did not. The origin-96
+    //    run moves the same way: 7,097 against 7,147. A figure would therefore have to restate
+    //    every number on the page against a bench that exists only for the picture.
+    //  - Each panel's carve would be 16 of 144 blocks across, ~11% of the panel, in opposite
+    //    corners of an otherwise unbroken stone plate -- and the room/tunnel network, which is
+    //    the CONTENT of both images, stops being legible. The tree entry above paid for exactly
+    //    this from the other side and had to tighten its volume to 12x19x10.
+    //  - The 2%-difference gate would pass (two patches in opposite corners), so the gate would
+    //    NOT catch it. This is the "two panels that differ without meaning anything" case
+    //    docs/site/authoring.md says the pipeline cannot refuse for you.
+    //
+    // A bare-offset wrapper scatter (the dist_panel_* idiom) does reproduce the carve exactly --
+    // verified: wrapping wiki:cave_demo in a 1-iteration scatter with bare x/z 0 gives the same
+    // 3,229 cells at the same coordinates -- so the idiom is not what blocks this. The frame is.
+    // The two pages state in prose that the pair is two cameras and that only the counts are the
+    // comparison.
     slice: { minY: 8, maxY: 33 },
     envMode: 'solid',
   },
@@ -402,5 +828,238 @@ export const IMAGES = [
     // it away.
     slice: { minY: 24, maxY: 37 },
     envMode: 'solid',
+  },
+  {
+    id: 'search-axis-kinds',
+    // A FIGURE (see the doc comment at the top): the six `search_axis` values, one panel each,
+    // from ONE floating origin in the void with every other field held identical -- the same
+    // 5x5x5 search_volume ({min: [-2,-2,-2], max: [2,2,2]}, 125 candidate offsets), the same
+    // delegate, the same seed, the same volume framed the same way.
+    //
+    // WHY THE FIGURE IS BUILT THIS WAY, because the obvious build does not work. search_axis
+    // decides the ORDER candidates are visited in, and a search commits at the first position
+    // that works -- so with a delegate that only succeeds somewhere specific (a pumpkin needing
+    // grass under it, say) all six panels show one block, in six places that differ by a cell or
+    // two. Six near-identical smudges. What the six values actually differ in is the VISIT
+    // ORDER, so the figure shows the order directly: the delegate is wiki:threshold_marker, a
+    // bare gold block that succeeds at every candidate, and required_successes is 30 of the 125
+    // available. The search therefore commits after the first 30 positions its axis order
+    // reaches, and the shape those 30 cells make IS the loop order.
+    //
+    // What each panel reads as, and all three are verified off the result's own changed-cell
+    // coordinates rather than predicted: the outer loop's first slab is 5x5 = 25 cells, so every
+    // panel is one full face of the cube plus a five-cell line into the next slab.
+    //
+    //   -x  the x=+2 face, then a line at (x 1, z 2)    +x  the x=-2 face, then (x -1, z -2)
+    //   -y  the y=top face, then a line at (y-1, x 2)   +y  the y=bottom face, then (y+1, x -2)
+    //   -z  the z=+2 face, then a line at (z 1, x -2)   +z  the z=-2 face, then (z -1, x 2)
+    //
+    // The face says which corner the search starts from; the trailing line says which way the
+    // MIDDLE loop counts, and that is the pattern nobody guesses: it follows the outer loop for
+    // the x and y families and runs OPPOSITE to it for the two z values. -x's line sits at the
+    // z=+2 edge (mid descending with the outer loop) while -z's sits at the x=-2 edge (mid
+    // ascending against it) -- the same inversion, visible, in one picture.
+    //
+    // required_successes is 30 and not 25 for exactly that reason: at 25 every panel is a bare
+    // face and the middle loop leaves no trace at all.
+    //
+    // Volume: exactly the search volume, 5x5x5 from min-y 2 with the origin at (0,4,0), so the
+    // cube the search walks fills the frame and nothing else is in it. 'volume' framing, not
+    // content: each panel's own cells are a flat 5x5 slab in a different place, so a content fit
+    // would zoom and re-centre every panel and the figure would show the camera moving instead
+    // of the search order. The void preset means no terrain -- the six shapes are the whole
+    // picture.
+    env: 'void',
+    seed: 42,
+    origin: '0,4,0',
+    size: '5x5x5',
+    minY: 2,
+    framing: 'volume',
+    columns: 3,
+    panels: [
+      { label: '-x', feature: 'wiki:search_panel_minus_x' },
+      { label: '+x', feature: 'wiki:search_panel_plus_x' },
+      { label: '-y', feature: 'wiki:search_panel_minus_y' },
+      { label: '+y', feature: 'wiki:search_panel_plus_y' },
+      { label: '-z', feature: 'wiki:search_panel_minus_z' },
+      { label: '+z', feature: 'wiki:search_panel_plus_z' },
+    ],
+    out: 'search-feature-axis-kinds.png',
+    note: 'The six search_axis values over one 5x5x5 search_volume, with a delegate that succeeds everywhere and required_successes 30 -- so each panel is the first 30 offsets that axis order reaches. Every panel is one 25-cell face of the cube plus a five-cell line into the next slab: -x starts at x=+2 and +x at x=-2, -y at the top layer and +y at the bottom, -z at z=+2 and +z at z=-2. The trailing line shows the middle loop: at the z=+2 edge for -x (middle follows the outer loop) and at the x=-2 edge for -z (middle runs against it).',
+  },
+  {
+    id: 'snap-surface-floor-vs-ceiling',
+    // A FIGURE (see the doc comment at the top): `surface: "floor"` against `surface: "ceiling"`,
+    // two panels, from ONE floating origin at (0,4,0) in the void with every other field held
+    // identical -- the same delegate, the same search_range of 8, the same seed, the same volume
+    // framed the same way. The two fixtures differ in that one word and nothing else.
+    //
+    // Three things in the fixtures are scaffolding for the picture, not part of what it shows:
+    //
+    //  - THE SCENE IS BUILT BY THE FIXTURE. The void preset has no terrain, and a snap with
+    //    nothing to snap to fails in both directions, so each panel is an aggregate_feature that
+    //    first lays one stone block four cells BELOW the origin and one four cells ABOVE it, and
+    //    then runs the snap. Both markers are in both panels: the point of the figure is that the
+    //    same column, with a surface at each end, sends the delegate to opposite ends of it.
+    //  - ONE BLOCK EACH, not a slab. A 5x5 ceiling plate hides everything under it from the
+    //    viewer's own fixed camera (it looks down from the +X/+Y/+Z corner at about 31 degrees,
+    //    so a cell one row below a plate needs ~1.7 blocks of horizontal clearance to be seen at
+    //    all) -- which is the canopy-over-the-trunk mistake the tree figure paid for. A single
+    //    block is a perfectly good surface for a one-wide column scan and occludes nothing.
+    //  - THE DELEGATE IS A 5x5 SHEET, wiki:snap_panel_patch, not a single block: a lone cell in a
+    //    5x9x5 volume is a dot, and two dots four rows apart is not a figure. The sheet is
+    //    wiki:snap_panel_patch_grid, a 25-iteration fixed_grid scatter over [0, 4] on x and z
+    //    delegating to wiki:threshold_marker, wrapped in a bare-offset scatter of (-2, 0, -2) to
+    //    centre it -- the same wrapper idiom, and the same reason for it, as the dist_panel_*
+    //    fixtures above: a bare axis spends no random draw and the CLI cannot offset its volume.
+    //
+    // What the two panels show, read off each result's own changed-cell coordinates: 27 cells in
+    // both, and 25 of them move. floor walks down from y 4 across three passable air cells, stops
+    // on the marker at y 0, and the sheet lands at y 1 -- the open cell on top of the floor.
+    // ceiling walks up the same three cells, stops on the marker at y 8, and the sheet lands at
+    // y 7, the open cell under the ceiling. Same origin, same range, opposite ends of the column.
+    //
+    // One asymmetry in the picture, stated here and on the page rather than left to be noticed:
+    // in the floor panel the lower marker is UNDER the sheet and invisible, because the sheet is
+    // sitting on it. Both markers are visible in the ceiling panel, where the sheet is hung one
+    // cell below the upper one. The visible cube in the floor panel is therefore the ceiling
+    // marker -- the surface that snap ignored.
+    //
+    // Volume: 5x9x5 from min-y 0, so the frame is exactly the column between the two markers and
+    // the sheet spans its full width. 'volume' framing, not content: the two panels' cells sit
+    // six rows apart, so a content fit would put both sheets in the middle of their own panel and
+    // the figure would show nothing at all.
+    //
+    // format_version 1.26.50 on the two snap fixtures, on purpose: they are the pack's only
+    // committed files on the POST-rename spelling (`search_range`), so the rename gate the page
+    // documents is exercised in both directions -- wiki:snap_pumpkin_to_floor is 1.21.110 and
+    // says `vertical_search_range`, these say `search_range`, and `featurelab check` is clean on
+    // all three.
+    env: 'void',
+    seed: 1,
+    origin: '0,4,0',
+    size: '5x9x5',
+    minY: 0,
+    framing: 'volume',
+    columns: 2,
+    panels: [
+      { label: 'floor', feature: 'wiki:snap_panel_floor' },
+      { label: 'ceiling', feature: 'wiki:snap_panel_ceiling' },
+    ],
+    out: 'snap-to-surface-feature-floor-vs-ceiling.png',
+    note: 'surface "floor" against surface "ceiling" from one floating origin at (0,4,0), with a stone marker four cells below it and another four cells above it. Both panels place 27 cells; the two markers are shared and the 25-cell sheet is the delegate. floor puts it at y 1, on top of the lower marker; ceiling puts it at y 7, under the upper one. Everything else in the two files -- delegate, search_range 8, seed -- is identical.',
+  },
+  {
+    id: 'vegetation-patch-floor-vs-ceiling',
+    // A FIGURE (see the doc comment at the top): `surface: "floor"` against `surface: "ceiling"`,
+    // two panels, from ONE floating origin at (0,4,0) in the void with every other field held
+    // identical -- the same delegate, the same horizontal_radius 2, depth 1, vertical_range 4 and
+    // vegetation_chance 0.6, the same seed, the same volume framed the same way. The two patch
+    // fixtures differ in that one word and nothing else.
+    //
+    // This figure REPLACES the two single images this page used to carry
+    // (vegetation-patch-feature-floor-pumpkins.png on plains and
+    // vegetation-patch-feature-ceiling-roots.png in the void). Those two could never have been
+    // one figure: different presets, different origins, different delegates and, in the ceiling
+    // one, a 90-iteration scatter of stone built the overhang, so the two shared no camera, no
+    // scale and no scene. The floor one stays as the page's worked example, because a real patch
+    // on real terrain is what the "Start here" section is for; the ceiling one is retired here.
+    //
+    // Three things in the fixtures are scaffolding for the picture, not part of what it shows:
+    //
+    //  - THE SCENE IS BUILT BY THE FIXTURE. The void preset has no terrain and a patch with
+    //    nothing to find keeps no column at all, so each panel is an aggregate_feature that lays a
+    //    5x5 stone plate four cells BELOW the origin and another four cells ABOVE it, and then
+    //    runs the patch. Both plates are in both panels: the point is that one column, with a
+    //    surface at each end, sends the patch to opposite ends of it.
+    //  - ONE BLOCK THICK, AND EXACTLY AS WIDE AS THE PATCH. depth 1 means the ceiling patch's
+    //    ground_block replaces the WHOLE upper plate rather than coating an underside the camera
+    //    cannot see -- which is the trap the snap-to-surface figure paid for with its 5x5 ceiling
+    //    plate, and the tree figure with its canopy. So the panel's headline difference is which
+    //    plate is moss and which is still stone, and that is visible from the viewer's own fixed
+    //    camera whichever way the patch grew. horizontal_radius 2 walks a 7x7 rectangle whose
+    //    outer ring the default extra_edge_column_chance of 0 drops, leaving a 5x5 interior --
+    //    exactly the plate, so every column finds its surface and none overhangs the plate edge.
+    //  - THE DELEGATE IS A BARE MARKER, wiki:threshold_marker, not the page's own moss-attached
+    //    hanging roots. A vegetation feature that checks what it is attached to grows on one
+    //    surface and not the other, and the panel that placed nothing would read as broken rather
+    //    than as mirrored -- the same reason the aggregate/sequence figure uses a marker instead
+    //    of the pumpkin patch. A gold block also reads against both moss and stone.
+    //
+    // vegetation_chance is 0.6 rather than 1 so the ground layer is not buried under a solid
+    // sheet of markers: at 1 the floor panel would be 25 gold cells with no moss visible at all.
+    // The draw sequence is identical in both panels (two zero-draw radius values, then one float
+    // per kept column, in the same column order), so the SAME 14 of the 25 columns grow in both
+    // -- verified by reading the changed-cell coordinates out of both runs: 64 cells per panel,
+    // 25 stone + 25 moss + 14 gold, and the 14 gold (x, z) pairs are the same list twice.
+    // floor puts the moss at y 0 and the markers at y 1; ceiling puts the moss at y 8 and the
+    // markers at y 7. Nothing else moves.
+    //
+    // Volume: 7x9x7 from min-y 0, i.e. world x/z -3..3 and world Y 0..8 -- the column between the
+    // two plates and one cell of margin around them. 'volume' framing, not content: the two
+    // panels' cells sit at opposite ends of that column, so a content fit would centre each
+    // panel's own patch and the figure would show nothing at all.
+    env: 'void',
+    seed: 1,
+    origin: '0,4,0',
+    size: '7x9x7',
+    minY: 0,
+    framing: 'volume',
+    columns: 2,
+    panels: [
+      { label: 'floor', feature: 'wiki:veg_panel_floor' },
+      { label: 'ceiling', feature: 'wiki:veg_panel_ceiling' },
+    ],
+    out: 'vegetation-patch-feature-floor-vs-ceiling.png',
+    note: 'surface "floor" against surface "ceiling" from one floating origin at (0,4,0), with a 5x5 stone plate four cells below it and another four cells above it. Both panels place 64 cells -- 25 stone, 25 moss_block and 14 gold markers -- and the same 14 columns grow in both. floor coats the lower plate at y 0 and puts its markers at y 1; ceiling coats the upper plate at y 8 and hangs its markers at y 7. Everything else in the two files -- delegate, horizontal_radius 2, depth 1, vertical_range 4, vegetation_chance 0.6, seed -- is identical.',
+  },
+  {
+    id: 'growing-plant-up-vs-down',
+    // A FIGURE (see the doc comment at the top): `growth_direction: "up"` against
+    // `growth_direction: "down"`, two panels, from ONE origin at (0,6,0) in the void with every
+    // other field held identical -- the same height_distribution, the same body and head blocks,
+    // the same age range, the same seed, the same volume framed the same way. The two plant
+    // fixtures differ in that one word and nothing else.
+    //
+    // Two things in the fixtures are scaffolding for the picture, not part of what it shows:
+    //
+    //  - THE TWO PLATES. A lone 1x1 column in an empty void is a thin line with no scale and
+    //    nothing to be "up" or "down" relative to, so each panel lays a 3x3 stone plate six cells
+    //    below the origin and another six above it. 3x3 and not 5x5 on purpose: the upward column
+    //    ends one cell under the upper plate, and at the viewer's own fixed camera (down from the
+    //    +X/+Y/+Z corner at about 31 degrees) a cell one row below a plate needs roughly 1.7
+    //    blocks of horizontal clearance to be seen at all. A 3x3 plate leaves the centre column
+    //    that clearance; a 5x5 one would hide the head block -- the ceiling-plate trap the
+    //    snap-to-surface figure documents.
+    //  - THE PLATES ALSO STOP THE COLUMN, and that is deliberate rather than incidental. The
+    //    height_distribution is a degenerate [8, 9) range, so both panels draw a height of 8, and
+    //    both place only SIX cells: at the sixth layer the look-ahead finds the plate instead of
+    //    air and the head block goes there. The configured height is an upper bound, not a
+    //    promise, and the figure shows that as well as the direction.
+    //
+    // What the two panels show, read off each result's own changed-cell coordinates: 24 cells in
+    // both, 18 of them the two shared plates. up puts five cave_vines at y 6..10 and the berried
+    // head at y 11, one under the upper plate; down puts them at y 6..2 and the head at y 1, one
+    // above the lower plate. The head carries growing_plant_age 21 in both -- one age draw over
+    // {17, 25}, the same value either way, because the two panels spend the same draws in the
+    // same order.
+    //
+    // Volume: 5x13x5 from min-y 0, i.e. world x/z -2..2 and world Y 0..12 -- the two plates and
+    // the column between them, with one cell of margin. 'volume' framing, not content: each
+    // panel's own cells fill a different half of that column, so a content fit would put both
+    // columns in the middle of their own panel and the figure would show nothing.
+    env: 'void',
+    seed: 1,
+    origin: '0,6,0',
+    size: '5x13x5',
+    minY: 0,
+    framing: 'volume',
+    columns: 2,
+    panels: [
+      { label: 'up', feature: 'wiki:growplant_panel_up' },
+      { label: 'down', feature: 'wiki:growplant_panel_down' },
+    ],
+    out: 'growing-plant-feature-growth-direction.png',
+    note: 'growth_direction "up" against growth_direction "down" from one origin at (0,6,0), with a 3x3 stone plate six cells below it and another six cells above it. Both panels place 24 cells: the two shared plates, five cave_vines and one berried head block carrying growing_plant_age 21. up runs the column from y 6 to the head at y 11, one cell under the upper plate; down runs it from y 6 to the head at y 1, one cell above the lower plate. Both stop at six of the eight layers the height_distribution asked for, because the sixth layer\'s look-ahead finds the plate instead of air.',
   },
 ]
