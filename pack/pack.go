@@ -45,6 +45,25 @@ type Options struct {
 	// data -- rather than only the small curated approximate vanilla table
 	// -- must load this directory and call LoadBlockTags with it.
 	BlocksDir string
+
+	// OnFileRead, when non-nil, is called once for every file Load reads off
+	// disk, with the kind it belongs to: "features", "structures",
+	// "feature_rules", "biomes" or "blocks" (the same spellings the missing-
+	// directory warnings use). It is called SYNCHRONOUSLY, on Load's own
+	// goroutine, in read order.
+	//
+	// It exists for one caller and one problem. A pack load is the slowest
+	// thing this tool does and its cost is not the tool's: a freshly written
+	// 12.5k-file pack was measured at 102s on first touch against 2.3s warm,
+	// the difference being the machine reading every one of those files for
+	// the first time past whatever scans them on the way. Load can do nothing
+	// about that, but a long-lived server driving it can say how far along it
+	// is instead of going silent -- see cmd/featurelab/notify.go.
+	//
+	// Keep it cheap: it runs once per file, several thousand times on a real
+	// pack, inside the loop that does the actual reading. The caller this was
+	// added for does one atomic increment.
+	OnFileRead func(kind string)
 }
 
 // Pack is every asset kind Load knows how to read, plus a Warnings list for
@@ -68,6 +87,34 @@ type Pack struct {
 
 	Warnings []string
 
+	// MissingDirs is the same set of notices as Warnings, structured: one
+	// entry per directory Load expected and did not find, in the same order
+	// Warnings lists them, each carrying the sentence Warnings holds verbatim.
+	//
+	// It exists because those messages are not all the same KIND of news and
+	// the only thing that ever said which was which was the prose. A
+	// conventional directory a pack simply does not have is normal -- every
+	// minimal pack is missing four of the five, and a `check` that opened with
+	// four warning rows around one real error was teaching people to skim past
+	// the row that mattered. A directory named by an EXPLICIT override and not
+	// found is a different event entirely: someone typed a path and it is
+	// wrong. Explicit is that distinction, decided here where it is known
+	// rather than recovered downstream by matching on "(fine if this pack has
+	// none)".
+	//
+	// Warnings is left exactly as it was -- same strings, same order, same
+	// JSON on the wire for every client already reading it. This is additive:
+	// a caller that wants to LEVEL these reads this; one that just prints them
+	// carries on.
+	//
+	// ONE WARNING HAS NO ENTRY HERE: warnNoPackDirs, which is about the ROOT
+	// (present, and holding none of the five) rather than about any one missing
+	// directory, and is appended after all of these. So pair the two lists by
+	// MESSAGE, never by index -- which is what both consumers already do (see
+	// cmd/featurelab's packWarningLevel), and what makes a warning with no
+	// entry here fall through to the warning level it should have.
+	MissingDirs []MissingDir
+
 	// blocksOwnStart is the index in Blocks where this pack's OWN blocks/
 	// files begin -- everything before it is the embedded vanilla
 	// catalogue (block.DefaultBlocks), which Load always stacks
@@ -79,6 +126,24 @@ type Pack struct {
 	// override. Splicing only within [blocksOwnStart:] keeps that
 	// override relationship exactly as a full Load leaves it.
 	blocksOwnStart int
+}
+
+// MissingDir is one directory Load was told to read and did not find.
+type MissingDir struct {
+	// Kind is the asset kind: "features", "structures", "feature_rules",
+	// "biomes" or "blocks" -- the same spellings Options.OnFileRead uses.
+	Kind string
+	// Dir is the path that was looked for.
+	Dir string
+	// Explicit is true when an Options override named this directory, false
+	// when it was derived from Dir by the conventional layout. FALSE IS THE
+	// BENIGN ONE: a pack with no biomes/ has no biomes, which is fine and is
+	// what the great majority of packs look like. True means a path someone
+	// typed does not exist, which is a real problem wearing the same words.
+	Explicit bool
+	// Message is this notice's sentence, byte for byte the one in
+	// Pack.Warnings, so a caller can pair the two without re-deriving either.
+	Message string
 }
 
 // Dirs is the source directory Load actually resolved for each asset kind:
@@ -117,9 +182,17 @@ func resolvedDir(root, override, defaultName string) (dir string, explicit bool)
 // "this pack has none of this kind" apart from "the path was wrong", which
 // an empty slice alone cannot distinguish.
 //
-// Load itself returns an error only when nothing was requested at all
-// (every field of opts empty) -- there is nothing to load, and proceeding
-// would silently hand back an all-empty Pack with no explanation of why.
+// Load returns an error in exactly three cases, all of them "the caller did
+// not name a pack this function can read":
+//
+//   - nothing was requested at all (every field of opts empty) -- there is
+//     nothing to load, and proceeding would silently hand back an all-empty
+//     Pack with no explanation of why;
+//   - Dir names something that is not there, or that cannot be stat'd;
+//   - Dir names a file rather than a directory.
+//
+// The last two are checkPackRoot -- see there for why those are errors while
+// a missing SUBdirectory is only a notice.
 func Load(opts Options) (*Pack, error) {
 	featuresDir, featuresExplicit := resolvedDir(opts.Dir, opts.FeaturesDir, "features")
 	structuresDir, structuresExplicit := resolvedDir(opts.Dir, opts.StructuresDir, "structures")
@@ -132,17 +205,27 @@ func Load(opts Options) (*Pack, error) {
 			"FeaturesDir/StructuresDir/RulesDir/BiomesDir/BlocksDir")
 	}
 
+	if err := checkPackRoot(opts.Dir); err != nil {
+		return nil, err
+	}
+
 	p := &Pack{Dir: opts.Dir, Dirs: Dirs{
 		Features: featuresDir, Structures: structuresDir, Rules: rulesDir, Biomes: biomesDir, Blocks: blocksDir,
 	}}
 
+	// How many of the resolved directories were actually there -- see
+	// warnNoPackDirs for the one thing this is used to say.
+	found := 0
+
 	if featuresDir != "" {
-		files, existed, err := walkText(featuresDir, ".json")
+		files, existed, err := walkText(featuresDir, ".json", kindProgress(opts.OnFileRead, "features"))
 		if err != nil {
 			return nil, fmt.Errorf("pack: reading features directory %s: %w", featuresDir, err)
 		}
-		if !existed {
-			p.Warnings = append(p.Warnings, warnMissing("features", featuresDir, featuresExplicit))
+		if existed {
+			found++
+		} else {
+			p.noteMissingDir("features", featuresDir, featuresExplicit, warnMissing("features", featuresDir, featuresExplicit))
 		}
 		for _, f := range files {
 			p.Features = append(p.Features, features.SourceFile{ID: f.id, AbsPath: f.absPath, Text: f.text})
@@ -156,12 +239,14 @@ func Load(opts Options) (*Pack, error) {
 		// structures/fossils/fossil_spine_01.nbt). structures.BuildLibrary tells the two formats
 		// apart by extension and resolves each through its own interface (IResolver vs.
 		// ILegacyResolver) -- see that function's own doc comment.
-		files, existed, err := walkBinary(structuresDir, ".mcstructure", ".nbt")
+		files, existed, err := walkBinary(structuresDir, kindProgress(opts.OnFileRead, "structures"), ".mcstructure", ".nbt")
 		if err != nil {
 			return nil, fmt.Errorf("pack: reading structures directory %s: %w", structuresDir, err)
 		}
-		if !existed {
-			p.Warnings = append(p.Warnings, warnMissing("structures", structuresDir, structuresExplicit))
+		if existed {
+			found++
+		} else {
+			p.noteMissingDir("structures", structuresDir, structuresExplicit, warnMissing("structures", structuresDir, structuresExplicit))
 		}
 		for _, f := range files {
 			p.Structures = append(p.Structures, structures.SourceFile{ID: f.id, AbsPath: f.absPath, Data: f.data})
@@ -169,12 +254,14 @@ func Load(opts Options) (*Pack, error) {
 	}
 
 	if rulesDir != "" {
-		files, existed, err := walkText(rulesDir, ".json")
+		files, existed, err := walkText(rulesDir, ".json", kindProgress(opts.OnFileRead, "feature_rules"))
 		if err != nil {
 			return nil, fmt.Errorf("pack: reading feature_rules directory %s: %w", rulesDir, err)
 		}
-		if !existed {
-			p.Warnings = append(p.Warnings, warnMissing("feature_rules", rulesDir, rulesExplicit))
+		if existed {
+			found++
+		} else {
+			p.noteMissingDir("feature_rules", rulesDir, rulesExplicit, warnMissing("feature_rules", rulesDir, rulesExplicit))
 		}
 		for _, f := range files {
 			p.Rules = append(p.Rules, rules.SourceFile{ID: f.id, AbsPath: f.absPath, Text: f.text})
@@ -182,12 +269,14 @@ func Load(opts Options) (*Pack, error) {
 	}
 
 	if biomesDir != "" {
-		files, existed, err := walkText(biomesDir, ".json")
+		files, existed, err := walkText(biomesDir, ".json", kindProgress(opts.OnFileRead, "biomes"))
 		if err != nil {
 			return nil, fmt.Errorf("pack: reading biomes directory %s: %w", biomesDir, err)
 		}
-		if !existed {
-			p.Warnings = append(p.Warnings, warnMissing("biomes", biomesDir, biomesExplicit))
+		if existed {
+			found++
+		} else {
+			p.noteMissingDir("biomes", biomesDir, biomesExplicit, warnMissing("biomes", biomesDir, biomesExplicit))
 		}
 		for _, f := range files {
 			p.Biomes = append(p.Biomes, biomes.SourceFile{ID: f.id, AbsPath: f.absPath, Text: f.text})
@@ -195,12 +284,14 @@ func Load(opts Options) (*Pack, error) {
 	}
 
 	if blocksDir != "" {
-		files, existed, err := walkText(blocksDir, ".json")
+		files, existed, err := walkText(blocksDir, ".json", kindProgress(opts.OnFileRead, "blocks"))
 		if err != nil {
 			return nil, fmt.Errorf("pack: reading blocks directory %s: %w", blocksDir, err)
 		}
-		if !existed {
-			p.Warnings = append(p.Warnings, warnMissingBlocks(blocksDir, blocksExplicit))
+		if existed {
+			found++
+		} else {
+			p.noteMissingDir("blocks", blocksDir, blocksExplicit, warnMissingBlocks(blocksDir, blocksExplicit))
 		}
 		// block.DefaultBlocks() -- the generated vanilla catalogue -- is
 		// always loaded first, exactly like a default resource/behavior
@@ -223,15 +314,137 @@ func Load(opts Options) (*Pack, error) {
 		}
 	}
 
+	if strings.TrimSpace(opts.Dir) != "" && found == 0 {
+		p.Warnings = append(p.Warnings, warnNoPackDirs(opts.Dir))
+	}
+
 	return p, nil
+}
+
+// checkPackRoot stats Dir before a single file is read from underneath it.
+//
+// WITHOUT THIS, THE WORST OUTCOME OF THE WHOLE TOOL. Nothing used to stat the
+// root at all: every kind's walk resolved <root>/features, <root>/biomes and so
+// on, found each of them missing, recorded the ordinary "fine if this pack has
+// none" notice for it, and Load returned a Pack with no files and no error. So
+// `featurelab check --pack ./bulid/BP` -- a typo, a moved directory, a CI script
+// run from the wrong working directory -- printed "0 errors, 0 warnings" and
+// exited 0. A command whose entire job is to fail on a bad pack reported a clean
+// one for a pack that was not there, which is worse than any diagnostic it could
+// have got wrong.
+//
+// WHY A MISSING ROOT IS AN ERROR AND A MISSING SUBDIRECTORY IS NOT. They are
+// different claims. "This pack has no biomes/" is true of most packs and says
+// nothing is wrong; "this pack root is not on disk" cannot be true of any pack,
+// so there is nothing to report ABOUT and no result worth returning. The notice
+// machinery exists to describe a pack; this describes the absence of one.
+//
+// A FILE IS THE SAME ERROR, worded differently. --pack pointed at manifest.json,
+// or at a .mcpack/.zip nobody unpacked, is the other half of the same typo: no
+// path under it can ever be read, and the walks would each report their own
+// conventional subdirectory missing and hand back the identical wordless clean
+// pack. Naming what was found is what makes it fixable in one read.
+//
+// A permission error (or any other stat failure) comes back as-is rather than
+// being folded into "does not exist": an unreadable directory is a different
+// thing to fix than an absent one, and the OS already said which it is.
+func checkPackRoot(root string) error {
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("pack: pack root %s does not exist", quotePath(root))
+		}
+		return fmt.Errorf("pack: reading pack root %s: %w", quotePath(root), err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("pack: pack root %s is a file, not a directory -- point it at the directory that "+
+			"holds features/, structures/, feature_rules/, biomes/ and blocks/", quotePath(root))
+	}
+	return nil
+}
+
+// warnNoPackDirs is the notice for a root that IS a directory and holds not one
+// of the five directories this loader reads.
+//
+// A WARNING, DELIBERATELY NOT AN ERROR. Unlike a missing root, the path is a
+// real directory the caller has, and this loader genuinely cannot tell the two
+// things it can mean apart: --pack aimed one level too high (at the packs/
+// parent, or at the resource pack beside the behaviour pack), or a perfectly
+// ordinary behaviour pack that carries entities and loot tables and no
+// world-generation content at all. The second is legitimate and lives in real
+// repositories, and a CI loop running `check` across every pack in a monorepo
+// must not fail on the ones that are simply not worldgen packs. The exit code
+// is reserved for what is definitely wrong.
+//
+// AND DELIBERATELY NOT AN INFO NOTE either, which is what the five per-kind
+// notices already emitted here are levelled as. Each of those ends "(fine if
+// this pack has none)" and each is individually true; what none of them says,
+// and what all five together still fail to say, is that NOTHING was loaded and
+// every later answer this tool gives about this pack will be empty. That is the
+// sentence someone staring at a clean report on a wrong path needs, so it is
+// levelled where it will be read.
+//
+// It is the one entry in Warnings with no matching MissingDirs entry -- see
+// MissingDirs's doc comment -- because it is not about a directory that is
+// missing; it is about the root, which is not.
+func warnNoPackDirs(root string) string {
+	return fmt.Sprintf("pack root %s contains none of features/, structures/, feature_rules/, biomes/ or blocks/ "+
+		"-- nothing was loaded from it; check that this is the behaviour pack root and not a parent or sibling of it", quotePath(root))
+}
+
+// kindProgress binds one asset kind to Options.OnFileRead, so the walkers take
+// a plain func() and never have to know which kind they are walking. nil in,
+// nil out: the walkers nil-check once per file rather than call through a
+// closure that does nothing, which is the difference that matters when the
+// loop runs several thousand times and nobody is listening.
+func kindProgress(onFileRead func(kind string), kind string) func() {
+	if onFileRead == nil {
+		return nil
+	}
+	return func() { onFileRead(kind) }
+}
+
+// warnMissing and warnMissingBlocks below share one sentence shape:
+//
+//	<kind> directory "<path>" [was given explicitly but] does not exist -- ...
+//
+// every warning, every kind, path spelled exactly once. It used to be
+// spelled twice and inconsistently: the format string's leading %s was fed
+// the PATH where it meant the kind, and the %q beside it re-printed the same
+// path Go-quoted, so a Windows pack produced
+//
+//	C:\...\biomes directory "C:\\...\\biomes" does not exist
+//
+// -- the path once raw, once again with every separator doubled -- while the
+// blocks warning next to it printed no leading path at all. These strings are
+// shown verbatim to people (the extension's log, its error text), so the
+// doubling was not cosmetic; it read as two different paths, one of which
+// does not exist on any disk.
+//
+// The quotes are plain delimiters added here, NOT %q: they keep a path with
+// spaces readable as one token without escaping the backslashes that every
+// Windows path is made of.
+// noteMissingDir records one missing directory in BOTH lists at once -- the
+// only way either of them is ever appended to, so Warnings[i] and
+// MissingDirs[i] cannot drift into describing different things.
+func (p *Pack) noteMissingDir(kind, dir string, explicit bool, message string) {
+	p.Warnings = append(p.Warnings, message)
+	p.MissingDirs = append(p.MissingDirs, MissingDir{Kind: kind, Dir: dir, Explicit: explicit, Message: message})
 }
 
 func warnMissing(kind, dir string, explicit bool) string {
 	if explicit {
-		return fmt.Sprintf("%s directory %q was given explicitly but does not exist -- 0 %s files loaded", dir, dir, kind)
+		return fmt.Sprintf("%s directory %s was given explicitly but does not exist -- 0 %s files loaded", kind, quotePath(dir), kind)
 	}
-	return fmt.Sprintf("%s directory %q does not exist -- 0 %s files loaded (fine if this pack has none)", dir, dir, kind)
+	return fmt.Sprintf("%s directory %s does not exist -- 0 %s files loaded (fine if this pack has none)", kind, quotePath(dir), kind)
 }
+
+// quotePath wraps a filesystem path in plain double quotes, verbatim -- see
+// warnMissing for why this exists instead of %q.
+func quotePath(dir string) string { return `"` + dir + `"` }
 
 // warnMissingBlocks is warnMissing's "blocks" specialization: unlike every
 // other kind, a missing blocks/ directory does NOT mean zero block files
@@ -240,9 +453,9 @@ func warnMissing(kind, dir string, explicit bool) string {
 // claiming zero.
 func warnMissingBlocks(dir string, explicit bool) string {
 	if explicit {
-		return fmt.Sprintf("blocks directory %q was given explicitly but does not exist -- 0 pack-specific block files loaded (the generated vanilla defaults are still loaded)", dir)
+		return fmt.Sprintf("blocks directory %s was given explicitly but does not exist -- 0 pack-specific block files loaded (the generated vanilla defaults are still loaded)", quotePath(dir))
 	}
-	return fmt.Sprintf("blocks directory %q does not exist -- 0 pack-specific block files loaded (fine if this pack has none; the generated vanilla defaults are still loaded)", dir)
+	return fmt.Sprintf("blocks directory %s does not exist -- 0 pack-specific block files loaded (fine if this pack has none; the generated vanilla defaults are still loaded)", quotePath(dir))
 }
 
 // ReloadFile re-reads exactly ONE file from disk into this Pack's source
@@ -518,7 +731,7 @@ type binaryFile struct {
 // biomes.SourceFile all key off this same "relative path, forward slashes"
 // shape). existed=false (with a nil error) means dir itself doesn't exist --
 // distinct from an error reading something that DOES exist.
-func walkText(dir, ext string) (out []textFile, existed bool, err error) {
+func walkText(dir, ext string, onFile func()) (out []textFile, existed bool, err error) {
 	if _, statErr := os.Stat(dir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, false, nil
@@ -551,6 +764,9 @@ func walkText(dir, ext string) (out []textFile, existed bool, err error) {
 				return fmt.Errorf("reading %s: %w", abs, err)
 			}
 			out = append(out, textFile{id: id, absPath: abs, text: string(text)})
+			if onFile != nil {
+				onFile()
+			}
 		}
 		return nil
 	}
@@ -566,7 +782,7 @@ func walkText(dir, ext string) (out []textFile, existed bool, err error) {
 // convention. exts is variadic (unlike walkText's single ext) because the structures/ directory is
 // the one place this tool loads two genuinely different binary formats out of the same directory
 // tree side by side (see the structuresDir call site in Load).
-func walkBinary(dir string, exts ...string) (out []binaryFile, existed bool, err error) {
+func walkBinary(dir string, onFile func(), exts ...string) (out []binaryFile, existed bool, err error) {
 	if _, statErr := os.Stat(dir); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, false, nil
@@ -608,6 +824,9 @@ func walkBinary(dir string, exts ...string) (out []binaryFile, existed bool, err
 				return fmt.Errorf("reading %s: %w", abs, err)
 			}
 			out = append(out, binaryFile{id: id, absPath: abs, data: data})
+			if onFile != nil {
+				onFile()
+			}
 		}
 		return nil
 	}

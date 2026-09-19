@@ -1,10 +1,12 @@
 package pack
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stirante/featurelab/block"
@@ -675,5 +677,224 @@ func TestReloadFile_OverlappingKindDirectoriesSpliceIntoEveryMatchingList(t *tes
 	}
 	if !reflect.DeepEqual(p.Blocks, fresh.Blocks) {
 		t.Errorf("Blocks diverged from a full Load's")
+	}
+}
+
+// TestLoad_MissingDirectoryWarningSpellsThePathOnce pins the warning TEXT, not just its
+// presence, because these strings are shown verbatim to people -- the extension puts them in
+// its log and inside its error messages.
+//
+// Both defects this guards against shipped at once. The format string's leading verb was fed
+// the PATH where it meant the KIND, and the %q beside it printed the same path again with every
+// backslash doubled, so one missing directory produced
+//
+//	C:\pack\biomes directory "C:\pack\biomes" does not exist -- 0 biomes files loaded
+//
+// which reads as two different paths, neither of them spelled the way it exists on disk. The
+// blocks warning alongside it had no leading path at all, so adjacent warnings about the same
+// pack did not even agree on their own shape.
+func TestLoad_MissingDirectoryWarningSpellsThePathOnce(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "features", "f.json"), "{}")
+
+	p, err := Load(Options{Dir: root})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(p.Warnings) == 0 {
+		t.Fatal("Warnings = none, want one per missing conventional directory")
+	}
+	for _, w := range p.Warnings {
+		// Exactly one kind name, then exactly one path, then the rest of the sentence. A
+		// second occurrence of the directory path is the duplication itself.
+		dir := p.Dirs.Structures
+		switch {
+		case strings.Contains(w, "feature_rules directory"):
+			dir = p.Dirs.Rules
+		case strings.Contains(w, "biomes directory"):
+			dir = p.Dirs.Biomes
+		case strings.Contains(w, "blocks directory"):
+			dir = p.Dirs.Blocks
+		}
+		if n := strings.Count(w, dir); n != 1 {
+			t.Errorf("warning names %s %d times, want exactly once: %s", dir, n, w)
+		}
+		if !strings.Contains(w, `"`+dir+`"`) {
+			t.Errorf("warning does not spell the path verbatim in quotes: %s", w)
+		}
+		// The Go-quoted spelling doubles every separator on Windows, which is what made one
+		// warning show two different-looking paths for one directory. On a platform whose
+		// separator needs no escaping the two spellings coincide and this check is a no-op,
+		// which is correct: there is nothing to get wrong there.
+		if quoted := fmt.Sprintf("%q", dir); quoted != `"`+dir+`"` && strings.Contains(w, quoted) {
+			t.Errorf("warning contains the Go-escaped spelling %s: %s", quoted, w)
+		}
+		// Every warning starts with the KIND, never with the path -- the one shape all of
+		// them share.
+		if strings.HasPrefix(w, dir) {
+			t.Errorf("warning starts with the path rather than the asset kind: %s", w)
+		}
+	}
+}
+
+// TestLoad_MissingDirsMirrorWarningsAndSayWhichKindOfNewsEachIs covers the structured half of
+// Load's missing-directory notices.
+//
+// Those sentences are not all the same kind of news and, until MissingDirs, the only thing that
+// said which was which was the prose. A conventional directory a pack simply does not have is
+// normal -- every minimal pack is missing four of the five -- while a directory an explicit
+// override NAMED and that is not there is a typo'd path. A consumer levelling these (see
+// cmd/featurelab's `check`) has to be able to tell them apart without matching on
+// "(fine if this pack has none)".
+func TestLoad_MissingDirsMirrorWarningsAndSayWhichKindOfNewsEachIs(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "features"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	explicit := filepath.Join(root, "not_biomes_at_all")
+
+	p, err := Load(Options{Dir: root, BiomesDir: explicit})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Same set, same order, same strings: Warnings is untouched by this, and every client
+	// already reading it carries on unchanged.
+	if len(p.MissingDirs) != len(p.Warnings) {
+		t.Fatalf("MissingDirs = %+v, Warnings = %v -- the two lists must describe the same notices", p.MissingDirs, p.Warnings)
+	}
+	for i := range p.Warnings {
+		if p.MissingDirs[i].Message != p.Warnings[i] {
+			t.Errorf("MissingDirs[%d].Message = %q, Warnings[%d] = %q -- they must be the same sentence",
+				i, p.MissingDirs[i].Message, i, p.Warnings[i])
+		}
+	}
+
+	var sawExplicit, sawConventional bool
+	for _, m := range p.MissingDirs {
+		if m.Kind == "biomes" {
+			sawExplicit = true
+			if !m.Explicit {
+				t.Errorf("MissingDir for the explicitly given --biomes directory = %+v, want Explicit", m)
+			}
+			if m.Dir != explicit {
+				t.Errorf("MissingDir.Dir = %q, want the directory that was actually asked for (%q)", m.Dir, explicit)
+			}
+			continue
+		}
+		sawConventional = true
+		if m.Explicit {
+			t.Errorf("MissingDir %+v is a conventional subdirectory and must not be reported as explicitly named", m)
+		}
+	}
+	if !sawExplicit || !sawConventional {
+		t.Fatalf("MissingDirs = %+v, want both an explicitly named and a conventional entry", p.MissingDirs)
+	}
+}
+
+// TestLoad_MissingPackRootIsAnError is the bug this whole group covers, at its
+// source. Load used to stat only the SUBdirectories: a root that was not on
+// disk resolved five conventional paths under it, found none of them, recorded
+// the ordinary "fine if this pack has none" notice for each, and returned a Pack
+// with no files and a nil error. Every caller then reported a clean, empty pack
+// for a directory that does not exist.
+func TestLoad_MissingPackRootIsAnError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "no_such_pack")
+
+	p, err := Load(Options{Dir: missing})
+	if err == nil {
+		t.Fatalf("Load of a pack root that is not on disk returned no error (Pack = %+v) -- a caller cannot tell this from an empty pack", p)
+	}
+	// The path, spelled once and verbatim: it is the thing the caller has to
+	// fix, and a message without it sends them looking for which of several
+	// --pack/--features paths was wrong.
+	if !strings.Contains(err.Error(), missing) {
+		t.Errorf("error = %q, want it to name the path %q", err, missing)
+	}
+	if p != nil {
+		t.Errorf("Load returned a Pack alongside the error (%+v); a caller that ignores the error must not find a usable-looking pack", p)
+	}
+}
+
+// A root that IS there but is a file -- --pack aimed at manifest.json, or at a
+// .mcpack nobody unpacked -- is the other half of the same typo, and produced
+// the same wordless clean pack for the same reason.
+func TestLoad_PackRootThatIsAFileIsAnError(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "manifest.json")
+	writeFile(t, file, `{"format_version":2}`)
+
+	_, err := Load(Options{Dir: file})
+	if err == nil {
+		t.Fatal("Load of a pack root that is a file returned no error")
+	}
+	if !strings.Contains(err.Error(), file) {
+		t.Errorf("error = %q, want it to name the path %q", err, file)
+	}
+	// It has to say WHICH of the two wrong things it is. "does not exist" for a
+	// file that plainly does exist is the message that costs the reader the
+	// most time.
+	if !contains(err.Error(), "not a directory") {
+		t.Errorf("error = %q, want it to say the path is a file rather than a directory", err)
+	}
+}
+
+// TestLoad_PackRootWithNoneOfTheExpectedDirsWarnsButLoads pins the DECISION
+// about the third case, which is deliberately not the same as the two above: a
+// real directory holding none of the five is either --pack aimed one level too
+// high or an ordinary behaviour pack with no world-generation content at all,
+// and this loader cannot tell those apart. So it loads, it does not error --
+// and it says so at a level someone will actually read, because the five
+// per-kind notices it already emits each end "(fine if this pack has none)"
+// and between them never say that nothing was loaded.
+func TestLoad_PackRootWithNoneOfTheExpectedDirsWarnsButLoads(t *testing.T) {
+	root := t.TempDir()
+	// A plausible non-worldgen behaviour pack: real files, none of them ours.
+	writeFile(t, filepath.Join(root, "manifest.json"), `{"format_version":2}`)
+	writeFile(t, filepath.Join(root, "loot_tables", "t.json"), `{}`)
+
+	p, err := Load(Options{Dir: root})
+	if err != nil {
+		t.Fatalf("Load: %v -- a directory that exists and simply has no worldgen content is not an error", err)
+	}
+	var found string
+	for _, w := range p.Warnings {
+		if contains(w, "contains none of") {
+			found = w
+		}
+	}
+	if found == "" {
+		t.Fatalf("Warnings = %v, want one saying the root holds none of the five directories", p.Warnings)
+	}
+	if !strings.Contains(found, root) {
+		t.Errorf("notice = %q, want it to name the root %q", found, root)
+	}
+	// It is about the root, not about a missing directory, so it is the one
+	// warning with no MissingDirs entry -- which is what makes a consumer
+	// pairing the two by message level it as a warning rather than as another
+	// benign per-kind note. Pairing by INDEX would now be wrong, and this is
+	// what says so.
+	for _, m := range p.MissingDirs {
+		if m.Message == found {
+			t.Errorf("MissingDirs carries the root notice (%+v); it names no missing directory and must not be levelled as one", m)
+		}
+	}
+}
+
+// The same root with even ONE of the five present is an ordinary pack and must
+// stay silent about the root -- the notice above is worth having only because
+// it is rare.
+func TestLoad_PackRootWithOneOfTheExpectedDirsSaysNothingAboutTheRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "features", "a.json"), `{}`)
+
+	p, err := Load(Options{Dir: root})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range p.Warnings {
+		if contains(w, "contains none of") {
+			t.Errorf("Warnings = %v, want nothing about the root -- features/ is there", p.Warnings)
+		}
 	}
 }
