@@ -18,7 +18,13 @@
 // files (`structures/fossils/fossil_{spine,skull}_0{1-4}.nbt` in a vanilla behaviour pack)
 // every palette entry is `{Name: "minecraft:bone_block", Properties: {axis: "x"|"y"|"z"}}`, and
 // every `blocks` entry is `{pos: [x,y,z], state: <palette index>}` with no `nbt` key on any of
-// the 313 total block entries -- see nbt/legacy.go's own header for the byte-level layout.
+// the 567 total block entries -- see nbt/legacy.go's own header for the byte-level layout.
+// Counted by parsing the eight files with nbt.ParseLegacyStructure: skull_01 86, skull_02 75,
+// skull_03 58, skull_04 32, spine_01 37, spine_02 61, spine_03 97, spine_04 121. Byte-identical
+// in every vanilla behaviour pack checked (1.18.30, 1.19.70, 1.20.50, 1.21.20); these templates
+// have not moved in years. (This header used to say 313, which was simply wrong: no subset of
+// the eight sums to it -- the four spine files, at 316, are the nearest thing -- and no other
+// count of the data lands there either.)
 //
 // ============================================================================================
 // RNG DRAW SEQUENCE -- exactly five draws from ctx.Random (the world-gen/chunk-decoration
@@ -84,9 +90,12 @@
 //     bounds. At 11 blocks tall, 0 of 30 fail. This threshold is exactly the game's
 //     `min height + 10` clamp meeting a bench volume that a real dimension never is.
 //   - A generated area narrower than about 32 blocks in X/Z, partially: offX and offZ are
-//     nextInt(16 - rotatedSize) measured FROM THE ORIGIN, so the anchor can sit up to 15 blocks
-//     east and south of it. With the origin centred, 24 wide loses 5 of 30, 16 wide loses 16 of
-//     30, 8 wide loses 24 of 30; 32 wide and up loses none.
+//     nextInt(16 - rotatedSize) measured FROM THE ORIGIN, and that bound is EXCLUSIVE, so the
+//     largest offset is 15 - rotatedSize, NOT 15. For the real vanilla templates that is 12 at
+//     most (the smallest rotated footprint is 3, in fossil_spine_01's X) and it is 2 for the
+//     13-long spines' own long axis; no template a structure file could hold can exceed 14,
+//     since a size of 0 is not a structure. With the origin centred, 24 wide loses 5 of 30,
+//     16 wide loses 16 of 30, 8 wide loses 24 of 30; 32 wide and up loses none.
 //
 // Both are reachable only when the corner check has already passed, which for thin terrain means
 // max_empty_corners is 8 (or negative); otherwise "Too many empty corners" fires first. The
@@ -151,7 +160,7 @@
 //   - Waterlogging (the "place water below sea level" setting defaults to false and the fossil
 //     path never enables it).
 //   - Block-entity/loot-seed machinery (needs a `nbt` key on a template entry; none of the
-//     eight vanilla files' 313 total entries has one -- see nbt/legacy.go).
+//     eight vanilla files' 567 total entries has one -- see nbt/legacy.go).
 //   - ignoreBlock/structure_block/jigsaw per-entry skips (every fossil entry is plain bone_block).
 //
 // Residual (BOTH INFERRED, non-blocking, disclosed here rather than silently assumed correct):
@@ -497,10 +506,12 @@ func (f *FossilFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 				"(anchor %d,%d,%d; rotation %d; structure %dx%dx%d; area y %d..%d). A fossil is buried "+
 				"15 to 24 blocks below the surface and its anchor is never placed lower than min_y+10 "+
 				"(=%d here), so an area 10 blocks tall or less can never hold one; the x/z offset is also "+
-				"drawn as up to 15 blocks east and south of the origin, so an area narrower than about 32 "+
-				"blocks loses some placements to that alone. Generate a taller or wider area.",
+				"drawn over 0..%d east and 0..%d south of the origin (nextInt(16-size), EXCLUSIVE, over "+
+				"this placement's rotated footprint %dx%d), so an area narrower than about 32 blocks "+
+				"loses some placements to that alone. Generate a taller or wider area.",
 			fossilStructureNames[idx], p.X, p.Y, p.Z, rotation, sizeX, sizeY, sizeZ,
-			api.MinY(), api.MaxY(), minAllowed))
+			api.MinY(), api.MaxY(), minAllowed,
+			fossilOffsetBound-1-rotSizeX, fossilOffsetBound-1-rotSizeZ, rotSizeX, rotSizeZ))
 		return nil
 	}
 	result := p

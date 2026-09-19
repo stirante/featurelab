@@ -883,7 +883,7 @@ func TestFossilFeature_NarrowAreaLosesSomePlacements(t *testing.T) {
 		t.Fatalf("32-wide area lost %d of 30 placements, want 0", lost)
 	}
 	if lost := count(16); lost == 0 {
-		t.Fatal("16-wide area lost nothing -- the x/z offset is supposed to reach 15 blocks past the origin")
+		t.Fatal("16-wide area lost nothing -- the x/z offset is supposed to reach 15 - rotatedSize blocks past the origin")
 	}
 }
 

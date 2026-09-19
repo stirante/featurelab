@@ -263,13 +263,22 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"Second, with a bare `may_attach_to: {}` all four sides match for free and the LAST one wins, " +
 			"so the block always comes out facing west -- writing four files that differ only in the " +
 			"state they place gets you four identical results, in the game as much as here. " +
-			"WHY THIS IS STILL PARTIAL, and it is a narrower gap than it was: the game decides whether to " +
-			"rewrite a state by asking the block's TYPE whether it can ever carry that state, while this " +
-			"bench can only see the states your `places_block` actually spells out. So " +
-			"`places_block: \"minecraft:torch\"` with no states is placed unrotated here where the game " +
-			"would turn it, and there is no way to close that without a per-block state registry this " +
-			"tool does not have. Write the state out if you want the preview to be right. Separately, " +
-			"for ten of the sixteen families the direction the game picks is exact but the NAME that " +
+			"WHY THIS IS STILL PARTIAL, and it is a much narrower gap than it was: the game decides " +
+			"whether to rewrite a state by asking the block's TYPE whether it can ever carry that " +
+			"state, and this bench now asks the same question of its own catalogue of 1,259 vanilla " +
+			"types. A VANILLA block therefore rotates whether or not you spelled the state out -- a " +
+			"bare `places_block: \"minecraft:torch\"` comes out `torch_facing_direction: west`, a bare " +
+			"`minecraft:carved_pumpkin` comes out `minecraft:cardinal_direction: west`. WHAT REMAINS " +
+			"is every type OUTSIDE that catalogue: your own pack's blocks, another add-on's, and any " +
+			"vanilla id newer than the catalogue. For those the bench can still only see the states " +
+			"your `places_block` spells out, so a bare `wiki:my_block` is placed unrotated where the " +
+			"game would turn it, while the same block written with " +
+			"`\"states\": {\"minecraft:cardinal_direction\": \"north\"}` rotates to west like any " +
+			"vanilla one. That holds even for a block YOUR OWN pack declares with the " +
+			"`minecraft:placement_direction` trait: the catalogue is vanilla-only, this type does not " +
+			"read the trait (multi_block_feature is the one type that does), and nothing warns about " +
+			"it -- so write the state out if you want the preview of a custom block to be right. " +
+			"Separately, for ten of the sixteen families the direction the game picks is exact but the NAME that " +
 			"direction is written under is taken from vanilla block definitions rather than from a " +
 			"table the game documents; those ten warn at load time when you use them. The " +
 			"three families packs most often rotate -- block_face, cardinal_direction, pillar_axis -- " +
@@ -286,9 +295,17 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"SET keyed on the rotation value. Rotation is gated on whether the block TYPE declares the " +
 			"state, answered from block/vanilla_states_table.go (1,259 vanilla types with their state " +
 			"domains and defaults); a type the table does not know -- a pack's own block -- falls back " +
-			"to the states spelled out in places_block. What keeps this Partial: (a) that fallback for " +
-			"non-vanilla types; (b) for ten of the sixteen families the value-to-token spelling is " +
-			"inferred from vanilla state definitions, and block.InferredTransformStates drives a " +
+			"to the states spelled out in places_block. Measured against a four-file pack: bare " +
+			"minecraft:torch -> torch_facing_direction west, bare minecraft:carved_pumpkin -> " +
+			"minecraft:cardinal_direction west, bare custom block -> unrotated (still unrotated when " +
+			"the pack's own blocks/ declares it with the minecraft:placement_direction trait, which " +
+			"only Palette.HasCardinalDirectionState reads and only multi_block_feature asks), custom " +
+			"block with cardinal_direction north written out -> west. What keeps this Partial: (a) " +
+			"that fallback for non-vanilla types, silent (the trait case does not even draw the " +
+			"unknown-block-name warning) and visible in the placed block, the same class of gap that " +
+			"keeps horizontal_tree_decoration_feature Partial; (b) for ten of the sixteen families " +
+			"the value-to-token spelling is inferred from vanilla state definitions, and " +
+			"block.InferredTransformStates drives a " +
 			"load-time warning for exactly those (block_face, cardinal_direction and pillar_axis are " +
 			"confirmed); (c) only rotation values 0-3 are modelled -- TransformBlock returns the block " +
 			"unchanged for 4-24, which this feature cannot reach (attachment passes 0/1/2/3 and " +
@@ -384,7 +401,12 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"STILL ASSUMED: a block your own pack defines is taken to stop movement and to be " +
 			"stand-on-able, which is right for an ordinary custom cube and wrong for one whose " +
 			"collision box was removed; this tool does not read a custom block's material. " +
-			"`unburied`'s own air test is exact.",
+			"`unburied`'s own air test is exact. ONE THING `facing_direction` DOES NOT DO: it turns " +
+			"POSITIONS, not states. Every cell is written with exactly the block the structure file " +
+			"holds, states included, so a structure full of stairs or logs comes out of a quarter " +
+			"turn facing the way it was authored. `fossil_feature`, the other type that stamps a " +
+			"structure file, is the opposite -- it rotates its bone blocks' `pillar_axis` on a " +
+			"quarter turn -- so do not read one across to the other.",
 		evidence: "facing_direction enum: south=0 west=1 north=2 east=3 random=255, absent means south. " +
 			"Sample points: grounded samples (x, clamp(ground_level), z) and tests the row ONE BELOW " +
 			"the ground row; unburied samples the fixed top row (sizeY-1), skips columns whose top-row " +
@@ -403,7 +425,12 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"solid-blocking are TYPE-level (no block state reaches them) and come from block/motion.go " +
 			"(1257 vanilla ids); grounded/leveled call block.IsSolidBlocking. A pack's JSON block is a " +
 			"plain block type that blocks motion and is solid, whatever its minecraft:collision_box, " +
-			"exactly as in the game.",
+			"exactly as in the game. The per-block copy is rotateXZ on the POSITION and a verbatim " +
+			"SetBlock of the structure's own palette id: block/rotate.go's TransformBlock is never " +
+			"reached from this file, so no block state is ever rewritten, in contrast to fossil.go's " +
+			"fossilRotateAxis. Whether the engine's own template placement rewrites directional " +
+			"states on a rotation has NOT been confirmed either way; what is recorded here is this " +
+			"port's behaviour and the fact that the two structure-stamping types differ in it.",
 	},
 	{
 		TypeID: "minecraft:surface_relative_threshold_feature",
@@ -718,7 +745,15 @@ var FeatureTypeCoverage = []CoverageEntry{
 		Status: StatusImplemented,
 		Note: "Buries one of eight hardcoded fossil structures (four spine, four skull) in stone, with " +
 			"a proportion of its bone blocks swapped for your `ore_block`. Both keys the type has, " +
-			"`ore_block` and `max_empty_corners`, are required and implemented. THE STRUCTURE FILES ARE " +
+			"`ore_block` and `max_empty_corners`, are required and implemented. IT ROTATES THE BONE " +
+			"BLOCKS' STATES, not just their positions: a quarter-turn (rotation 1 or 3) swaps each " +
+			"bone block's `pillar_axis` between x and z, y passing through, so a rotated fossil's " +
+			"ribs still run along the body. That is worth saying next to " +
+			"`structure_template_feature`, the other type here that stamps a structure file: THAT one " +
+			"copies each block's states verbatim and turns positions only. The two really do " +
+			"disagree, and the fossil side is the one carrying an inference -- the exact x/z rule is " +
+			"INFERRED (see features/fossil.go's \"Residual\"), while the structure-template path " +
+			"applies no state transform at all. THE STRUCTURE FILES ARE " +
 			"NOT SHIPPED WITH THIS TOOL -- they are Mojang assets, so you point `--pack` or " +
 			"`--structures` at your own installed vanilla behaviour pack (the fossils live under its " +
 			"`structures/fossils/`). If one is missing, this refuses at build time and lists every " +
@@ -729,8 +764,10 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"not an approximation of the fossil itself. A fossil is buried 15 to 24 blocks below the " +
 			"surface and its anchor is never put lower than ten blocks above the bottom of the area " +
 			"being generated, so a preview area ten blocks tall or less has nowhere to put one at all: " +
-			"every seed then reports \"No blocks could be placed\". The horizontal offset is drawn as " +
-			"up to fifteen blocks east and south of the origin, so an area narrower than about " +
+			"every seed then reports \"No blocks could be placed\". The horizontal offset is drawn east " +
+			"and south of the origin over an EXCLUSIVE bound of sixteen minus the structure's rotated " +
+			"size, so its largest value is fifteen minus that size -- about twelve for the real " +
+			"fossils and never more than fourteen for any template -- and an area narrower than about " +
 			"thirty-two blocks loses some placements off that edge too. Both are the preview area being " +
 			"too small rather than anything about your JSON -- the game writes into a whole chunk column " +
 			"and reports success regardless, so this failure is this tool speaking, and the message " +
@@ -867,13 +904,16 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"optional and both default to false. New in 1.26.50.24, but usable from format_version " +
 			"1.13.0. REFUSES NOTHING, BUT SKIPS A CHECK: the engine first verifies that your " +
 			"places_block actually HAS a cardinal_direction and a growth state, and logs an error " +
-			"and places nothing if it does not. This tool cannot ask that question -- its block " +
-			"palette does not carry a per-block-type list of which states exist -- so it assumes " +
-			"the check passes and warns once when the feature loads. The practical consequence: a " +
-			"places_block missing either state will look like it works here and will place nothing " +
-			"in the game. Relatedly, bark_side_only needs the origin block's pillar_axis; where " +
-			"that state is absent this tool treats it as y (the vanilla default) and warns, while " +
-			"the engine would refuse outright.",
+			"and places nothing if it does not. This tool now asks the same question of its own " +
+			"per-block-type state catalogue, so a VANILLA places_block missing either state fails " +
+			"every placement here exactly as it does in the game, and is told which state is " +
+			"missing. What is left is the non-vanilla case: a block your pack (or another add-on) " +
+			"defines is not in that catalogue, so both gates are assumed to pass and one warning " +
+			"says so at load time -- such a places_block can look like it works here and place " +
+			"nothing in the game. Relatedly, bark_side_only needs the origin block's pillar_axis: a " +
+			"vanilla trunk that declares the state but was placed without one supplies its own " +
+			"default, a vanilla type that declares none (dirt, stone) refuses the placement as the " +
+			"engine does, and only a non-vanilla trunk still falls back to y with a warning.",
 		evidence: "New in 1.26.50.24. Schema: places_block is a required block descriptor; " +
 			"allow_adjacent and bark_side_only are optional bools defaulting to false; no other keys. " +
 			"Placement: two has-state gates (cardinal_direction, then growth) that log and return with " +
@@ -884,8 +924,11 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"inclusive draw over (0,1), only on the success path; then the cardinal_direction and " +
 			"growth writes and one block write with flag 3. Draw budget 0, 1 or 2. Direction values: " +
 			"0=south, 1=west, 2=north, 3=east. The only vanilla blocks with both states are pink_petals, " +
-			"wildflowers and leaf_litter. What keeps this Partial: the two has-state gates are assumed " +
-			"to pass, so the bench places where the game would refuse.",
+			"wildflowers and leaf_litter. The two has-state gates are evaluated against " +
+			"block/vanilla_states.go (block.VanillaBlockKnown + block.LookupVanillaState, asked once " +
+			"at build time), so what keeps this Partial is only the type that catalogue does not " +
+			"know: for a non-vanilla places_block both gates are assumed to pass and the bench " +
+			"places where the game would refuse.",
 	},
 	{
 		TypeID: "minecraft:multi_block_feature",
