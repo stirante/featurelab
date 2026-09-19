@@ -1,0 +1,42 @@
+{
+  "typeId": "minecraft:snap_to_surface_feature",
+  "slug": "snap_to_surface_feature",
+  "anchors": [
+    {
+      "path": "feature_to_snap",
+      "anchor": "feature_to_snap"
+    },
+    {
+      "path": "search_range",
+      "anchor": "search_range"
+    },
+    {
+      "path": "vertical_search_range",
+      "anchor": "vertical_search_range"
+    },
+    {
+      "path": "surface",
+      "anchor": "surface"
+    },
+    {
+      "path": "allowed_surface_blocks",
+      "anchor": "allowed_surface_blocks"
+    },
+    {
+      "path": "allow_air_placement",
+      "anchor": "allow_air_placement"
+    },
+    {
+      "path": "allow_underwater_placement",
+      "anchor": "allow_underwater_placement"
+    },
+    {
+      "path": "embed_in_surface",
+      "anchor": "embed_in_surface"
+    },
+    {
+      "path": "allow_non_air_placement",
+      "anchor": "allow_non_air_placement"
+    }
+  ]
+}

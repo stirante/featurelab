@@ -1,0 +1,58 @@
+{
+  "typeId": "minecraft:structure_template_feature",
+  "slug": "structure_template_feature",
+  "anchors": [
+    {
+      "path": "structure_name",
+      "anchor": "structure_name"
+    },
+    {
+      "path": "facing_direction",
+      "anchor": "facing_direction"
+    },
+    {
+      "path": "rotate_around_center",
+      "anchor": "rotate_around_center"
+    },
+    {
+      "path": "ground_level",
+      "anchor": "ground_level"
+    },
+    {
+      "path": "adjustment_radius",
+      "anchor": "adjustment_radius"
+    },
+    {
+      "path": "constraints",
+      "anchor": "constraints"
+    },
+    {
+      "path": "constraints.grounded",
+      "anchor": "constraints-grounded"
+    },
+    {
+      "path": "constraints.unburied",
+      "anchor": "constraints-unburied"
+    },
+    {
+      "path": "constraints.block_intersection",
+      "anchor": "constraints-block_intersection"
+    },
+    {
+      "path": "constraints.block_intersection.block_allowlist",
+      "anchor": "constraints-block_intersection-block_allowlist"
+    },
+    {
+      "path": "constraints.block_intersection.only_check_intersection_for_motion_blocking_blocks",
+      "anchor": "constraints-block_intersection-only_check_intersection_for_motion_blocking_blocks"
+    },
+    {
+      "path": "constraints.leveled",
+      "anchor": "constraints-leveled"
+    },
+    {
+      "path": "constraints.leveled.max_steepness",
+      "anchor": "constraints-leveled-max_steepness"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "typeId": "minecraft:geode_feature",
+  "slug": "geode_feature",
+  "anchors": [
+    {
+      "path": "filler",
+      "anchor": "filler"
+    },
+    {
+      "path": "inner_layer",
+      "anchor": "inner_layer"
+    },
+    {
+      "path": "alternate_inner_layer",
+      "anchor": "alternate_inner_layer"
+    },
+    {
+      "path": "middle_layer",
+      "anchor": "middle_layer"
+    },
+    {
+      "path": "outer_layer",
+      "anchor": "outer_layer"
+    },
+    {
+      "path": "inner_placements",
+      "anchor": "inner_placements"
+    },
+    {
+      "path": "min_outer_wall_distance",
+      "anchor": "min_outer_wall_distance"
+    },
+    {
+      "path": "max_outer_wall_distance",
+      "anchor": "max_outer_wall_distance"
+    },
+    {
+      "path": "min_distribution_points",
+      "anchor": "min_distribution_points"
+    },
+    {
+      "path": "max_distribution_points",
+      "anchor": "max_distribution_points"
+    },
+    {
+      "path": "min_point_offset",
+      "anchor": "min_point_offset"
+    },
+    {
+      "path": "max_point_offset",
+      "anchor": "max_point_offset"
+    },
+    {
+      "path": "max_radius",
+      "anchor": "max_radius"
+    },
+    {
+      "path": "crack_point_offset",
+      "anchor": "crack_point_offset"
+    },
+    {
+      "path": "generate_crack_chance",
+      "anchor": "generate_crack_chance"
+    },
+    {
+      "path": "base_crack_size",
+      "anchor": "base_crack_size"
+    },
+    {
+      "path": "noise_multiplier",
+      "anchor": "noise_multiplier"
+    },
+    {
+      "path": "use_potential_placements_chance",
+      "anchor": "use_potential_placements_chance"
+    },
+    {
+      "path": "use_alternate_layer0_chance",
+      "anchor": "use_alternate_layer0_chance"
+    },
+    {
+      "path": "placements_require_layer0_alternate",
+      "anchor": "placements_require_layer0_alternate"
+    },
+    {
+      "path": "invalid_blocks_threshold",
+      "anchor": "invalid_blocks_threshold"
+    }
+  ]
+}

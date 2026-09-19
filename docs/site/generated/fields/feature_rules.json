@@ -1,0 +1,70 @@
+{
+  "typeId": "minecraft:feature_rule",
+  "slug": "feature_rules",
+  "anchors": [
+    {
+      "path": "description.identifier",
+      "anchor": "description-identifier"
+    },
+    {
+      "path": "description.places_feature",
+      "anchor": "description-places_feature"
+    },
+    {
+      "path": "conditions",
+      "anchor": "conditions"
+    },
+    {
+      "path": "conditions.placement_pass",
+      "anchor": "conditions-placement_pass"
+    },
+    {
+      "path": "conditions.minecraft:biome_filter",
+      "anchor": "conditions-minecraft-biome_filter"
+    },
+    {
+      "path": "distribution",
+      "anchor": "distribution"
+    },
+    {
+      "path": "distribution.iterations",
+      "anchor": "distribution-iterations"
+    },
+    {
+      "path": "distribution.x",
+      "anchor": "distribution-x"
+    },
+    {
+      "path": "distribution.x.distribution",
+      "anchor": "distribution-x-distribution"
+    },
+    {
+      "path": "distribution.x.extent",
+      "anchor": "distribution-x-extent"
+    },
+    {
+      "path": "distribution.x.step_size",
+      "anchor": "distribution-x-step_size"
+    },
+    {
+      "path": "distribution.x.grid_offset",
+      "anchor": "distribution-x-grid_offset"
+    },
+    {
+      "path": "distribution.y",
+      "anchor": "distribution-y"
+    },
+    {
+      "path": "distribution.z",
+      "anchor": "distribution-z"
+    },
+    {
+      "path": "distribution.scatter_chance",
+      "anchor": "distribution-scatter_chance"
+    },
+    {
+      "path": "distribution.coordinate_eval_order",
+      "anchor": "distribution-coordinate_eval_order"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "typeId": "minecraft:growing_plant_feature",
+  "slug": "growing_plant_feature",
+  "anchors": [
+    {
+      "path": "height_distribution",
+      "anchor": "height_distribution"
+    },
+    {
+      "path": "height_distribution.0",
+      "anchor": "height_distribution-0"
+    },
+    {
+      "path": "height_distribution.1",
+      "anchor": "height_distribution-1"
+    },
+    {
+      "path": "growth_direction",
+      "anchor": "growth_direction"
+    },
+    {
+      "path": "body_blocks",
+      "anchor": "body_blocks"
+    },
+    {
+      "path": "body_blocks.block",
+      "anchor": "body_blocks-block"
+    },
+    {
+      "path": "body_blocks.weight",
+      "anchor": "body_blocks-weight"
+    },
+    {
+      "path": "head_blocks",
+      "anchor": "head_blocks"
+    },
+    {
+      "path": "age",
+      "anchor": "age"
+    },
+    {
+      "path": "allow_water",
+      "anchor": "allow_water"
+    }
+  ]
+}

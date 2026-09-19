@@ -1,0 +1,10 @@
+{
+  "typeId": "minecraft:weighted_random_feature",
+  "slug": "weighted_random_feature",
+  "anchors": [
+    {
+      "path": "features",
+      "anchor": "features"
+    }
+  ]
+}

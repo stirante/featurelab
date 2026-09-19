@@ -1,0 +1,78 @@
+{
+  "typeId": "minecraft:scatter_feature",
+  "slug": "scatter_feature",
+  "anchors": [
+    {
+      "path": "places_feature",
+      "anchor": "places_feature"
+    },
+    {
+      "path": "distribution.iterations",
+      "anchor": "distribution-iterations"
+    },
+    {
+      "path": "project_input_to_floor",
+      "anchor": "project_input_to_floor"
+    },
+    {
+      "path": "distribution",
+      "anchor": "distribution"
+    },
+    {
+      "path": "distribution.scatter_chance",
+      "anchor": "distribution-scatter_chance"
+    },
+    {
+      "path": "distribution.coordinate_eval_order",
+      "anchor": "distribution-coordinate_eval_order"
+    },
+    {
+      "path": "distribution.x",
+      "anchor": "distribution-x"
+    },
+    {
+      "path": "distribution.x.distribution",
+      "anchor": "distribution-x-distribution"
+    },
+    {
+      "path": "distribution.x.extent",
+      "anchor": "distribution-x-extent"
+    },
+    {
+      "path": "distribution.x.step_size",
+      "anchor": "distribution-x-step_size"
+    },
+    {
+      "path": "distribution.x.grid_offset",
+      "anchor": "distribution-x-grid_offset"
+    },
+    {
+      "path": "distribution.y",
+      "anchor": "distribution-y"
+    },
+    {
+      "path": "distribution.z",
+      "anchor": "distribution-z"
+    },
+    {
+      "path": "scatter_chance",
+      "anchor": "scatter_chance"
+    },
+    {
+      "path": "coordinate_eval_order",
+      "anchor": "coordinate_eval_order"
+    },
+    {
+      "path": "x",
+      "anchor": "x"
+    },
+    {
+      "path": "y",
+      "anchor": "y"
+    },
+    {
+      "path": "z",
+      "anchor": "z"
+    }
+  ]
+}

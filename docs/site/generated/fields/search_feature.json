@@ -1,0 +1,30 @@
+{
+  "typeId": "minecraft:search_feature",
+  "slug": "search_feature",
+  "anchors": [
+    {
+      "path": "places_feature",
+      "anchor": "places_feature"
+    },
+    {
+      "path": "search_volume",
+      "anchor": "search_volume"
+    },
+    {
+      "path": "search_volume.min",
+      "anchor": "search_volume-min"
+    },
+    {
+      "path": "search_volume.max",
+      "anchor": "search_volume-max"
+    },
+    {
+      "path": "search_axis",
+      "anchor": "search_axis"
+    },
+    {
+      "path": "required_successes",
+      "anchor": "required_successes"
+    }
+  ]
+}

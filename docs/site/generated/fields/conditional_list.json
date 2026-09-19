@@ -1,0 +1,22 @@
+{
+  "typeId": "minecraft:conditional_list",
+  "slug": "conditional_list",
+  "anchors": [
+    {
+      "path": "conditional_features",
+      "anchor": "conditional_features"
+    },
+    {
+      "path": "conditional_features.places_feature",
+      "anchor": "conditional_features-places_feature"
+    },
+    {
+      "path": "conditional_features.condition",
+      "anchor": "conditional_features-condition"
+    },
+    {
+      "path": "early_out_scheme",
+      "anchor": "early_out_scheme"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "typeId": "minecraft:sculk_patch_feature",
+  "slug": "sculk_patch_feature",
+  "anchors": [
+    {
+      "path": "can_place_sculk_patch_on",
+      "anchor": "can_place_sculk_patch_on"
+    },
+    {
+      "path": "central_block",
+      "anchor": "central_block"
+    },
+    {
+      "path": "central_block_placement_chance",
+      "anchor": "central_block_placement_chance"
+    },
+    {
+      "path": "charge_amount",
+      "anchor": "charge_amount"
+    },
+    {
+      "path": "cursor_count",
+      "anchor": "cursor_count"
+    },
+    {
+      "path": "spread_attempts",
+      "anchor": "spread_attempts"
+    },
+    {
+      "path": "growth_rounds",
+      "anchor": "growth_rounds"
+    },
+    {
+      "path": "spread_rounds",
+      "anchor": "spread_rounds"
+    },
+    {
+      "path": "extra_growth_chance",
+      "anchor": "extra_growth_chance"
+    }
+  ]
+}
