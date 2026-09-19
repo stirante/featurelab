@@ -74,7 +74,7 @@ function grid(): { graph: GraphWire; positions: Array<[string, { x: number; y: n
 /** The same pack with b and c folded into one card standing where b was. */
 function folded(): { graph: GraphWire; positions: Array<[string, { x: number; y: number }]> } {
   const base = grid()
-  const card: GraphNodeWire = { id: 'group:pair', group: { id: 'pair', name: 'The Pair', count: 2 } }
+  const card: GraphNodeWire = { id: 'group:pair', group: { id: 'pair', name: 'The Pair', count: 2, memberIds: ['ex:b', 'ex:c'] } }
   return {
     graph: {
       nodes: [base.graph.nodes[0]!, card, base.graph.nodes[3]!],
@@ -277,6 +277,75 @@ describe('graph render: feature groups', () => {
     }
   }, 30_000)
 
+  it('names its members on the card and in the hover, rather than being a name and a number', async () => {
+    // A COLLAPSED GROUP USED TO BE UNREADABLE FROM OUTSIDE. "The Pair / 2 features", a `title`
+    // that said the same in longer words, and nothing on hover: the only way to learn what was
+    // inside was to select the card and read the sidebar. The whole reason to fold a group is to
+    // go on seeing the pack's shape, and a box whose contents are unknowable is a hole in it.
+    const page = await load(folded(), [])
+    try {
+      const card = page.locator('.flg-node.flg-node-group[data-node-id="group:pair"]')
+      // On the face, bare -- the namespace is the same five characters on every line and none of
+      // the difference.
+      expect(await card.locator('.flg-node-group-members').textContent()).toBe('b, c')
+      // In the hover, in full, and in the accessible name with it.
+      expect(await card.getAttribute('title')).toContain('Inside: ex:b, ex:c.')
+      expect(await card.getAttribute('aria-label')).toContain('Inside: ex:b, ex:c.')
+      // Still the same box. This line lives inside a card budgeted to the pixel, and a third row
+      // that grew it would push the badges out of every card on the canvas.
+      const box = (await card.boundingBox())!
+      expect(Math.round(box.width)).toBe(GRAPH_NODE_WIDTH)
+      expect(Math.round(box.height)).toBe(GRAPH_NODE_HEIGHT)
+      // And it is inside the card, not spilling past its edge.
+      const line = (await card.locator('.flg-node-group-members').boundingBox())!
+      expect(line.x + line.width).toBeLessThanOrEqual(box.x + box.width + 0.5)
+      expect(line.y + line.height).toBeLessThanOrEqual(box.y + box.height + 0.5)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('shows how many members it is not naming, and stops naming them when zoomed out', async () => {
+    const many = folded()
+    const members = ['ex:b', 'ex:c', 'ex:e', 'ex:f', 'ex:g']
+    const scene = {
+      ...many,
+      graph: {
+        ...many.graph,
+        nodes: many.graph.nodes.map((n) => (n.id === 'group:pair' ? { ...n, group: { id: 'pair', name: 'The Pair', count: 5, memberIds: members } } : n)),
+      },
+    }
+    const page = await load(scene, [])
+    try {
+      const line = page.locator('.flg-node-group-members')
+      // Three named, the rest counted. A truncated list read as a full one is a lie the card
+      // tells; "+2" is a fact.
+      expect(await line.textContent()).toBe('b, c, e +2')
+      // Six in the hover, and the remainder said in words.
+      const card = page.locator('.flg-node.flg-node-group[data-node-id="group:pair"]')
+      expect(await card.getAttribute('title')).toContain('Inside: ex:b, ex:c, ex:e, ex:f, ex:g.')
+      expect(await line.isVisible()).toBe(true)
+
+      // It is a SENTENCE, so it goes at the band where the other sentences go -- the same rule
+      // the fan-out line and the coverage note follow. See ZOOM_BAND_NEAR in render.ts.
+      await page.evaluate(() => {
+        const view = (window as unknown as { view: Record<string, unknown> }).view
+        ;(view.setCamera as (c: { x: number; y: number; zoom: number }) => void)({ x: 0, y: 0, zoom: 0.7 })
+      })
+      // setCamera COALESCES into the next animation frame (see scheduleCamera), so the band
+      // attribute the stylesheet keys off is not written by the time the call returns. Waiting
+      // for the frame rather than for a duration: read straight after the evaluate this passed
+      // alone and failed whenever the file's other cases had run first, which is a race in the
+      // test and not a second opinion about what the card should show.
+      await page.waitForFunction(() => document.querySelector('.flg-graph')?.getAttribute('data-zoom-band') === 'mid', undefined, { timeout: 5_000 })
+      expect(await line.isVisible()).toBe(false)
+      // The count above it survives, because a number is still readable there.
+      expect(await page.locator('.flg-node-group-count').isVisible()).toBe(true)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
   it('ctrl+click adds to and removes from a multi-selection, which is always two or more', async () => {
     const page = await load(grid(), [])
     try {
@@ -302,7 +371,7 @@ describe('graph render: feature groups', () => {
     }
   }, 30_000)
 
-  it('shift+drag on empty canvas selects the cards it touches; a plain drag still pans', async () => {
+  it('shift+drag on empty canvas selects the cards it touches; the middle button still pans', async () => {
     const page = await load(grid(), [])
     try {
       const host = (await page.locator('.flg-graph').boundingBox())!
@@ -322,11 +391,14 @@ describe('graph render: feature groups', () => {
       const cameraAfterMarquee = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number } } }).view.getCamera().x)
       expect(cameraAfterMarquee).toBe(0)
 
-      // Without shift the same gesture pans and selects nothing new.
+      // The MIDDLE BUTTON pans and selects nothing new. A plain left drag on the background is a
+      // marquee now -- the gesture every tool in the genre puts there -- so the pan lives on the
+      // middle button and on space+drag. Shift+drag above is unchanged, which is the whole point:
+      // the modifier people already learned keeps working.
       await page.mouse.move(from.x, from.y)
-      await page.mouse.down()
+      await page.mouse.down({ button: 'middle' })
       await page.mouse.move(from.x - 80, from.y - 40, { steps: 4 })
-      await page.mouse.up()
+      await page.mouse.up({ button: 'middle' })
       const cameraAfterPan = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number } } }).view.getCamera().x)
       expect(cameraAfterPan).toBeGreaterThan(50)
       const seen = await events(page)
