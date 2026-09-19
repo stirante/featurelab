@@ -214,8 +214,24 @@ export type EdgeProblemCode =
   | 'sequence-without-return'
   | 'empty-required'
   | 'zero-at-origin'
+  | 'unbalanced'
+  | 'unterminated-string'
+  | 'dangling-operator'
+  | 'string-arithmetic'
+  /** The file changed under a draft the author had not committed. See `reseed`. */
+  | 'external-change'
 
-export type EdgeActionKind = 'reveal-origin' | 'reveal-json' | 'annotate-ignore' | 'insert-fallback'
+export type EdgeActionKind =
+  | 'reveal-origin'
+  | 'reveal-json'
+  | 'annotate-ignore'
+  | 'insert-fallback'
+  /** Throw the draft away and take what the file now holds -- the safe half of an
+   * 'external-change'. */
+  | 'take-file-value'
+  /** Keep typing, and stop being asked. The draft is unchanged; the editor simply stops
+   * reporting the change it already reported once. */
+  | 'keep-draft'
 
 export interface EdgeAction {
   kind: EdgeActionKind
@@ -259,8 +275,22 @@ export interface MolangEdgeView {
   status: EdgeStatus
   /** Present exactly while the text is a bare number, i.e. while a stepper is a lossless view
    * of it. Null the instant it is not -- see this file's header on why the control itself is
-   * never a spin-box. */
-  stepper: { value: number; min: number; step: number } | null
+   * never a spin-box.
+   *
+   * THE MODE IS A PROPERTY OF THE VALUE, NOT OF A KEY NAME. This used to be computed only when
+   * `field === 'iterations'`, which made every other slot -- both ends of an `extent`, a
+   * `width_modifier`, a `scatter_chance`, a rule's `condition` -- permanently "expression" no
+   * matter what was in it. `width_modifier: 0` reported mode `expression` and offered "Back to 0"
+   * while already holding 0, which is the tell that the mode was being read off the key rather
+   * than off the text. Every slot in this editor holds the same language and the question "is
+   * this a plain number right now" has the same answer everywhere, so it is asked the same way
+   * everywhere.
+   *
+   * The BOUNDS are the slot's, because those genuinely differ: `iterations` is a count and
+   * floors at 0, an `extent` end is routinely negative, and a slot that knows its own schema
+   * bounds passes them in (MolangEdgeInput.numeric). Absent means unbounded, which is the only
+   * honest default for a key this editor knows nothing about. */
+  stepper: { value: number; min?: number; max?: number; step: number } | null
   /** Which of the three `iterations` idioms the text is currently doing. Empty for a
    * `condition` edge, whose single job needs no classification. */
   idioms: readonly IterationsIdiom[]
@@ -285,6 +315,14 @@ export interface MolangEdgeView {
    * muted marker rather than nothing at all. */
   suppressed: readonly EdgeProblemCode[]
   evaluation: EdgeEvaluation | null
+  /** Set while the FILE has moved under an uncommitted draft -- see `reseed`. `fileValue` is what
+   * the file now holds; `text` is still the author's. A renderer shows both and offers the
+   * choice; it must never resolve this on their behalf. */
+  conflict: { fileValue: string | null } | null
+  /** The last bare number this expression held, so a renderer can offer a way BACK to a plain
+   * count after a template or an edit turned it into an expression. Null when this editor has
+   * never seen one. */
+  lastNumber: number | null
 }
 
 /** Seeds for the two idioms a text box does not advertise. Offered as one-click inserts because
@@ -352,6 +390,15 @@ export interface MolangEdgeInput {
   /** wire.Annotation entries; those whose jsonPath is not this edge's are ignored. */
   annotations?: readonly EdgeAnnotation[]
   biomeId?: string
+  /** What this SLOT accepts as a plain number, when the caller knows: the schema bounds and the
+   * granularity a nudge should move by. It does not decide whether the value IS a number -- the
+   * text decides that, everywhere, for every field -- only what the up/down arrows are allowed to
+   * produce once it is. See MolangEdgeView.stepper.
+   *
+   * Left out, the stepper is unbounded and steps by 1, which is the only thing that can be
+   * claimed about a key this editor has not been told about. `iterations` is the one field with
+   * a bound of its own: a negative count is not a count. */
+  numeric?: { min?: number; max?: number; step?: number }
 }
 
 export interface MolangEdgeEditorOptions {
@@ -415,6 +462,15 @@ export class MolangEdgeEditor {
   /** The text `response` describes. A response about text the author has since edited is stale
    * and is reported as such rather than shown as if it were current. */
   private responseFor: string | null = null
+  /** What the FILE held when it last disagreed with an uncommitted draft, and the author has not
+   * yet said which of the two wins. See `reseed`. */
+  private conflict: string | null = null
+  private conflictActive = false
+  /** The last bare number this expression held -- see MolangEdgeView.lastNumber. */
+  private lastNumber: number | null = null
+  /** What this SLOT accepts as a plain number -- see MolangEdgeInput.numeric. Resolved once in
+   * the constructor so `view()` stays a pure read. */
+  private readonly numeric: { min?: number; max?: number; step: number }
   private validating = false
   private inflight: Promise<void> | null = null
   private cancelSchedule: (() => void) | null = null
@@ -433,6 +489,15 @@ export class MolangEdgeEditor {
     this.committed = input.value
     this.origin = input.origin
     this.biomeId = input.biomeId
+    // The only bound this editor claims on its own account: a count cannot be negative. Anything
+    // else -- an extent end at -5, a width_modifier at 0.4 -- is the slot's to state, and stays
+    // unbounded when nobody does.
+    const given = input.numeric ?? (input.field === 'iterations' ? { min: 0 } : {})
+    this.numeric = {
+      ...(given.min === undefined ? {} : { min: given.min }),
+      ...(given.max === undefined ? {} : { max: given.max }),
+      step: given.step ?? 1,
+    }
     // Both paths are read. A directive about the delegation and a directive about the expression
     // are written on different members but are both "on this edge" as far as a reader is
     // concerned, and an author who put `ignore` above the wrong one of two adjacent lines should
@@ -448,7 +513,98 @@ export class MolangEdgeEditor {
     // confidently, so this is a no-op on a half-written or unusual expression rather than a
     // rewrite of it.
     this.draft = input.value === null ? '' : formatMolang(input.value)
+    this.rememberNumber()
     if (this.committed !== null) this.requestValidation()
+  }
+
+  /** Notes the draft when it is a bare count, so `lastNumber` can offer the way back. */
+  private rememberNumber(): void {
+    const constant = analyseIterations(this.draft).constant
+    if (constant !== null) this.lastNumber = constant
+  }
+
+  /**
+   * THE FILE HAS MOVED. Takes the value the host has just re-read off disk and decides what that
+   * means for the draft on screen.
+   *
+   * WHY THIS EXISTS. The host caches one editor per edge, keyed by from + jsonPath + field, and
+   * that cache is the whole point: it is what keeps the caret and the uncommitted text alive
+   * while the author clicks away to look at something and comes back. What it did NOT do was ever
+   * look at the value again. So a file changed by anything other than this box -- a save in the
+   * text editor, an undo, another panel's write, another window -- left the editor holding the
+   * value from whenever it was built, silently. The edge's own tooltip read the new value while
+   * the box a foot away read the old one, and the next keystroke committed the old one over the
+   * top of the new. No conflict, no warning, no way to notice.
+   *
+   * The three cases, and the rule behind them:
+   *
+   *   1. THE SAME VALUE. Almost always -- it is what comes back after this editor's own write.
+   *      Nothing happens, and in particular the draft is not re-formatted underneath a caret.
+   *   2. A DIFFERENT VALUE, AND THE BOX IS CLEAN. The author has nothing invested in what is on
+   *      screen, so the file wins outright: it is the truth, and showing anything else is the bug
+   *      this method is named after.
+   *   3. A DIFFERENT VALUE, AND THE BOX IS DIRTY. Neither side may be thrown away. The draft
+   *      stays exactly as typed -- discarding somebody's typing to make room for a file write is
+   *      the same class of loss, pointed the other way -- the new value becomes what a commit
+   *      would be overwriting, and the editor reports an `external-change` problem naming both
+   *      texts and offering the two answers. It does not choose.
+   *
+   * Returns which of the three happened, so a host can repaint or not.
+   */
+  reseed(value: string | null): 'unchanged' | 'adopted' | 'conflict' {
+    if (this.disposed) return 'unchanged'
+    if (value === this.committed) return 'unchanged'
+    // Dirty is measured the way commit() measures it: against what would GO IN THE FILE. A draft
+    // that merely reads differently because it was laid out for the screen is not an edit, and
+    // treating it as one would raise a conflict on every edge anybody looked at.
+    const dirty = this.valueToWrite() !== (this.committed ?? '')
+    this.committed = value
+    if (!dirty) {
+      this.conflict = null
+      this.conflictActive = false
+      this.draft = value === null ? '' : formatMolang(value)
+      this.rememberNumber()
+      this.requestValidation()
+      return 'adopted'
+    }
+    this.conflict = value
+    this.conflictActive = true
+    return 'conflict'
+  }
+
+  /** Puts the draft back to what the file holds, abandoning the edit. This is what Escape does,
+   * and what the 'take-file-value' action on a conflict does.
+   *
+   * Returns false when there was nothing to abandon, so a key handler can let Escape go on
+   * meaning whatever else it means in the surrounding panel. */
+  revert(): boolean {
+    if (this.disposed) return false
+    const next = this.committed === null ? '' : formatMolang(this.committed)
+    const wasConflicted = this.conflictActive
+    this.conflict = null
+    this.conflictActive = false
+    if (next === this.draft) return wasConflicted
+    this.draft = next
+    this.rememberNumber()
+    this.requestValidation()
+    return true
+  }
+
+  /** Stops reporting a conflict this author has already answered by carrying on typing. The
+   * draft and the committed value are untouched: the next commit still overwrites the file, which
+   * is what "keep mine" means. */
+  keepDraft(): void {
+    this.conflictActive = false
+  }
+
+  /** Replaces the text with a bare count -- the way BACK from an expression, for a renderer
+   * offering the two modes as a choice. Uses the last number this editor saw when the caller
+   * names none, and refuses when there is none to go back to. */
+  useNumber(value?: number): boolean {
+    const next = value ?? this.lastNumber
+    if (next === null || next === undefined || !Number.isFinite(next)) return false
+    this.setText(String(next))
+    return true
   }
 
   /** Subscribe to change events. Returns the unsubscriber. */
@@ -468,6 +624,7 @@ export class MolangEdgeEditor {
   setText(next: string): void {
     if (next === this.draft) return
     this.draft = next
+    this.rememberNumber()
     this.requestValidation()
   }
 
@@ -494,6 +651,9 @@ export class MolangEdgeEditor {
     const value = this.valueToWrite()
     if (value === (this.committed ?? '')) return false
     this.committed = value
+    // A commit ANSWERS a conflict: the author has decided, in the only way that touches the file.
+    this.conflict = null
+    this.conflictActive = false
     this.emit({ kind: 'value', field: this.field, edge: this.edge, value })
     return true
   }
@@ -607,6 +767,12 @@ export class MolangEdgeEditor {
         // wgen.UnresolvedReadWarning, which offers exactly this or an upstream write.
         if (action.name !== undefined) this.setText(`(${this.draft}) ?? 0`)
         return
+      case 'take-file-value':
+        this.revert()
+        return
+      case 'keep-draft':
+        this.keepDraft()
+        return
     }
   }
 
@@ -694,9 +860,37 @@ export class MolangEdgeEditor {
     const text = this.draft
     const absent = this.committed === null && text.length === 0
     const refs = scanMolang(text)
+    // The IDIOM analysis is an `iterations` question -- a condition has one job and a
+    // width_modifier is not a loop -- so it stays gated on the field. Whether the text is a bare
+    // number is not: see MolangEdgeView.stepper.
     const analysis = this.field === 'iterations' ? analyseIterations(text) : null
+    const constant = analysis === null ? analyseIterations(text).constant : analysis.constant
     const problems: EdgeProblem[] = []
     const suppressed: EdgeProblemCode[] = []
+
+    // THE CONFLICT LEADS. Everything else in this list is about what the expression says; this
+    // one is about whether the author is about to lose somebody's work, theirs or their own, and
+    // it is the only entry here with an irreversible outcome behind it.
+    if (this.conflictActive) {
+      const theirs = this.conflict ?? '(no value -- the key was removed)'
+      problems.push({
+        code: 'external-change',
+        severity: 'warning',
+        message:
+          `This changed in the file to \`${theirs}\` while you were editing. Your text has not been ` +
+          'saved yet, and saving it replaces what is in the file now.',
+        detail:
+          'Something outside this box wrote to the file -- a save in the text editor, an undo, ' +
+          'another window. Both versions still exist: the one you typed is in this box and the ' +
+          `one on disk is \`${theirs}\`. Nothing is written until you commit, so choosing here ` +
+          'costs nothing either way.',
+        actions: [
+          { kind: 'take-file-value', label: 'Use the file’s version' },
+          { kind: 'keep-draft', label: 'Keep mine' },
+          { kind: 'reveal-json', label: 'Show the JSON' },
+        ],
+      })
+    }
 
     for (const local of localProblems(text, this.field)) {
       problems.push({ code: local.code, severity: local.severity, message: local.message, ...(local.span ? { span: local.span } : {}) })
@@ -772,10 +966,7 @@ export class MolangEdgeEditor {
       absent,
       dirty: this.valueToWrite() !== (this.committed ?? ''),
       status,
-      stepper:
-        analysis?.constant !== null && analysis?.constant !== undefined
-          ? { value: analysis.constant, min: 0, step: 1 }
-          : null,
+      stepper: constant === null ? null : { value: constant, ...this.numeric },
       idioms: analysis?.idioms ?? [],
       declaredIdiom: this.declaredIdiom,
       writes: response?.writes ?? analysis?.writes ?? [],
@@ -785,6 +976,8 @@ export class MolangEdgeEditor {
       problems,
       suppressed,
       evaluation,
+      conflict: this.conflictActive ? { fileValue: this.conflict } : null,
+      lastNumber: this.lastNumber,
     }
   }
 

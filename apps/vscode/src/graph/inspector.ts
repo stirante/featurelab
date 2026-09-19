@@ -76,7 +76,9 @@ import {
 import { typeSpec, type ExclusiveGroup, type FieldKind } from './typeCatalog.js'
 import { lookupFieldDoc, lookupValueDoc, type DocEntry } from './docs/catalog.js'
 import { createMolangField, type MolangField } from './molangField.js'
-import type { MolangEdgeEditor } from './molangEdge.js'
+// A value, not only a type: this panel now BUILDS an editor for every `molangOrNumber` key in
+// the form it draws -- see molangRow.
+import { MolangEdgeEditor, type EdgeProblemCode } from './molangEdge.js'
 
 // ---------------------------------------------------------------------------
 // What an edit is
@@ -488,6 +490,59 @@ export function materialisedEdit(
   return { path: path.slice(0, cut + 1), value: built }
 }
 
+/** A copy of `root` with `edits` applied to it -- the fields as they will be once the host has
+ * written them.
+ *
+ * A COPY, deliberately: these same objects are the values the form's rows were built from and
+ * the ones every control reads, and a panel that mutated them would be drawing an answer the
+ * file has not given yet. Only the fields used to work out the NEXT edit are moved on. Nothing
+ * is materialised here -- `materialisedEdit` has already made every edit address a container
+ * that exists -- so an edit whose parent is missing is dropped rather than invented, which is
+ * the same refusal the writer makes and for the same reason.
+ */
+export function fieldsAfter(
+  root: Readonly<Record<string, unknown>>,
+  edits: readonly FieldEdit[],
+): Record<string, unknown> {
+  const next = cloneJson(root) as Record<string, unknown>
+  for (const edit of edits) writeInto(next, edit.path, edit.value)
+  return next
+}
+
+/** A deep copy of JSON data. The fields are exactly that -- they came off the wire as JSON -- so
+ * this needs no cases for anything else. */
+function cloneJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneJson)
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {}
+    for (const [key, member] of Object.entries(value as Record<string, unknown>)) out[key] = cloneJson(member)
+    return out
+  }
+  return value
+}
+
+/** Writes `value` at `path` in `root`, or removes it when `value` is undefined. A path whose
+ * container is not there is left alone: see fieldsAfter. */
+function writeInto(root: Record<string, unknown>, path: readonly (string | number)[], value: unknown): void {
+  if (path.length === 0) return
+  let cursor: unknown = root
+  for (const segment of path.slice(0, -1)) {
+    cursor = stepInto(cursor, segment)
+    if (typeof cursor !== 'object' || cursor === null) return
+  }
+  const last = path[path.length - 1] as string | number
+  if (Array.isArray(cursor)) {
+    const index = typeof last === 'number' ? last : Number(last)
+    if (!Number.isInteger(index) || index < 0) return
+    if (value === undefined) cursor.splice(index, 1)
+    else cursor[index] = value
+    return
+  }
+  if (typeof cursor !== 'object' || cursor === null) return
+  if (value === undefined) delete (cursor as Record<string, unknown>)[String(last)]
+  else (cursor as Record<string, unknown>)[String(last)] = value
+}
+
 export function existsAt(root: unknown, path: readonly (string | number)[]): boolean {
   if (path.length === 0) return true
   let parent: unknown = root
@@ -793,6 +848,10 @@ export interface InspectorEdgeField {
    * caret and the committed value are one. The host owns its change subscription and its
    * lifetime; this panel neither subscribes for writes nor disposes it. */
   editor: MolangEdgeEditor
+  /** What the last profiled run measured about this very key, in the run's own words. Drawn
+   * UNDER the field rather than only in the run block at the top of the panel, where it was
+   * separated from the row it is about by three sections. See MolangFieldOptions.engineNote. */
+  engineNote?: () => string | null
 }
 
 /** Which section an edge-borne key is drawn in: the `distribution` section when the form draws
@@ -848,7 +907,9 @@ export function edgeFieldDocEntry(key: InspectorEdgeField['key']): DocEntryView 
 // documentation of the type, and the panel is the place a version note belongs.
 
 export interface DocBadge {
-  kind: 'required' | 'molang' | 'version' | 'unestablished'
+  /** `kind`, `when` and `required`/`optional` are the three chips every documented key carries,
+   * in that order; the rest are added only where they apply. */
+  kind: 'kind' | 'when' | 'required' | 'optional' | 'molang' | 'version' | 'unestablished'
   label: string
   /** A sentence for the badge's own tooltip, where the label alone is terse. */
   title?: string
@@ -892,12 +953,43 @@ function versionBadges(row: FormRow): DocBadge[] {
   return out
 }
 
+/** When a key's value is looked at, as three words and a sentence.
+ *
+ * The three answers are the three that change what an author writes. A key that accepts Molang is
+ * re-read for every placement, so an expression in it can vary per placement and a constant in it
+ * cannot. A placement rule is consulted chunk by chunk, so its keys are read again for every
+ * chunk the rule applies to. Everything else is a fixed value the pack is loaded with.
+ *
+ * Deliberately derived from the two things already recorded -- the field's kind and the type it
+ * belongs to -- rather than stored per key. A per-key table would be a third place to keep in
+ * step with the catalogue, and the first key somebody forgot would be a chip that quietly lied.
+ */
+export function readTiming(typeId: string, kind: FieldKind): { label: string; title: string } {
+  if (acceptsMolang(kind)) {
+    return {
+      label: 'per placement',
+      title: 'A Molang expression here is worked out again every time the feature is placed. A plain number is the same number every time.',
+    }
+  }
+  if (typeId === 'minecraft:feature_rules') {
+    return { label: 'per chunk', title: 'A placement rule is consulted chunk by chunk, so this key is read again for every chunk it applies to.' }
+  }
+  return { label: 'read once', title: 'A fixed value, read when the pack loads. It is the same for every placement.' }
+}
+
 /** The documentation entry for one row. */
 export function docEntryOf(typeId: string, row: FormRow, parent = ''): DocEntryView {
   const doc = lookupFieldDoc(typeId, docPathOf(row.path))
   const spec = row.spec
-  const badges: DocBadge[] = []
+  // THE CHIP ROW, and it is never empty. Three questions get asked about every documented key
+  // before its prose is worth reading -- what do I write in it, when does the game look at it,
+  // and can I leave it out -- and answering them in paragraphs meant re-reading the paragraphs
+  // for each one. They are chips, in that order, above the prose rather than instead of it.
+  const badges: DocBadge[] = [{ kind: 'kind', label: kindLabel(spec.kind), title: `This key is written as ${kindLabel(spec.kind)}.` }]
+  const timing = readTiming(typeId, spec.kind)
+  badges.push({ kind: 'when', label: timing.label, title: timing.title })
   if (spec.required) badges.push({ kind: 'required', label: 'required', title: 'The engine refuses the file without this key.' })
+  else badges.push({ kind: 'optional', label: 'optional', title: 'The engine reads the file without this key.' })
   if (acceptsMolang(spec.kind)) badges.push({ kind: 'molang', label: 'Molang', title: 'A number, or a Molang expression evaluated when the feature runs.' })
   badges.push(...versionBadges(row))
   if (doc?.entry?.unestablished === true) badges.push({ kind: 'unestablished', label: 'not established', title: 'What the engine does here was checked and could not be settled.' })
@@ -1016,6 +1108,14 @@ export const INSPECTOR_STYLESHEET = `
 .flg-ins-docs {
   --fli-fg: var(--vscode-foreground, #cccccc);
   --fli-fg-muted: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+  /* SECONDARY TEXT THAT STILL HAS TO BE READ, which --fli-fg-muted is not.
+     descriptionForeground is #3b3b3b99 in Light Modern: 60% alpha over this panel's #f8f8f8,
+     compositing to #878787 and measuring 3.40:1. This panel's headings, its lineage rows and
+     its documentation were all set in it. Derived from the panel's own foreground faded towards
+     its own background instead -- still a theme colour at both ends, still visibly the quieter
+     of the two, and 5.5:1 in Light Modern / 6.7:1 in Dark Modern. --fli-fg-muted stays for the
+     things that owe no ratio. */
+  --fli-fg-dim: color-mix(in srgb, var(--fli-fg) 78%, var(--fli-bg));
   --fli-bg: var(--vscode-editorWidget-background, #252526);
   --fli-input-bg: var(--vscode-input-background, #3c3c3c);
   --fli-input-fg: var(--vscode-input-foreground, #cccccc);
@@ -1076,6 +1176,65 @@ export const INSPECTOR_STYLESHEET = `
 }
 .flg-ins-type { font-family: var(--fli-mono); color: var(--fli-code-fg); }
 
+/* ---- the lineage strip ----------------------------------------------------------
+   Two lists of rows, always present, saying what delegates TO this feature and what it
+   delegates to. See renderLineage for why it is here and not on the canvas. Each list is
+   scrollable rather than tall: twenty parents must not push the form off the panel. */
+.flg-ins-lineage { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.flg-ins-lineage-group { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.flg-ins-lineage-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  /* A heading and its count. Both measured 3.40:1 in Light Modern as description grey, and both
+     are read rather than glanced at -- "USED BY 17" is the whole of what this strip claims. */
+  color: var(--fli-fg);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.flg-ins-lineage-count { font-variant-numeric: tabular-nums; }
+.flg-ins-lineage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  /* About six rows, then it scrolls. A node with twenty parents is the case this exists for and
+     is exactly the case that must not evict the form. */
+  max-height: 132px;
+  overflow-y: auto;
+}
+.flg-ins-lineage-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.92em;
+  text-align: left;
+  cursor: pointer;
+}
+.flg-ins-lineage-row:hover { background: var(--fli-hover); }
+.flg-ins-lineage-row:focus-visible { outline: 1px solid var(--fli-focus); outline-offset: -1px; }
+.flg-ins-lineage-id {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--fli-mono);
+}
+.flg-ins-lineage-kind { flex: 0 0 auto; color: var(--fli-fg-dim); font-size: 0.88em; }
+.flg-ins-lineage-empty { padding: 1px 6px; color: var(--fli-fg-dim); font-size: 0.9em; }
+/* The listitem wrapper exists for the accessibility tree only; it must not be a flex item. */
+.flg-ins-lineage-item { display: contents; }
+
 /* ---- diagnostics about the author's file ---------------------------------------
    One line each. The level is spelled out as well as coloured: a high-contrast theme flattens
    the palette, and "error" and "note" must not differ by hue alone. A long one folds to its first
@@ -1111,7 +1270,10 @@ details.flg-ins-notice > p { margin: 3px 0 2px; white-space: normal; overflow-wr
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--fli-fg-muted);
+  /* A section heading is how this panel is navigated, and description grey put every one of them
+     at 3.40:1 in Light Modern. It is told from the rows under it by weight, by case and by the
+     space above it, which it already was -- the fade was never doing the work. */
+  color: var(--fli-fg);
   min-width: 0;
 }
 .flg-ins-section-head > .flg-ins-section-name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1376,6 +1538,11 @@ label.flg-ins-key { cursor: pointer; }
 .flg-ins-chips { display: flex; align-items: center; gap: 3px; min-width: 0; flex: 1 1 auto; flex-wrap: wrap; }
 .flg-ins-chip { display: flex; align-items: center; min-width: 0; flex: 1 1 3ch; max-width: 9ch; }
 .flg-ins-chip > .flg-ins-input { flex: 1 1 3ch; min-width: 3ch; padding: 0 3px; }
+/* A list of EXPRESSIONS. Two counts still sit side by side; one that is an expression takes the
+   line it needs, because the chips wrap and nothing is capped at nine characters any more. */
+.flg-ins-chips-molang { align-items: flex-start; }
+.flg-ins-chips-molang > .flg-ins-chip { flex: 1 1 9ch; max-width: none; align-items: flex-start; }
+.flg-ins-chip > .flg-molang-field { flex: 1 1 auto; min-width: 0; }
 .flg-ins-chip > .flg-ins-x { width: 12px; }
 .flg-ins-chips > .flg-ins-add { padding: 0 5px; }
 
@@ -1386,10 +1553,44 @@ label.flg-ins-key { cursor: pointer; }
    scrolls past it -- so the key sits on its first line rather than floating at its middle.
    The min-height is overridden on the SHARED class, which both painted layers carry, so the
    two stay in the same metrics; see molangField.ts on why that matters. */
-.flg-ins-row[data-kind='molang'] { align-items: start; }
-.flg-ins-row[data-kind='molang'] > .flg-ins-key { padding-top: 4px; }
-.flg-ins-row[data-kind='molang'] > .flg-ins-control { align-items: flex-start; }
-.flg-ins-row[data-kind='molang'] > .flg-ins-x { margin-top: 2px; }
+/* THE LABEL GOES ABOVE THE BOX, not in the gutter beside it.
+   Every other row in this panel is label-then-control, and that is right for a checkbox, a number
+   and a name. It is wrong for a language. Measured on the shipped panel at its default width:
+   325px of sidebar, of which a fixed 116px label gutter and a 16px mode menu left the expression
+   130px -- so a 150-character setup script became a 271px-tall, 16-row column, wrapping in the
+   middle of identifiers and pushing its own diagnostic off the bottom of the screen. The gutter
+   is worth its width when what it is beside is a word; it is not when what it is beside is code.
+   Full width more than doubles the columns the expression gets, and the key loses nothing by
+   being on its own line -- it is still the row's label, still bound to the box by its for= .
+
+   MATCHED ON WHAT THE ROW HOLDS, not on what its key is CALLED. The selector used to name two
+   kinds, molang and molangOrNumber, and a third slot then grew the same control without being
+   one of them: scatter_chance is kind 'chance' -- percent or fraction -- and its percent
+   spelling is this editor, drawn in a 116px gutter meant for a word. A row holds this layout
+   because it holds this control, which is a fact the row can be asked for directly. */
+.flg-ins-row[data-kind='molang'],
+.flg-ins-row:has(> .flg-ins-control > .flg-molang-field) {
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: start;
+  row-gap: 2px;
+}
+.flg-ins-row[data-kind='molang'] > .flg-ins-key,
+.flg-ins-row:has(> .flg-ins-control > .flg-molang-field) > .flg-ins-key {
+  grid-column: 1 / -1;
+  text-align: left;
+  padding-top: 2px;
+}
+/* And the mode menu under the box rather than beside it, for the same 16 pixels. */
+.flg-ins-row[data-kind='molang'] > .flg-ins-control,
+.flg-ins-row:has(> .flg-ins-control > .flg-molang-field) > .flg-ins-control {
+  grid-column: 1;
+  flex-direction: column;
+  align-items: stretch;
+}
+.flg-ins-row[data-kind='molang'] > .flg-ins-x,
+.flg-ins-row:has(> .flg-ins-control > .flg-molang-field) > .flg-ins-x { grid-column: 2; margin-top: 2px; }
+/* An uncommitted edit says so, the same way a Molang box does -- see restoreFocus. */
+.flg-ins-row[data-dirty='yes'] { border-left-color: var(--fli-warning); }
 .flg-ins-control > .flg-molang-field { flex: 1 1 auto; min-width: 0; }
 .flg-inspector .flg-edge-molang { min-height: calc(1.45em + 10px); }
 .flg-ins-notes { display: flex; flex-direction: column; min-width: 0; }
@@ -1408,22 +1609,40 @@ label.flg-ins-key { cursor: pointer; }
 .flg-ins-warn { color: var(--fli-warning); }
 
 /* ---- the documentation panel ----------------------------------------------------
-   A third region, over the canvas side of the editor: the form stays where it is, full size,
-   and the reader compares a value against its explanation with both on screen. Hosted, it
-   fills the element it was given; floated, it is fixed over the area to the left of the form. */
+   A third COLUMN, not a second screen. It used to be inset: 0 -- the full canvas box, opaque --
+   which meant pressing the ? about a node made that node disappear behind the essay describing
+   it. Reading what a key does while the node whose key it is has gone is the one thing this
+   panel exists to prevent, and "Back to overview" was a navigation affordance inside a place
+   nobody meant to travel to.
+
+   So it is pinned to the RIGHT edge of the canvas, against the form, at a fixed width: the graph
+   stays drawn and the selection stays visible to its left, and the explanation is beside the
+   control it explains rather than instead of it. The max-width is what keeps that true on a
+   canvas dragged narrow -- a column wider than its host is the old bug with extra steps. */
 .flg-ins-docs {
   position: absolute;
-  inset: 0;
+  inset: 0 0 0 auto;
+  width: 360px;
+  max-width: 70%;
   z-index: 20;
   display: flex;
   flex-direction: column;
   background: var(--fli-bg);
-  border-right: 1px solid var(--fli-border);
+  border-left: 1px solid var(--fli-border);
+  box-shadow: -6px 0 12px var(--fli-shadow);
   box-sizing: border-box;
   overflow: hidden;
   min-width: 0;
 }
-.flg-ins-docs[data-float='yes'] { position: fixed; box-shadow: 0 0 12px var(--fli-shadow); }
+/* Floated, placeDocs measures and writes left/top/width/height itself, so the column geometry
+   above has to get out of its way rather than fight it. */
+.flg-ins-docs[data-float='yes'] {
+  position: fixed;
+  inset: auto;
+  max-width: none;
+  border-left: none;
+  box-shadow: 0 0 12px var(--fli-shadow);
+}
 .flg-ins-docs:focus-visible { outline: none; }
 .flg-ins-docs-bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px 0; flex: 0 0 auto; }
 .flg-ins-docs-close {
@@ -1520,6 +1739,11 @@ label.flg-ins-key { cursor: pointer; }
   font-weight: 600;
   font-size: 0.92em;
 }
+/* The three that are always there read as facts, not as alarms: only the ones that change what
+   an author must do are given a colour of their own. */
+.flg-ins-badge[data-badge='kind'] { color: var(--fli-fg); }
+.flg-ins-badge[data-badge='when'] { color: var(--fli-fg-muted); }
+.flg-ins-badge[data-badge='optional'] { color: var(--fli-fg-muted); }
 .flg-ins-badge[data-badge='required'] { color: var(--fli-error); border-color: var(--fli-error); }
 .flg-ins-badge[data-badge='molang'] { color: var(--fli-accent); border-color: var(--fli-accent); }
 .flg-ins-badge[data-badge='version'] { color: var(--fli-warning); border-color: var(--fli-warning); }
@@ -1551,9 +1775,41 @@ label.flg-ins-key { cursor: pointer; }
 // The view
 // ---------------------------------------------------------------------------
 
+/** One neighbour of the inspected node, as a row in the lineage strip. */
+export interface LineageEntry {
+  /** The neighbour's id -- what is shown, and what `onNavigate` is called with. */
+  id: string
+  /** The kind of delegation, shown right-aligned. Several edges of the same kind between the
+   * same pair collapse into one row and `count` says how many. */
+  kind?: string
+  /** How many edges this row stands for; 1 is not drawn. */
+  count?: number
+  /** Whatever the host wants on the row's tooltip -- a type id, a file. */
+  title?: string
+}
+
+/** Where the inspected node sits in the delegation chain. */
+export interface NodeLineage {
+  /** What delegates TO this node. */
+  parents: readonly LineageEntry[]
+  /** What this node delegates to. */
+  children: readonly LineageEntry[]
+  /** How many parents exist in the graph, when `parents` has been shortened. Left out, the list
+   * is the whole truth. */
+  parentTotal?: number
+  childTotal?: number
+}
+
 export interface NodeInspectorOptions {
   /** Where every edit goes. Called once per user action; see InspectorChange. */
   onChange: InspectorChangeListener
+  /** The node's place in the chain, drawn as a strip under the heading. Left out, no strip is
+   * drawn at all -- a host that cannot answer the question should not show an empty answer. */
+  lineage?: NodeLineage
+  /** What a lineage row does when it is activated: the host moves the camera and the selection
+   * onto `nodeId`. Without it the rows are drawn as plain text rather than as controls, because
+   * a button that does nothing is worse than a label. */
+  onNavigate?: (nodeId: string) => void
   /** Shown as the panel's heading -- the node's own id. */
   nodeId?: string
   /** The file the node came from, shown under the heading. */
@@ -1572,6 +1828,14 @@ export interface NodeInspectorOptions {
    * `iterationsPath` as `fieldPath`, same annotations -- and to keep its one `onChange`
    * subscription that turns a commit into the file write. */
   edgeFields?: readonly InspectorEdgeField[]
+  /** Take the reader to the JSON behind one row, at `path` inside the node's own file.
+   *
+   * Asked for by the Molang control's "Show the JSON", which every expression row offers -- on a
+   * conflict beside "Use the file's version" and "Keep mine", and on an expression the editor
+   * believes is dead. This panel has no way to open a document, so without a host for it the
+   * button is drawn and does nothing; the two actions that resolve a conflict need no host and
+   * work either way. */
+  onRevealJson?: (path: readonly (string | number)[]) => void
 }
 
 export interface NodeInspector {
@@ -1584,9 +1848,56 @@ export interface NodeInspector {
    * `edgeFields` replaces the set given at construction when passed; left out, the current set
    * is kept -- unless the form is for a different type, whose edges these were not. */
   update(form: NodeForm, edgeFields?: readonly InspectorEdgeField[]): void
+  /** Replaces the lineage strip without rebuilding the form's state. Called by a host whose
+   * graph changed under a panel that is still showing the same node. */
+  setLineage(lineage: NodeLineage | undefined): void
+  /** Puts the keyboard on the first row of one of the two lists, scrolling it into view.
+   * This is what the card's "N use this" line asks for -- see render.ts's onFanIn. No-op when
+   * that list is empty or when there is no lineage at all. */
+  revealLineage(which: 'parents' | 'children'): boolean
+  /** Notes where the keyboard is inside this panel, for a host that is ABOUT to take the panel
+   * out of the document -- which is what a host redrawing the sidebar around it does on every
+   * graph, and a graph follows every edit.
+   *
+   * Removing a focused control from the document leaves the keyboard on `<body>`, and by the time
+   * `update` runs there is nothing left to read: `document.activeElement` has already forgotten.
+   * So the host says "hold this" first, and the next `update` puts it back. A no-op when the
+   * keyboard is not in this panel, which is also how it clears itself -- a reader who has moved
+   * on is left where they went. */
+  holdFocus(): void
+  /** Drops the edits this panel has sent and not yet seen come back -- for a host whose write
+   * was REFUSED, and which therefore has no new form to call `update` with.
+   *
+   * Without it a refused edit would go on counting as written, and the next one would be
+   * computed against a file that does not exist. See `sent`. */
+  forgetSentEdits(): void
   /** The form currently drawn. */
   readonly form: NodeForm
   dispose(): void
+}
+
+/** Where the keyboard is inside one panel: the row, which control of that row, and the caret.
+ *
+ * A PLACE rather than an element, because the element does not survive: every redraw builds new
+ * controls, so the only thing that can be put back is a description of where the reader was. */
+interface FocusTarget {
+  path: string
+  index: number
+  start: number | null
+  end: number | null
+  /** WHAT WAS IN IT, not only where the caret was.
+   *
+   * The place alone was never enough. Every control in this panel commits on blur or on change,
+   * so the one control that can be holding text the file has not got is the one the keyboard is
+   * in -- and that is exactly the one a redraw destroys. A redraw follows every graph, and a
+   * graph follows a preview finishing: `applyRunStats` calls the host's renderInspector
+   * unconditionally when a profiled run lands, so half-typed text was being thrown away by a
+   * background job the author had no part in starting. It restored the caret into a freshly
+   * built control holding the FILE's value and left the caret sitting in the middle of it, which
+   * is worse than losing the text outright -- it looks like the text is still there.
+   *
+   * Null for a control with no value to keep (a button, a select). */
+  value: string | null
 }
 
 let instanceCounter = 0
@@ -1607,8 +1918,56 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
   root.setAttribute('role', 'group')
   root.setAttribute('aria-label', options.ariaLabel ?? 'Node settings')
 
+  // ESCAPE CLOSES THE DOCUMENTATION, from anywhere in the panel.
+  //
+  // The aside has its own Escape handler, but only its own: pressing `?` does not move the
+  // keyboard into it, so the reader is still in the form, and Escape there did nothing at all.
+  // An explanation that can be opened with one key and not closed with the key everything else
+  // in this editor closes with is one the reader has to go and hunt for a × to be rid of.
+  //
+  // Gated on the panel being OPEN, so this never swallows an Escape that meant something else
+  // to the host -- clearing the selection, abandoning a gesture -- while it is closed.
+  root.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || docsView === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    closeDocs(true)
+  })
+
   let form = initial
+  /** What delegates to this node and what it delegates to, or undefined when the host cannot
+   * say. See renderLineage. */
+  let lineage = options.lineage
   let fields: Record<string, unknown> = fieldsOf(form)
+  /** The fields with the edits this panel has ALREADY SENT folded in. Null whenever there is
+   * nothing in flight, which is almost always.
+   *
+   * A write is a ROUND TRIP: the host writes the file, re-reads the pack, and sends back a graph
+   * this panel is rebuilt from. Until that lands -- a couple of hundred milliseconds on an
+   * ordinary pack, which is well inside one person's second click -- `fields` still describes the
+   * file as it was BEFORE the edit just made. That is only stale for most edits, but for an edit
+   * under a parent the snapshot believes is missing it is destructive: materialisedEdit writes
+   * that whole parent, so the second edit does not add to the first, it REPLACES it. Reported as
+   * "I picked gaussian, clicked + beside extent, and nothing happens" -- what happened was that
+   * the + erased gaussian.
+   *
+   * So what this panel has asked for counts as written when the NEXT edit is worked out. It is
+   * never DRAWN from -- the form still shows the file, and the host's graph is still the only
+   * thing that redraws it -- and it is dropped the moment an answer arrives, whether that answer
+   * is a new form (update) or a refusal (forgetSentEdits). */
+  let sent: Record<string, unknown> | null = null
+  /** Where the keyboard was when the host last said it was about to take this panel out of
+   * the document. Consumed by the next rebuild and dropped either way -- see holdFocus. */
+  let heldFocus: FocusTarget | null = null
+  /** Set between the host saying "I am about to take this panel out of the document" (holdFocus)
+   * and the redraw that follows putting it back.
+   *
+   * It exists for ONE reader: the Molang controls, whose blur handler writes the file. Removing a
+   * focused control blurs it, the host removes this panel's element on every graph, and the blur
+   * that comes out of that is the document changing rather than the author deciding anything --
+   * so it must not commit. Every other control in this panel commits on `change`, which a
+   * removal does not fire, so none of them needs this. See MolangFieldOptions.hostRedrawing. */
+  let hostRedrawing = false
   let disposed = false
   let ids = 0
 
@@ -1628,12 +1987,35 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
   let edgeFields: readonly InspectorEdgeField[] = options.edgeFields ?? []
   let edgeHome = 'general'
   let molangViews: MolangField[] = []
+  /** The Molang editors for this panel's OWN rows -- every `molangOrNumber` key in the form --
+   * keyed by row path.
+   *
+   * Cached across rebuilds for the same reason the host caches the edge's: the editor holds the
+   * draft, and a rebuild that made a new one would throw away whatever the author had typed and
+   * not yet committed. A rebuild follows every graph, and a graph follows a profiled preview
+   * finishing, so without this an expression half typed into `width_modifier` would be deleted
+   * by a background job.
+   *
+   * Cleared when the form is for a different type -- an editor for the old node's key would
+   * write the old node's file. */
+  const formMolang = new Map<string, { editor: MolangEdgeEditor; off: () => void }>()
+
+  function disposeFormMolang(): void {
+    for (const entry of formMolang.values()) {
+      entry.off()
+      entry.editor.dispose()
+    }
+    formMolang.clear()
+  }
 
   const nextId = (): string => `${uid}-${++ids}`
   const docsId = `${uid}-docs`
 
   function emit(edits: readonly FieldEdit[], path: readonly (string | number)[], label: string): void {
     if (disposed || edits.length === 0) return
+    // Recorded BEFORE the host is told, so that a change handler which sends and then edits again
+    // synchronously still sees it. See `sent`.
+    sent = fieldsAfter(sent ?? fields, edits)
     options.onChange({ edits, path, label })
   }
 
@@ -1655,7 +2037,10 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
    * Deletes are left alone. Removing a key from a container that is not there is already done.
    */
   function commit(path: readonly (string | number)[], value: unknown, label: string): void {
-    const edit = materialisedEdit(fields, path, value)
+    // Against what this panel has already ASKED for, not against the last graph: the containers
+    // an edit sent a moment ago created are there as far as the next edit is concerned, and
+    // materialising them a second time is what erases the first. See `sent`.
+    const edit = materialisedEdit(sent ?? fields, path, value)
     emit([edit], path, label)
   }
 
@@ -2119,7 +2504,7 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
 
   /** A chance: a percent (number or Molang) or a `{numerator, denominator}` fraction, both on
    * one line. */
-  function chanceControl(row: FormRow, editor: Extract<Editor, { control: 'chance' }>, id?: string): Built {
+  function chanceControl(row: FormRow, editor: Extract<Editor, { control: 'chance' }>, id?: string, compact = false): Built {
     const keyName = row.spec.key === '' ? 'value' : row.spec.key
     const written = chanceSpellingOf(row.value)
     const spelling = spellingFor<ChanceSpelling>(row.path, isSet(row) ? written : 'percent')
@@ -2133,14 +2518,14 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
       onPick: (picked) => setSpelling(row.path, picked),
     })
     if (spelling === 'percent') {
-      const box = textBox({
-        value: typeof row.value === 'number' || typeof row.value === 'string' ? String(row.value) : '',
-        ...(id === undefined ? {} : { id }),
-        ariaLabel: `${keyName}: percent`,
-        placeholder: '100',
-        onCommit: (text) => commit(row.path, parseMolangOrNumber(text), `${keyName}: percent`),
-      })
-      return { line: control(box, menu), below: [] }
+      // THE SAME LANGUAGE GETS THE SAME EDITOR -- see the `molang-or-number` arm of controlFor,
+      // which says this at length. A percent is a number OR a Molang expression by exactly the
+      // same rule as a `width_modifier` or an `extent` end, and this was the one slot of the six
+      // left as a bare <input> labelled "scatter_chance: percent": no highlighting, no
+      // diagnostics, no mode, and it stayed that way with `math.random(1,10) > 5 ? 100 : 0` in
+      // it. The spelling menu stays beside it -- percent and fraction are two different SHAPES
+      // in the file, which is a different question from number-versus-expression.
+      return { line: control(molangRow(row, keyName, id, compact, '100'), menu), below: [] }
     }
     // The two members are the fraction's own catalogued rows, so each box writes its own path.
     const parts: HTMLElement[] = []
@@ -2189,14 +2574,18 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
       onPick: (picked) => setSpelling(row.path, picked),
     })
     if (spelling === 'scalar') {
-      const box = textBox({
-        value: typeof row.value === 'number' || typeof row.value === 'string' ? String(row.value) : '',
-        ...(id === undefined ? {} : { id }),
-        ariaLabel: `${keyName}: value`,
-        placeholder: '0',
-        onCommit: (text) => commit(row.path, parseMolangOrNumber(text), `${keyName}: value`),
-      })
-      return { line: control(box, menu), below: [] }
+      // THE SAME LANGUAGE GETS THE SAME EDITOR -- see the `molang-or-number` arm of controlFor,
+      // which says this at length, and chanceControl, which had the identical hole. An axis
+      // written as a bare scalar is a number OR a Molang expression by exactly the rule that
+      // governs an `extent` end one row below it -- `acceptsMolang('coordinate')` has said so
+      // since it was written, and the catalogue documents the key as "A number, a Molang string,
+      // or ..." -- and it was a plain <input> labelled "y: value": no highlighting, no
+      // diagnostics, no mode, no stepper. So which editor an author got depended on how their
+      // file HAPPENED to be written: `y: 5` got the bare box and `y: {distribution, extent}` got
+      // the real one on both ends. The spelling menu stays beside it, because one-value versus
+      // distribution is a different SHAPE in the file and a different question from
+      // number-versus-expression.
+      return { line: control(molangRow(row, keyName, id, false, '0'), menu), below: [] }
     }
     return { line: control(el('span', 'flg-ins-modeword', 'distribution'), menu), below: objectRows(editor.object, row.path, depth + 1) }
   }
@@ -2215,14 +2604,25 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     wrap.setAttribute('aria-label', keyName)
     const count = listLength(row.value)
     const fixed = row.spec.length
+    // A list whose elements are EXPRESSIONS gets the expression control in each chip -- both ends
+    // of a scatter axis's `extent` are Molang by the same rules as anything else in this panel,
+    // and they were taking `}{` in silence. The chips then size to their content instead of to
+    // nine characters: two counts still sit side by side, and an expression takes the line it
+    // needs. See molangRow, and MolangFieldOptions.compact for what is left out at this size.
+    const expressions = editor.entry[0]?.editor.control === 'molang-or-number'
+    if (expressions) wrap.classList.add('flg-ins-chips-molang')
     for (let index = 0; index < count; index++) {
       const rows = elementRows(editor.entry, row.path, index, fields)
       const only = rows[0]
       if (only === undefined) continue
       const chip = el('div', 'flg-ins-chip')
       chip.dataset['path'] = pathKey([...row.path, index])
-      const built = controlFor({ ...only, spec: { ...only.spec, key: `${keyName} ${index + 1}` } }, { id: index === 0 ? id : undefined, depth })
-      const box = built.line?.querySelector<HTMLElement>('input, select')
+      const built = controlFor({ ...only, spec: { ...only.spec, key: `${keyName} ${index + 1}` } }, { id: index === 0 ? id : undefined, depth, compact: expressions })
+      // The whole control for an expression -- it is two painted layers and a popup, and
+      // plucking the textarea out of it would leave the colour and the completion behind.
+      const box = expressions
+        ? built.line?.querySelector<HTMLElement>('.flg-molang-field')
+        : built.line?.querySelector<HTMLElement>('input, select')
       if (box !== null && box !== undefined) chip.append(box)
       if (fixed !== count) {
         chip.append(removeButton(`Remove entry ${index + 1} from ${keyName}`, () => commit([...row.path, index], undefined, `${keyName}: removed entry ${index + 1}`)))
@@ -2297,7 +2697,7 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
   }
 
   /** The control for one row. Which control is forms.ts's decision, never this file's. */
-  function controlFor(row: FormRow, opts: { id?: string | undefined; depth: number }): Built {
+  function controlFor(row: FormRow, opts: { id?: string | undefined; depth: number; compact?: boolean }): Built {
     const editor = row.editor
     const keyName = row.spec.key === '' ? 'value' : row.spec.key
     const disabled = row.spec.availability !== 'available'
@@ -2372,20 +2772,17 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
             below: [],
           }
         case 'molang-or-number':
-          // Free text, deliberately: a spin box would make the expression spelling unreachable.
-          return {
-            line: control(
-              textBox({
-                value: row.value === undefined || row.value === null ? '' : String(row.value),
-                ...(id === undefined ? {} : { id }),
-                ariaLabel: keyName,
-                placeholder: '0  or  math.random(0, 1)',
-                invalid: row.problems.length > 0,
-                onCommit: (text) => commit(row.path, parseMolangOrNumber(text), keyName),
-              }),
-            ),
-            below: [],
-          }
+          // THE SAME LANGUAGE GETS THE SAME EDITOR.
+          //
+          // This used to be a bare <input> whose entire affordance was a placeholder that
+          // disappeared the moment the key had a value. A feature_rule's `iterations`, both ends
+          // of every `extent`, `width_modifier` and `scatter_chance` are Molang by the same rules
+          // as the expression on a scatter's edge -- and one row apart in the same panel the two
+          // got unrelated treatments: `query.made_up_thing(1) + }{` typed here was accepted and
+          // written, while the identical text in the edge field was a red error explaining that
+          // the game would refuse to load the file. Two answers to one question, and the wrong
+          // one was the one most authors met first.
+          return { line: control(molangRow(row, keyName, id, opts.compact === true)), below: [] }
         case 'text':
           return {
             line: control(
@@ -2408,7 +2805,7 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
         case 'range':
           return rangeControl(row, editor, id)
         case 'chance':
-          return chanceControl(row, editor, id)
+          return chanceControl(row, editor, id, opts.compact === true)
         case 'coordinate':
           return coordinateControl(row, editor, depth, id)
         case 'group':
@@ -2539,17 +2936,136 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
    * THE WRITE IS THE EDITOR'S. On blur the control commits, the editor emits, and the host's
    * subscription writes the file at the path the graph builder reported. Nothing here emits an
    * InspectorChange: the value is not in Fields, and there is no path of this panel's to write. */
+  /** A `molangOrNumber` key, drawn with the same control the edge's expression gets.
+   *
+   * The editor behind it is a MolangEdgeEditor over a SYNTHETIC edge: the class is the editor for
+   * one expression and knows what an expression is, and everything it needs from an edge -- where
+   * the value goes -- is supplied by this panel instead, which already owns the path. Nothing is
+   * emitted at the synthetic path; the one `value` change is turned into this panel's own
+   * `commit`, so the write still goes through the single path every other row writes through.
+   *
+   * `field` is 'iterations' for a key spelled `iterations` and 'condition' otherwise, because
+   * those are the two rule sets molangHints has and the first genuinely applies: a feature_rule's
+   * `distribution.iterations` IS a scatter's iterations, evaluated the same way, with the same
+   * three idioms and the same `variable.worldx` trap. `empty-required` is suppressed because a
+   * rule's key is optional -- see MolangFieldOptions.suppress. */
+  function molangRow(row: FormRow, keyName: string, id: string | undefined, compact = false, placeholder?: string): HTMLElement {
+    const key = pathKey(row.path)
+    // A VALUE THAT IS NOT A SCALAR IS NOT AN EXPRESSION. Two callers reach this with a row whose
+    // value may be an object: an axis and a chance both have a spelling menu, and picking the
+    // scalar side of it leaves the FILE holding `{distribution, extent}` or
+    // `{numerator, denominator}` until something is typed. `String(...)` of one of those is
+    // "[object Object]", which would seed the box with it and offer to write it back. Absent is
+    // the truth here -- there is no expression in that file yet -- and it is what the plain input
+    // this replaced showed.
+    const raw = typeof row.value === 'number' || typeof row.value === 'string' ? String(row.value) : null
+    let entry = formMolang.get(key)
+    if (entry === undefined) {
+      const created = new MolangEdgeEditor(
+        {
+          edge: {
+            from: options.nodeId ?? options.file ?? '',
+            to: '',
+            kind: 'field',
+            jsonPath: key,
+            required: row.spec.required,
+          },
+          field: row.spec.key === 'iterations' ? 'iterations' : 'condition',
+          value: raw,
+          fieldPath: key,
+          origin: { x: 0, y: 0, z: 0 },
+          // WHAT THIS SLOT ACCEPTS AS A NUMBER, and nothing about whether it IS one -- the text
+          // decides that, here as on an edge. Only what the catalogue actually states is passed:
+          // an `extent` end is routinely negative and a floor invented for it would refuse to
+          // step down past zero, which is exactly the kind of made-up bound that makes a control
+          // feel broken.
+          ...(row.spec.min === undefined && row.spec.max === undefined
+            ? {}
+            : {
+                numeric: {
+                  ...(row.spec.min === undefined ? {} : { min: row.spec.min }),
+                  ...(row.spec.max === undefined ? {} : { max: row.spec.max }),
+                },
+              }),
+        },
+        // No engine, for the reason the host's edge editors have none: `featurelab serve` has no
+        // method that compiles an expression. What is checked is what the text alone proves.
+        { validator: { validate: async () => ({}) }, schedule: (run) => (run(), () => {}) },
+      )
+      const off = created.onChange((change) => {
+        if (change.kind === 'reveal') {
+          // "Show the JSON", offered on a conflict and on a dead expression, and until this
+          // existed it was a button that did nothing on every row this panel draws. The panel
+          // cannot open a document itself; the host can, and it is the host that knows the file.
+          if (change.target === 'json') options.onRevealJson?.(row.path)
+          return
+        }
+        if (change.kind !== 'value') return
+        commit(row.path, change.value === null ? undefined : parseMolangOrNumber(change.value), keyName)
+      })
+      entry = { editor: created, off }
+      formMolang.set(key, entry)
+    } else {
+      // The file may have moved under a draft this panel kept across a rebuild. reseed adopts the
+      // new value when the box is clean and reports a conflict when it is not; it never discards
+      // typing. See MolangEdgeEditor.reseed.
+      entry.editor.reseed(raw)
+    }
+    const suppress: EdgeProblemCode[] = row.spec.required ? [] : ['empty-required']
+    const molang = createMolangField(entry.editor, {
+      label: keyName,
+      chrome: 'bare',
+      problems: true,
+      compact,
+      suppress,
+      ...(placeholder === undefined ? {} : { placeholder }),
+      // THE REDRAW MUST NOT WRITE THE FILE. See MolangFieldOptions.hostRedrawing: this panel is
+      // emptied and rebuilt on every graph, and the blur that comes out of that is not a
+      // decision. Without it a draft was committed over whatever had just changed underneath it,
+      // and the conflict below was never raised because the commit had made the box clean.
+      hostRedrawing: () => hostRedrawing,
+      // The ROW's marks follow the expression, the way they follow a form value everywhere else:
+      // a red left edge for a file that will not load, an amber one for an edit that has not
+      // been written yet. Found by walking up rather than by capturing the row, because the row
+      // element does not exist until after the control it is built around.
+      onChanged: () => {
+        const line = molang.element.closest<HTMLElement>('.flg-ins-row')
+        if (line === null) return
+        const view = entry!.editor.view()
+        line.dataset['state'] = view.text.trim() === '' ? 'unset' : 'set'
+        line.dataset['dirty'] = view.dirty ? 'yes' : 'no'
+        if (view.problems.some((p) => p.severity === 'error' && !suppress.includes(p.code))) line.dataset['problem'] = 'yes'
+        else delete line.dataset['problem']
+      },
+    })
+    molang.input.id = id ?? nextId()
+    molangViews.push(molang)
+    return molang.element
+  }
+
   function renderEdgeField(field: InspectorEdgeField, depth: number): HTMLElement[] {
     const editor = field.editor
-    const notes = el('div', 'flg-ins-notes')
     const paintNotes = (): void => {
       const view = editor.view()
-      notes.replaceChildren(...view.problems.map((problem) => noteRow(problem.message, depth, problem.severity === 'error' ? 'error' : 'warning')))
       line.dataset['state'] = view.text.trim() === '' ? 'unset' : 'set'
+      line.dataset['dirty'] = view.dirty ? 'yes' : 'no'
       if (view.problems.some((problem) => problem.severity === 'error')) line.dataset['problem'] = 'yes'
       else delete line.dataset['problem']
     }
-    const molang = createMolangField(editor, { label: field.key, chrome: 'bare', onChanged: paintNotes })
+    // The diagnostics are the FIELD's, not this panel's: it draws each one whole -- the line, the
+    // long form, and a button for each action the problem offers. Flattening them to a one-line
+    // note here is how `detail` and `actions` came to be built and tested and never drawn.
+    const molang = createMolangField(editor, {
+      label: field.key,
+      chrome: 'bare',
+      onChanged: paintNotes,
+      problems: true,
+      // The same guard this panel's own expression rows get, and for the same reason: an edge
+      // field drawn HERE is inside a panel that is emptied and rebuilt on every graph, where the
+      // edge panel's copy of the same editor never is. See MolangFieldOptions.hostRedrawing.
+      hostRedrawing: () => hostRedrawing,
+      ...(field.engineNote === undefined ? {} : { engineNote: field.engineNote }),
+    })
     molang.input.id = nextId()
     molangViews.push(molang)
     const menu = modeMenu({
@@ -2578,7 +3094,7 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     line.dataset['key'] = field.key
     line.dataset['kind'] = 'molang'
     paintNotes()
-    return [line, notes]
+    return [line]
   }
 
   /** The edge-borne rows of `section`, which is the rows for the one section they live in and
@@ -2598,6 +3114,17 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     const head = el('h3', 'flg-ins-section-head')
     const name = el('span', 'flg-ins-section-name', section.title)
     if (title !== undefined) name.title = title
+    // THE HEADING NAMES ITSELF ONCE.
+    //
+    // An <h3> with no explicit name takes one from its whole subtree, and this heading's subtree
+    // is the name plus whatever controls sit on the row: the remove "x" and the "?" both carry
+    // real labels, so the computed heading name came out as "DISTRIBUTION Remove distribution
+    // Explain distribution" -- the section's name said three times, in a panel whose headings
+    // are how you navigate it. `aria-labelledby` points at the name span and nothing else. The
+    // buttons keep their own labels; they are still separately reachable and separately
+    // announced, they are just no longer part of what the heading is called.
+    name.id = nextId()
+    head.setAttribute('aria-labelledby', name.id)
     head.append(name)
     if (tail != null) head.append(tail)
     const help = el('button', 'flg-ins-help', '?')
@@ -2777,7 +3304,8 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
         if (badge.title !== undefined) pill.title = badge.title
         badges.append(pill)
       }
-      badges.append(el('span', undefined, entry.kindLabel))
+      // The kind used to be a bare word at the end of this row. It is the first chip now, so
+      // repeating it here would be the same word twice in one line.
       article.append(badges)
     }
     for (const block of entry.blocks) article.append(docParagraph(block))
@@ -2899,6 +3427,16 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     }
     placeDocs()
     renderDocs()
+    // THE KEYBOARD GOES WITH IT.
+    //
+    // This aside is appended into the CANVAS, which sits before the panel in document order, so
+    // a Tab from the "?" that opened it walks forward through the rest of the form and out of
+    // the panel entirely and never arrives -- measured at forty Tabs forward, nine backwards.
+    // Its own Close and Back are properly labelled and were simply unreachable. Moving the
+    // element would mean moving the panel it fills, so the focus is moved instead: the aside
+    // takes it on open (it is tabIndex -1 for exactly this), which puts Close and Back one Tab
+    // away, and closeDocs hands it back to the "?" that opened it.
+    docsEl.focus()
     for (const help of root.querySelectorAll<HTMLElement>('.flg-ins-help')) {
       help.setAttribute('aria-expanded', help.closest<HTMLElement>('[data-section]')?.dataset['section'] === section ? 'true' : 'false')
     }
@@ -2919,11 +3457,114 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     }
   }
 
+  // ---- the lineage strip --------------------------------------------------
+
+  /** THE CHAIN, AS ROWS, BECAUSE THE CAMERA CANNOT SHOW IT.
+   *
+   * Following a delegation chain on the canvas is a camera problem with no solution at this
+   * scale, and the numbers are not close. The deepest root in the pack fixture is three levels
+   * and 87 nodes over 5,362 x 5,075 world units: fitting it needs zoom 0.184, and every label on
+   * this canvas is dropped below ZOOM_BAND_FAR (0.55), so the zoom that shows the chain shows no
+   * text and the zoom that shows the text is nineteen screenfuls of chain. It is not a corner
+   * case either -- 193 of the 1,337 parents in that pack, one in seven, cannot get all of their
+   * direct children above 0.55.
+   *
+   * Convergence has the same shape from the other side. `pack:feature_3508` has twenty incoming
+   * edges from ten distinct features; ten pixels off the card that bundle spans 66.5 px -- the
+   * card's own height, about three pixels of separation per edge -- and at a readable zoom only
+   * seven of the twenty parents are anywhere on screen. The card said "20 use this" as a `title`
+   * string, which is a fact with no door on it, and this panel listed no parents at all.
+   *
+   * So the chain is READ HERE and travelled from here: two lists, each row a control that takes
+   * the selection and the camera to that feature, which makes following a chain a sequence of
+   * clicks that never needs the reader to hold a position in their head. It is PERSISTENT rather
+   * than a popover for the same reason -- a reader walking a chain wants the next step to be in
+   * the same place every time.
+   *
+   * Rows, not a tree: a tree of a converging graph is the same node copied into a dozen branches,
+   * and on a pack where forty roots share seventeen children that is a picture of the drawing
+   * tool rather than of the pack. */
+  function lineageRow(entry: LineageEntry): HTMLElement {
+    const navigate = options.onNavigate
+    const row = document.createElement(navigate === undefined ? 'div' : 'button')
+    row.className = 'flg-ins-lineage-row'
+    if (row instanceof HTMLButtonElement) {
+      row.type = 'button'
+      row.addEventListener('click', () => navigate?.(entry.id))
+    }
+    row.dataset['lineageId'] = entry.id
+    const id = el('span', 'flg-ins-lineage-id', entry.id)
+    row.append(id)
+    const count = entry.count ?? 1
+    const kind = entry.kind === undefined ? '' : count > 1 ? `${entry.kind} ×${String(count)}` : entry.kind
+    if (kind !== '') row.append(el('span', 'flg-ins-lineage-kind', kind))
+    row.title = entry.title ?? (navigate === undefined ? entry.id : `Go to ${entry.id}.`)
+    // SAY WHAT PRESSING IT DOES, AFTER SAYING WHAT IT IS.
+    //
+    // The computed name was `button "wiki:ceiling_slab_block scatter"` -- an identifier and a
+    // word, with nothing anywhere in it about the fact that this is a control at all, let alone
+    // one that moves the selection and the camera. The visible text stays at the FRONT of the
+    // name so "press the one that says wiki:ceiling_slab_block" still works for voice control
+    // (WCAG 2.5.3), and the consequence is added behind it.
+    const face = kind === '' ? entry.id : `${entry.id} ${kind}`
+    if (navigate !== undefined) row.setAttribute('aria-label', `${face}. Go to it: selects this feature and centres the canvas on it.`)
+    return row
+  }
+
+  function lineageGroup(key: 'parents' | 'children', heading: string, empty: string): HTMLElement {
+    const entries = key === 'parents' ? lineage!.parents : lineage!.children
+    const total = (key === 'parents' ? lineage!.parentTotal : lineage!.childTotal) ?? entries.length
+    const group = el('div', 'flg-ins-lineage-group')
+    group.dataset['lineage'] = key
+    const head = el('div', 'flg-ins-lineage-head')
+    head.append(el('span', 'flg-ins-lineage-label', heading))
+    head.append(el('span', 'flg-ins-lineage-count', String(total)))
+    group.append(head)
+    if (entries.length === 0) {
+      group.append(el('div', 'flg-ins-lineage-empty', empty))
+      return group
+    }
+    // THE HEADING AND ITS COUNT WERE BOUND TO NOTHING.
+    //
+    // "DELEGATES TO" and "17" were two loose pieces of StaticText above an unnamed `list ""`.
+    // Read linearly they arrive before the list and are presumed to belong to it; read any other
+    // way -- by landmark, by list, by control -- they are two orphan strings and a list with no
+    // name, twice over, because there are two of these strips. The words are the same ones; they
+    // are just attached now, and the count is spelled out in the name rather than left as a bare
+    // number for the reader to guess the units of.
+    const list = el('div', 'flg-ins-lineage-list')
+    list.setAttribute('role', 'list')
+    list.setAttribute(
+      'aria-label',
+      `${heading}: ${String(entries.length)} of ${String(total)} feature${total === 1 ? '' : 's'}`,
+    )
+    // `role="listitem"` wrappers, `display: contents`, so the list really is a list of items in
+    // the accessibility tree while the flex column lays out exactly as it did.
+    for (const entry of entries) {
+      const item = el('div', 'flg-ins-lineage-item')
+      item.setAttribute('role', 'listitem')
+      item.append(lineageRow(entry))
+      list.append(item)
+    }
+    group.append(list)
+    return group
+  }
+
+  function renderLineage(): HTMLElement | null {
+    if (lineage === undefined) return null
+    const strip = el('div', 'flg-ins-lineage')
+    strip.setAttribute('role', 'group')
+    strip.setAttribute('aria-label', 'Where this feature sits in the delegation chain')
+    strip.append(lineageGroup('parents', 'Used by', 'Nothing delegates to this feature.'))
+    strip.append(lineageGroup('children', 'Delegates to', 'This feature delegates to nothing.'))
+    return strip
+  }
+
   // ---- the whole panel ----------------------------------------------------
 
   /** Which control had focus, so a redraw does not throw the person typing out of the panel.
    * Matched on the row path plus the control's index within that row. */
-  function captureFocus(): { path: string; index: number; start: number | null; end: number | null } | null {
+  function captureFocus(): FocusTarget | null {
     const active = document.activeElement
     if (!(active instanceof HTMLElement) || !root.contains(active)) return null
     const rowEl = active.closest<HTMLElement>('[data-path]')
@@ -2932,19 +3573,36 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     const controls = [...rowEl.querySelectorAll('input, select, textarea, button')]
     const index = controls.indexOf(active)
     if (index < 0) return null
-    const start = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active.selectionStart : null
-    const end = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? active.selectionEnd : null
-    return { path, index, start, end }
+    const typed = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+    const start = typed ? active.selectionStart : null
+    const end = typed ? active.selectionEnd : null
+    // A checkbox and a radio have a `value` that is not what is in them, and putting one back
+    // would mean nothing. Only the controls whose value IS their content are held.
+    const value = typed && (!(active instanceof HTMLInputElement) || (active.type !== 'checkbox' && active.type !== 'radio')) ? active.value : null
+    return { path, index, start, end, value }
   }
 
-  function restoreFocus(target: { path: string; index: number; start: number | null; end: number | null } | null): void {
+  function restoreFocus(target: FocusTarget | null): void {
     if (target === null) return
     const rowEl = root.querySelector<HTMLElement>(`[data-path=${JSON.stringify(target.path)}]`)
     if (rowEl === null) return
     const control = [...rowEl.querySelectorAll('input, select, textarea, button')][target.index]
     if (!(control instanceof HTMLElement)) return
+    const typed = control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement
+    // THE TEXT FIRST, then the caret -- setting the value moves the caret to the end, so the
+    // other order restores a place into the wrong string.
+    //
+    // The row is marked when this puts back something the rebuilt control did not have, because
+    // a value on screen that the file does not hold is a fact the author is owed: it is their
+    // uncommitted edit, and it is about to overwrite whatever changed underneath it. A Molang
+    // box says the same thing in its own words -- see MolangEdgeEditor.reseed -- and this is the
+    // plain controls' share of it.
+    if (typed && target.value !== null && control.value !== target.value) {
+      control.value = target.value
+      rowEl.dataset['dirty'] = 'yes'
+    }
     control.focus()
-    if ((control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement) && target.start !== null) {
+    if (typed && target.start !== null) {
       try {
         control.setSelectionRange(target.start, target.end ?? target.start)
       } catch {
@@ -2955,7 +3613,11 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
 
   function rebuild(): void {
     if (disposed) return
-    const focus = captureFocus()
+    // Where the keyboard is, or -- when the host has already taken this panel out of the
+    // document and the browser has moved focus to <body> -- where the host said it was.
+    // Held or not, it is spent here: a place that is put back is not put back twice.
+    const focus = captureFocus() ?? heldFocus
+    heldFocus = null
     // The controls drawn over the edge editors are remade below; the editors themselves keep
     // the draft and the caret position, which is why the new control shows what was there.
     for (const view of molangViews) view.dispose()
@@ -2978,6 +3640,9 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     meta.title = options.file === undefined ? `${form.typeId} · ${version}` : `${options.file} · ${version}`
     header.append(meta)
     parts.push(header)
+
+    const strip = renderLineage()
+    if (strip !== null) parts.push(strip)
 
     for (const item of form.notices) parts.push(renderNotice(item))
     // The "this type is partially implemented" coverage note is deliberately NOT shown. It is a
@@ -3004,6 +3669,9 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
 
     root.replaceChildren(...parts)
     restoreFocus(focus)
+    // The redraw the host warned about has happened. Anything that blurs from here on is somebody
+    // moving the keyboard, and is allowed to write the file again.
+    hostRedrawing = false
     if (docsView !== null) {
       if (docsView.section !== null && !sections.some((section) => section.key === docsView?.section)) docsView = { section: null }
       renderDocs()
@@ -3018,6 +3686,10 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
       return form
     },
     update(next: NodeForm, nextEdgeFields?: readonly InspectorEdgeField[]): void {
+      // The host has answered, so what this panel was holding on its own account is spent: the
+      // form it was handed is what the file says, and going on preferring a guess over it is how
+      // a panel and a pack drift apart. See `sent`.
+      sent = null
       // A different node keeps none of the reader's place: a revealed key from the old node
       // would show an empty box on the new one, and documentation about a tree means nothing on
       // a geode. Nor its edges: an editor for the old node's connection would write the old
@@ -3028,6 +3700,9 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
         spellings.clear()
         pendingStates.clear()
         closeDocs(false)
+        // And the editors behind this panel's own expression rows: one built over the old node's
+        // `width_modifier` would write the old node's file at the old node's path.
+        disposeFormMolang()
         edgeFields = nextEdgeFields ?? []
       } else if (nextEdgeFields !== undefined) {
         edgeFields = nextEdgeFields
@@ -3035,10 +3710,35 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
       form = next
       rebuild()
     },
+    setLineage(next: NodeLineage | undefined): void {
+      lineage = next
+      rebuild()
+    },
+    revealLineage(which: 'parents' | 'children'): boolean {
+      const row = root.querySelector<HTMLElement>(`[data-lineage="${which}"] .flg-ins-lineage-row`)
+      if (row === null) return false
+      row.scrollIntoView({ block: 'nearest' })
+      // Only a control can take the keyboard, and a host with no onNavigate draws plain rows --
+      // so this reports whether it actually landed rather than pretending it did.
+      if (!(row instanceof HTMLButtonElement)) return false
+      row.focus()
+      return true
+    },
+    holdFocus(): void {
+      heldFocus = captureFocus()
+      // Whether or not the keyboard was in here. The flag is about the DOCUMENT, and the host is
+      // about to change it either way; captureFocus returning null only means the reader had
+      // already gone somewhere else.
+      hostRedrawing = true
+    },
+    forgetSentEdits(): void {
+      sent = null
+    },
     dispose(): void {
       disposed = true
       for (const view of molangViews) view.dispose()
       molangViews = []
+      disposeFormMolang()
       closeDocs(false)
       root.replaceChildren()
       root.remove()

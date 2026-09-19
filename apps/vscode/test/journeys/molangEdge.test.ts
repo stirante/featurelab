@@ -581,22 +581,476 @@ describe('coming back to an edge', () => {
 })
 
 describe('the expression box on the edge panel', () => {
+  /** The panel and the box, measured in the live page. */
+  async function boxes(j: Journey, selector: string): Promise<{ side: { bottom: number; height: number }; box: { bottom: number; height: number } }> {
+    return j.page.evaluate((sel) => {
+      const side = document.getElementById('flg-side')!.getBoundingClientRect()
+      const box = document.querySelector(sel)!.getBoundingClientRect()
+      return { side: { bottom: side.bottom, height: side.height }, box: { bottom: box.bottom, height: box.height } }
+    }, selector)
+  }
+
   it(
-    'takes the height of the panel instead of three lines of it',
+    'grows to what is in it -- three rows for a count, most of the panel for a script',
     async () => {
-      // Reported as "the Molang window should maximise vertically". The box grew to its text up
-      // to a ceiling, so a two-line condition sat in a three-line well at the top of an otherwise
-      // empty column, and a setup script scrolled inside a box a fraction of the space it had.
-      const j = await journey({ prepare: withIterations(ITERATIONS) })
+      // TWO REPORTS, POINTING OPPOSITE WAYS, and the fix for the first overshot into the second.
+      //
+      //   "the Molang window should maximise vertically" -- a setup script scrolled inside a
+      //   three-row well while the column below it was empty. Answered by making the box FILL
+      //   the panel.
+      //
+      //   Which then gave a two-character `14` a 276x484 box in a 696px sidebar: most of the
+      //   panel spent on two glyphs, with the diagnostics under the fold.
+      //
+      // The size of a box is a fact about its contents. It grows from a three-row floor and
+      // stops at a ceiling; the panel is the ceiling, not the floor.
+      const j = await journey({ prepare: withIterations('14') })
       await j.clickEdge(SCATTER, SCATTER_EDGE)
       const { selector } = await expressionBox(j)
-      const { side, box } = await j.page.evaluate((selector) => {
-        const side = document.getElementById('flg-side')!.getBoundingClientRect()
-        const box = document.querySelector(selector)!.getBoundingClientRect()
-        return { side: { bottom: side.bottom, height: side.height }, box: { bottom: box.bottom, height: box.height } }
-      }, selector)
-      expect(box.height, `the box is ${box.height}px of a ${side.height}px panel`).toBeGreaterThan(side.height * 0.5)
-      expect(box.bottom, 'the box runs past the bottom of the panel').toBeLessThanOrEqual(side.bottom + 1)
+
+      const small = await boxes(j, selector)
+      expect(
+        small.box.height,
+        `a two-character count was given ${small.box.height}px of a ${small.side.height}px panel`,
+      ).toBeLessThan(small.side.height * 0.35)
+
+      // And a real setup script takes the room it needs, in the same box, without being told to.
+      const control = j.page.locator(selector)
+      await control.fill(`${Array.from({ length: 30 }, (_, i) => `variable.v${i} = ${i};`).join('\n')}\nreturn 1;`)
+      const grown = await boxes(j, selector)
+      expect(grown.box.height, 'a thirty-statement script did not grow the box').toBeGreaterThan(small.box.height * 3)
+      expect(grown.box.bottom, 'the box runs past the bottom of the panel').toBeLessThanOrEqual(grown.side.bottom + 1)
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+// ===========================================================================
+// THE FILE MOVING UNDER AN OPEN BOX
+// ===========================================================================
+describe('when something else writes the file while the edge is selected', () => {
+  /** A write to the pack from OUTSIDE this panel -- what a save in the text editor, an undo or
+   * another window produces. The panel learns about it the way the extension tells it: the host
+   * re-reads the file and hands back a graph built from what is now on disk. */
+  function writeIterations(j: Journey, expression: string): void {
+    const file = JSON.parse(j.read(SCATTER_FILE)) as {
+      'minecraft:scatter_feature': { distribution: Record<string, unknown> }
+    }
+    file['minecraft:scatter_feature'].distribution['iterations'] = expression
+    j.write(SCATTER_FILE, `${JSON.stringify(file, null, 2)}\n`)
+  }
+
+  it(
+    'stops showing a value the file no longer has',
+    async () => {
+      // THE DATA LOSS. The host caches one editor per edge -- that cache is what keeps the caret
+      // and the draft alive across a click away and back -- and it never looked at the value
+      // again. Open wiki:pumpkin_patch's edge with iterations = 14, save the file from the text
+      // editor with 999 in it, and the chip on the edge reads 999 while the box a foot away
+      // still reads 14. One keystroke and 999 is gone.
+      const j = await journey({ prepare: withIterations('14') })
+      await j.clickEdge(SCATTER, SCATTER_EDGE)
+      const { selector } = await expressionBox(j)
+      expect(await j.page.locator(selector).inputValue()).toBe('14')
+
+      // What a save in the text editor does, through the real host path: the engine re-reads the
+      // file and the panel is handed a new graph built from it.
+      const seen = await j.graphCount()
+      writeIterations(j, '999')
+      await j.notifySaved(SCATTER_FILE)
+      await j.waitForRedraw(seen)
+
+      await expect.poll(() => j.page.locator(selector).inputValue(), { timeout: 20_000 }).toBe('999')
+
+      // And what is written from here is written over 999, not over the 14 that is gone.
+      await j.page.locator(selector).fill('7')
+      await j.page.locator(selector).press('Tab')
+      await expect.poll(() => j.read(SCATTER_FILE).includes('"iterations": "7"'), { timeout: 20_000 }).toBe(true)
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+
+  it(
+    'keeps what the author is typing, and says what it is about to overwrite',
+    async () => {
+      // The other half, and the half a naive fix loses: taking the file unconditionally would
+      // delete whatever was being typed. Neither side may be thrown away silently.
+      const j = await journey({ prepare: withIterations('14') })
+      await j.clickEdge(SCATTER, SCATTER_EDGE)
+      const { selector } = await expressionBox(j)
+      const control = j.page.locator(selector)
+      await control.click()
+      await control.fill('142')
+
+      const seen = await j.graphCount()
+      writeIterations(j, '999')
+      await j.notifySaved(SCATTER_FILE)
+      await j.waitForRedraw(seen)
+
+      // The typing survives...
+      await expect.poll(() => j.sideText(), { timeout: 20_000 }).toContain('999')
+      expect(await control.inputValue(), 'the typing was thrown away by a write from elsewhere').toBe('142')
+      // ...and the panel says, in words, what the file now holds and that saving replaces it.
+      const said = await j.sideText()
+      expect(said.toLowerCase()).toMatch(/changed in the file|not been saved/)
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+// ===========================================================================
+// THE KEYS
+// ===========================================================================
+describe('the keyboard, while the caret is in an expression', () => {
+  it(
+    'does not throw the author out to the feature search on Ctrl+F',
+    async () => {
+      // It was the one shortcut in webview/graph.ts with no `typingInto` guard, and leaving the
+      // box is what commits -- so Ctrl+F mid-expression sent the keyboard to the search box AND
+      // wrote the half-typed expression to the pack on the way past.
+      const j = await journey({ prepare: withIterations('14') })
+      await j.clickEdge(SCATTER, SCATTER_EDGE)
+      const { selector } = await expressionBox(j)
+      const control = j.page.locator(selector)
+      await control.click()
+      await control.fill('math.random_integer(1, ')
+
+      await control.press('Control+f')
+
+      // The keyboard is still in the box.
+      expect(await j.page.evaluate(() => document.activeElement?.tagName.toLowerCase())).toBe('textarea')
+      expect(await control.inputValue()).toBe('math.random_integer(1, ')
+      // And nothing half-written reached the pack.
+      expect(j.read(SCATTER_FILE)).toContain('"iterations": "14"')
+      expect(j.posted.filter((m) => m.type === 'applyEdits')).toHaveLength(0)
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+
+  it(
+    'lets Escape abandon an edit, with the box marked until it does',
+    async () => {
+      // Tab commits, clicking away commits, selecting another node commits. There was no gesture
+      // at all that meant "no": Escape with the completion list closed did nothing, the text
+      // stayed, and nothing anywhere marked the box as holding something unsaved.
+      const j = await journey({ prepare: withIterations('14') })
+      await j.clickEdge(SCATTER, SCATTER_EDGE)
+      const { selector } = await expressionBox(j)
+      const control = j.page.locator(selector)
+      await control.click()
+      await control.fill('9999')
+
+      // The box says it is holding something the file has not got.
+      const field = j.page.locator('#flg-side .flg-molang-field')
+      await expect.poll(() => field.getAttribute('data-dirty'), { timeout: 10_000 }).toBe('yes')
+
+      await control.press('Escape')
+      expect(await control.inputValue(), 'Escape did not put back what the file holds').toBe('14')
+      expect(await field.getAttribute('data-dirty')).toBe('no')
+      // Nothing was written, and leaving the box now writes nothing either -- the edit is gone,
+      // not merely hidden.
+      await control.press('Tab')
+      expect(j.posted.filter((m) => m.type === 'applyEdits')).toHaveLength(0)
+      expect(j.read(SCATTER_FILE)).toContain('"iterations": "14"')
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+// ===========================================================================
+// THE SAME LANGUAGE, EVERYWHERE IT IS WRITTEN
+// ===========================================================================
+describe('a rule’s own iterations', () => {
+  const RULE = 'wiki:rng_rule_a.fr'
+  const RULE_FILE = 'feature_rules/rng_rule_a.fr.json'
+
+  it(
+    'gets the same editor, and the same refusal, as the expression on an edge',
+    async () => {
+      // A feature_rule carries `iterations` as a plain field -- it has no feature-placing edge to
+      // hang it on -- and it was drawn as a bare <input> whose whole affordance was a placeholder
+      // that vanished once the key had a value. `query.made_up_thing(1) + }{` typed here was
+      // accepted and written; the identical text one panel away was a red error explaining that
+      // the game would refuse to load the file.
+      const j = await journey()
+      await j.clickNode(RULE)
+
+      const box = j.page.locator('.flg-ins-row[data-key="iterations"] textarea')
+      await box.waitFor({ state: 'visible', timeout: 20_000 })
+      expect(await box.inputValue()).toBe('8')
+
+      await box.fill('query.made_up_thing(1) + }{')
+      const said = await j.sideText()
+      expect(said, 'garbage Molang in a rule is still accepted in silence').toMatch(/to match it|never closed|not one of the six queries/)
+
+      // And a real expression is written, compact, at the path the rule keeps it.
+      await box.fill('math.random_integer(2, 5)')
+      await box.blur()
+      await expect.poll(() => j.read(RULE_FILE).includes('math.random_integer(2,5)'), { timeout: 20_000 }).toBe(true)
+
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+
+  it(
+    'gives both ends of an extent the same treatment',
+    async () => {
+      const j = await journey()
+      await j.clickNode(RULE)
+      const extent = j.page.locator('.flg-ins-row[data-key="extent"]').first().locator('textarea')
+      await extent.first().waitFor({ state: 'visible', timeout: 20_000 })
+      expect(await extent.count(), 'an extent is still two bare inputs').toBe(2)
+      await extent.nth(1).fill('math.random_integer(8, 15)')
+      await extent.nth(1).blur()
+      await expect.poll(() => j.read(RULE_FILE).includes('math.random_integer(8,15)'), { timeout: 20_000 }).toBe(true)
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+
+// ===========================================================================
+// THE FILE MOVING UNDER A HALF-TYPED BOX -- ON BOTH PATHS
+// ===========================================================================
+//
+// `MolangEdgeEditor.reseed` has one job: when the file changes under a box nobody has committed,
+// keep BOTH versions and let the author choose. The edge panel kept that promise. The node form,
+// drawing the same editor through the same control, did not -- and the reason was the panel
+// around it rather than anything in the editor: the host empties the sidebar to redraw it, a
+// focused control that is removed blurs, and the blur handler committed. So the draft was written
+// over the value that had just arrived -- measured on disk, not inferred -- and because a commit
+// leaves the editor clean, the reseed that followed found nothing to protect and adopted in
+// silence. The box then showed the author's text over an editor holding the file's.
+//
+// Both journeys below are the same scenario in the two places, so that neither can be fixed
+// without the other staying fixed: type, change the file underneath from outside, and ask what
+// the editor did with somebody's uncommitted work.
+const CARVER = 'wiki:cave_demo'
+const CARVER_FILE = 'features/cave_demo.json'
+
+/** Writes one key of a feature file from outside the editor and tells the host, which is what a
+ * save in the text editor, an undo or another window amounts to. */
+async function fileChangedUnderneath(j: Journey, rel: string, body: string, key: string, value: unknown): Promise<void> {
+  const json = JSON.parse(j.read(rel)) as Record<string, Record<string, unknown>>
+  json[body]![key] = value
+  j.write(rel, JSON.stringify(json, null, 2) + '\n')
+  await j.notifySaved(rel)
+}
+
+function conflictActions(j: Journey, rowKey: string) {
+  return j.page.locator(`#flg-side .flg-ins-row[data-key="${rowKey}"] .flg-molang-problem button`)
+}
+
+describe('the file changing under a half-typed box', () => {
+  it(
+    'keeps the draft and raises the conflict on a NODE FORM slot, and writes nothing',
+    async () => {
+      const j = await journey()
+      await j.clickNode(CARVER)
+      const box = j.page.locator(`#flg-side .flg-ins-row[data-key="width_modifier"] textarea`)
+      await box.waitFor({ state: 'visible', timeout: 20_000 })
+      await box.fill('math.random(1,4)')
+
+      const redraws = await j.graphCount()
+      await fileChangedUnderneath(j, CARVER_FILE, 'minecraft:cave_carver_feature', 'width_modifier', 42)
+      await j.waitForRedraw(redraws)
+
+      // THE FILE IS UNTOUCHED. This is the assertion the bug was about: the redraw used to post
+      // an applyEdits carrying the draft, and the 42 was gone before anybody was asked.
+      expect(JSON.parse(j.read(CARVER_FILE))['minecraft:cave_carver_feature']['width_modifier'], 'the redraw wrote the draft over the file').toBe(42)
+      expect(j.posted.filter((m) => m.type === 'applyEdits')).toEqual([])
+
+      // AND THE DRAFT IS STILL THERE, said in the edge field's words with the edge field's three
+      // answers.
+      expect(await box.inputValue()).toBe('math.random(1,4)')
+      const field = j.page.locator(`#flg-side .flg-ins-row[data-key="width_modifier"] .flg-molang-field`)
+      expect(await field.getAttribute('data-dirty')).toBe('yes')
+      const said = await j.sideText()
+      expect(said).toContain('This changed in the file to `42` while you were editing')
+      expect(await conflictActions(j, 'width_modifier').allTextContents()).toEqual(['Use the file’s version', 'Keep mine', 'Show the JSON'])
+
+      // Answering it with "use the file's version" takes the 42 and still writes nothing: the
+      // file already says 42.
+      await conflictActions(j, 'width_modifier').first().click()
+      await expect.poll(() => box.inputValue(), { timeout: 20_000 }).toBe('42')
+      expect(j.posted.filter((m) => m.type === 'applyEdits')).toEqual([])
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+
+  it(
+    'keeps the draft and raises the same conflict on the EDGE field, and writes nothing',
+    async () => {
+      const j = await journey({ prepare: withIterations(ITERATIONS) })
+      await j.clickEdge(SCATTER, SCATTER_EDGE)
+      const editables = await j.editables()
+      const box = j.page.locator(holding(editables, ITERATIONS)[0]!.selector)
+      await box.fill('math.random(1,4)')
+
+      const redraws = await j.graphCount()
+      const json = JSON.parse(j.read(SCATTER_FILE)) as { 'minecraft:scatter_feature': { distribution: Record<string, unknown> } }
+      json['minecraft:scatter_feature'].distribution['iterations'] = '42'
+      j.write(SCATTER_FILE, JSON.stringify(json, null, 2) + '\n')
+      await j.notifySaved(SCATTER_FILE)
+      await j.waitForRedraw(redraws)
+
+      expect(j.read(SCATTER_FILE)).toContain('"iterations": "42"')
+      expect(j.posted.filter((m) => m.type === 'applyEdits')).toEqual([])
+      expect(await box.inputValue()).toBe('math.random(1,4)')
+      const said = await j.sideText()
+      expect(said).toContain('This changed in the file to `42` while you were editing')
+      const actions = j.page.locator('#flg-side .flg-molang-problem button')
+      expect(await actions.allTextContents()).toEqual(['Use the file’s version', 'Keep mine', 'Show the JSON'])
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+describe('scatter_chance, the slot that was missed', () => {
+  it(
+    'is the expression editor like the other five, and lays out like one under the real stylesheet',
+    async () => {
+      // Five of the six slots that take "a number or Molang" had the editor. This one kept a bare
+      // <input type="text"> labelled "scatter_chance: percent" -- no colour, no diagnostics, no
+      // mode -- and kept it with a ternary over math.random in it.
+      const j = await journey({
+        prepare: (packRoot) => {
+          const file = `${packRoot}/feature_rules/rng_rule_a.fr.json`
+          const json = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+            'minecraft:feature_rules': { distribution: Record<string, unknown> }
+          }
+          json['minecraft:feature_rules'].distribution['scatter_chance'] = 'math.random(1,10) > 5 ? 100 : 0'
+          fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\n', 'utf8')
+        },
+      })
+      await j.clickNode('wiki:rng_rule_a.fr')
+      const row = j.page.locator('#flg-side .flg-ins-row[data-key="scatter_chance"]')
+      const box = row.locator('textarea')
+      await box.waitFor({ state: 'visible', timeout: 20_000 })
+      expect(await box.count(), 'scatter_chance is still a bare input').toBe(1)
+      expect(await box.inputValue()).toBe('math.random(1, 10) > 5 ? 100 : 0')
+
+      // The key sits ABOVE the box, full width -- the layout every other expression row gets. The
+      // rule is matched on the control the row holds, so this is the first check of it that runs
+      // against media/graph.css and the panel's own stylesheet together.
+      const geometry = await row.evaluate((el) => {
+        const key = el.querySelector(':scope > .flg-ins-key')!.getBoundingClientRect()
+        const control = el.querySelector(':scope > .flg-ins-control')!.getBoundingClientRect()
+        return { keyBottom: key.bottom, keyWidth: key.width, controlTop: control.top, controlWidth: control.width }
+      })
+      expect(geometry.keyBottom).toBeLessThanOrEqual(geometry.controlTop + 1)
+      expect(geometry.keyWidth).toBeGreaterThan(geometry.controlWidth * 0.8)
+
+      // And it refuses what the game would refuse, which it accepted in silence before.
+      await box.fill('query.made_up_thing(1) + }{')
+      expect((await j.sideText()).toLowerCase()).toMatch(/to match it|never closed|not one of the six queries/)
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+})
+
+// -- the two slots that were still uneven, in the real panel -----------------
+//
+// Both of these are the SAME complaint scatter_chance was, found again one round later: the
+// editor you get for a Molang-or-number slot still depended on something other than the slot.
+// Above it depended on the KEY; here it depended, first, on how the author's file happened to be
+// written, and second, on how many of the things sit on one row.
+const BARE_SCATTER = 'wiki:rng_scatter_bare'
+const BARE_SCATTER_FILE = 'features/rng_scatter_bare.json'
+
+describe('an axis written as one value', () => {
+  it(
+    'gets the expression editor, not a plain box, and typing in it reaches the file',
+    async () => {
+      // THE FIXTURE IS THE BUG. rng_scatter_bare holds `x: 5`, `y: 0` and a `z` written as
+      // `{distribution, extent}`. Before this, the first two drew
+      // `<input type="text" aria-label="y: value">` -- no colour, no mode, no stepper, no
+      // diagnostics -- while z's two extent ends, one row lower in the same panel, each drew the
+      // real control. Same key, same language, two editors, decided by a spelling.
+      const j = await journey()
+      await j.clickNode(BARE_SCATTER)
+      const row = j.page.locator('#flg-side .flg-ins-row[data-key="y"]')
+      const box = row.locator('textarea')
+      await box.waitFor({ state: 'visible', timeout: 20_000 })
+      expect(await row.locator('input.flg-ins-input').count(), 'a scalar axis is still a bare input').toBe(0)
+      expect(await box.inputValue()).toBe('0')
+
+      // The mode is stated, and it is the VALUE's: a bare 0 is a number and gets the stepper.
+      expect(await row.locator('.flg-molang-field').getAttribute('data-mode')).toBe('number')
+      expect(await row.locator('.flg-molang-stepper').isVisible()).toBe(true)
+      // The one-value/distribution menu stays beside it: that is a different shape in the file.
+      expect((await row.locator('select.flg-ins-spell option').allTextContents()).join(' ')).toMatch(/one value/)
+
+      // The key sits above the box, full width -- the layout every other expression row gets,
+      // here under media/graph.css and the panel's own stylesheet together.
+      const geometry = await row.evaluate((el) => {
+        const key = el.querySelector(':scope > .flg-ins-key')!.getBoundingClientRect()
+        const control = el.querySelector(':scope > .flg-ins-control')!.getBoundingClientRect()
+        return { keyBottom: key.bottom, keyWidth: key.width, controlTop: control.top, controlWidth: control.width }
+      })
+      expect(geometry.keyBottom).toBeLessThanOrEqual(geometry.controlTop + 1)
+      expect(geometry.keyWidth).toBeGreaterThan(geometry.controlWidth * 0.8)
+
+      // It refuses what the game would refuse, which the bare input took in silence.
+      await box.fill('query.made_up_thing(1) + }{')
+      expect((await j.sideText()).toLowerCase()).toMatch(/to match it|never closed|not one of the six queries/)
+
+      // And a real expression reaches the file, in the compact spelling the editor writes.
+      await box.fill('math.random(-2, 2)')
+      await box.press('Tab')
+      await expect.poll(() => j.read(BARE_SCATTER_FILE).includes('math.random(-2,2)'), { timeout: 20_000 }).toBe(true)
+      expect(j.problems()).toEqual([])
+    },
+    JOURNEY_TIMEOUT_MS,
+  )
+
+  it(
+    'gives both ends of an extent a stepper, and a number one of them steps reaches the file',
+    async () => {
+      // An extent end draws in COMPACT chrome, which used to drop the whole adornment row -- so
+      // the commonest place in this panel that somebody types a number was the only slot with no
+      // stepper and no mode word, and `15` and `query.noise(1, 2)` were two identical boxes.
+      const j = await journey()
+      await j.clickNode(BARE_SCATTER)
+      const row = j.page.locator('#flg-side .flg-ins-row[data-key="extent"]').first()
+      const low = row.locator('.flg-ins-chip').first()
+      await low.locator('textarea').waitFor({ state: 'visible', timeout: 20_000 })
+      expect(await low.locator('textarea').inputValue()).toBe('0')
+      expect(await low.locator('.flg-molang-mode').textContent()).toBe('number')
+      expect(await low.locator('.flg-molang-stepper').isVisible()).toBe(true)
+
+      // An extent end is routinely negative, so its stepper does NOT floor at a count's zero --
+      // the bounds are the slot's, and this slot states none.
+      await low.locator('.flg-molang-step').first().click()
+      expect(await low.locator('textarea').inputValue()).toBe('-1')
+      await low.locator('textarea').press('Tab')
+      await expect.poll(() => j.read(BARE_SCATTER_FILE).includes('-1'), { timeout: 20_000 }).toBe(true)
+      const json = JSON.parse(j.read(BARE_SCATTER_FILE)) as {
+        'minecraft:scatter_feature': { distribution: { z: { extent: unknown[] } } }
+      }
+      // A NUMBER, not the string "-1": a stepped count is still a count in the file.
+      expect(json['minecraft:scatter_feature'].distribution.z.extent).toEqual([-1, 20])
+
+      // And the distinction the stepper is half of survives the value changing: an expression
+      // says so, and loses the stepper, because a stepper is then no longer a view of the text.
+      await low.locator('textarea').fill('query.noise(1, 2)')
+      expect(await low.locator('.flg-molang-mode').textContent()).toBe('expression')
+      expect(await low.locator('.flg-molang-stepper').isVisible()).toBe(false)
       expect(j.problems()).toEqual([])
     },
     JOURNEY_TIMEOUT_MS,

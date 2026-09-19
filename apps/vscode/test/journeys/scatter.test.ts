@@ -53,7 +53,9 @@ function distributionSection(j: Journey) {
 
 /** The text box of one row of the distribution section. */
 function axis(j: Journey, key: string) {
-  return distributionSection(j).locator(`.flg-ins-row[data-key=${JSON.stringify(key)}] input.flg-ins-input`).first()
+  // An axis is a Molang-or-number slot however the file spells it, so the box is the expression
+  // editor's textarea -- there is no plain `input` on these rows any more.
+  return distributionSection(j).locator(`.flg-ins-row[data-key=${JSON.stringify(key)}] textarea.flg-molang-input`).first()
 }
 
 function scatterBody(j: Journey): Record<string, unknown> {
@@ -173,13 +175,20 @@ describe('editing the same node more than once', () => {
       expect(x()['distribution'], 'adding to extent erased the distribution chosen a moment before').toBe('gaussian')
 
       // A full pair offers no way to grow it to three, or shrink it to one.
+      //
+      // The two ends are counted by BEING typeable boxes rather than by tag: both ends of an
+      // extent are Molang-or-number, so each chip now holds an expression field -- a <textarea>
+      // behind a painted layer -- where it used to hold a bare <input> (see molangRow). A count
+      // of `input` went to zero the day that landed and said "no ends" rather than "a different
+      // control", which is the failure this spelling exists to avoid.
       const extentRow = distributionSection(j).locator('.flg-ins-row[data-key="extent"]').last()
-      await expect.poll(() => extentRow.locator('input').count(), { timeout: 20_000 }).toBe(2)
+      const ends = extentRow.locator('.flg-ins-chip').locator('input, textarea')
+      await expect.poll(() => ends.count(), { timeout: 20_000 }).toBe(2)
       expect(await extentRow.getByLabel(/^Fill extent|^Add an entry to extent/).count(), 'a full extent still offers +').toBe(0)
       expect(await extentRow.getByLabel(/^Remove entry/).count(), 'one end of a full extent can be removed').toBe(0)
 
       // And a third edit, on one end of the pair, still builds on both before it.
-      const max = extentRow.locator('input').nth(1)
+      const max = ends.nth(1)
       await max.fill('16')
       await max.press('Tab')
       await expect.poll(() => JSON.stringify(x()['extent']), { timeout: 20_000 }).toBe('[0,16]')
