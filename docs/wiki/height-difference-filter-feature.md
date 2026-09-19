@@ -76,7 +76,7 @@ featurelab generate --pack <pack> --feature wiki:height_diff_gate --env plains -
 | Field | Required | Shape | Bounds | Default |
 |---|---|---|---|---|
 | `places_feature` | yes | string (feature identifier) | non-empty | — |
-| `search_radius` | yes | integer | $\ge 0$ | — |
+| `search_radius` | yes | integer | none enforced — a fractional value truncates (`4.9` behaves as `4`) and a negative value loads without a diagnostic | — |
 | `min_required_upward_height_diff` | no | integer | — | unconstrained |
 | `min_required_downward_height_diff` | no | integer | — | unconstrained |
 | `max_allowed_upward_height_diff` | no | integer | — | unconstrained |
