@@ -1,6 +1,6 @@
 {
   "meta": {
-    "source": "featurelab goldentest regeneration tool (goldentest/cmd/goldengen) -- Go engine output, no external authority consulted",
+    "source": "github.com/stirante/featurelab goldentest regeneration tool (goldentest/cmd/goldengen) -- Go engine output, no external authority consulted",
     "pack": "docs/wiki/tools/fixtures",
     "environment": {
       "envId": "plains",
@@ -39,9 +39,9 @@
       "writeEncoding": "per write: int32LE x, int32LE y, int32LE z, uint32LE nameByteLength, UTF-8 name bytes (name = \"blockName\" or \"blockName#k=v,k2=v2\" sorted by key)",
       "drawEncoding": "per draw, fixed 13 bytes: uint8 methodCode(0=NextInt,1=NextIntBound,2=NextFloat,3=NextDouble,4=NextBoolean,5=NextUnsignedInt), int32LE bound(0 if n/a), float64LE value(bool as 1.0/0.0)"
     },
-    "totalFeatureFiles": 55,
-    "inScope": 46,
-    "pinnable": 46,
+    "totalFeatureFiles": 124,
+    "inScope": 99,
+    "pinnable": 99,
     "notPinnable": 0
   },
   "notPinnable": null,
@@ -106,6 +106,150 @@
           "ns": "variable",
           "key": "worldz",
           "value": 1
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "aggseq_panel_aggregate.json",
+      "identifier": "wiki:aggseq_panel_aggregate",
+      "typeId": "minecraft:aggregate_feature",
+      "writeCount": 13,
+      "writeHash": "1f0b0ecd10ce30b2",
+      "drawCount": 37,
+      "drawHash": "f793ff2cf0c64612",
+      "returned": {
+        "x": -1,
+        "y": 63,
+        "z": 2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "aggseq_panel_scatter.json",
+      "identifier": "wiki:aggseq_panel_scatter",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 12,
+      "writeHash": "84d46c0a84d3e90b",
+      "drawCount": 36,
+      "drawHash": "7689c158802b4dac",
+      "returned": {
+        "x": 3,
+        "y": 63,
+        "z": -1
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 3
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -1
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "aggseq_panel_sequence.json",
+      "identifier": "wiki:aggseq_panel_sequence",
+      "typeId": "minecraft:sequence_feature",
+      "writeCount": 13,
+      "writeHash": "1f0b0ecd10ce30b2",
+      "drawCount": 37,
+      "drawHash": "f793ff2cf0c64612",
+      "returned": {
+        "x": -1,
+        "y": 63,
+        "z": 2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 2
         }
       ],
       "error": null,
@@ -364,6 +508,582 @@
       "detail": false
     },
     {
+      "fileId": "dist_fixed_grid.json",
+      "identifier": "wiki:dist_fixed_grid",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "efbf89c9cda33965",
+      "drawCount": 64,
+      "drawHash": "a039dde01f6f6f25",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_gaussian.json",
+      "identifier": "wiki:dist_gaussian",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "277ec5e8141bddb5",
+      "drawCount": 320,
+      "drawHash": "6749a5f24b1f5270",
+      "returned": {
+        "x": 5,
+        "y": 63,
+        "z": 7
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 5
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 7
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_inverse_gaussian.json",
+      "identifier": "wiki:dist_inverse_gaussian",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "249b6a9e692fb741",
+      "drawCount": 340,
+      "drawHash": "3995a8e50b8a091c",
+      "returned": {
+        "x": 2,
+        "y": 63,
+        "z": 14
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 14
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_jittered_grid.json",
+      "identifier": "wiki:dist_jittered_grid",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "c278ea6906380787",
+      "drawCount": 192,
+      "drawHash": "47a7882709f3a3dd",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_panel_fixed_grid.json",
+      "identifier": "wiki:dist_panel_fixed_grid",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "871d9af14129a9a5",
+      "drawCount": 64,
+      "drawHash": "a039dde01f6f6f25",
+      "returned": {
+        "x": -8,
+        "y": 63,
+        "z": -8
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -8
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_panel_gaussian.json",
+      "identifier": "wiki:dist_panel_gaussian",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "7c3999343bd55607",
+      "drawCount": 320,
+      "drawHash": "6749a5f24b1f5270",
+      "returned": {
+        "x": -3,
+        "y": 63,
+        "z": -1
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -3
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -1
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_panel_inverse_gaussian.json",
+      "identifier": "wiki:dist_panel_inverse_gaussian",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "75cdd05f7981aebc",
+      "drawCount": 340,
+      "drawHash": "3995a8e50b8a091c",
+      "returned": {
+        "x": -6,
+        "y": 63,
+        "z": 6
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -6
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 6
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_panel_jittered_grid.json",
+      "identifier": "wiki:dist_panel_jittered_grid",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "80991e04babc98e7",
+      "drawCount": 192,
+      "drawHash": "47a7882709f3a3dd",
+      "returned": {
+        "x": -8,
+        "y": 63,
+        "z": -8
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -8
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_panel_triangle.json",
+      "identifier": "wiki:dist_panel_triangle",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "31bb6659e856605a",
+      "drawCount": 320,
+      "drawHash": "3b1752180440eb57",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_panel_uniform.json",
+      "identifier": "wiki:dist_panel_uniform",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "53ec810cb6a16264",
+      "drawCount": 192,
+      "drawHash": "94ce3e5183db2a0b",
+      "returned": {
+        "x": -8,
+        "y": 63,
+        "z": -3
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -8
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -3
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_triangle.json",
+      "identifier": "wiki:dist_triangle",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "02cb730c3fadc890",
+      "drawCount": 320,
+      "drawHash": "3b1752180440eb57",
+      "returned": {
+        "x": 8,
+        "y": 63,
+        "z": 8
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 8
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 8
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "dist_uniform.json",
+      "identifier": "wiki:dist_uniform",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 64,
+      "writeHash": "6665420946fbb0f2",
+      "drawCount": 192,
+      "drawHash": "94ce3e5183db2a0b",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 5
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 5
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
       "fileId": "fallen_log_block.json",
       "identifier": "wiki:fallen_log_block",
       "typeId": "minecraft:single_block_feature",
@@ -442,6 +1162,146 @@
         "z": 0
       },
       "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "growplant_panel_ceiling_plate.json",
+      "identifier": "wiki:growplant_panel_ceiling_plate",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 9,
+      "writeHash": "5172c501acf307a9",
+      "drawCount": 9,
+      "drawHash": "a3d8f6e5210fd19d",
+      "returned": {
+        "x": -1,
+        "y": 69,
+        "z": -1
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 69
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 69
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -1
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "growplant_panel_floor_plate.json",
+      "identifier": "wiki:growplant_panel_floor_plate",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 0,
+      "writeHash": "cbf29ce484222325",
+      "drawCount": 9,
+      "drawHash": "a3d8f6e5210fd19d",
+      "returned": null,
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 57
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -1
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 57
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -1
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "growplant_panel_plate_grid.json",
+      "identifier": "wiki:growplant_panel_plate_grid",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 9,
+      "writeHash": "4e063524e76c38b3",
+      "drawCount": 9,
+      "drawHash": "a3d8f6e5210fd19d",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
       "error": null,
       "detail": false
     },
@@ -528,6 +1388,71 @@
       "typeId": "minecraft:single_block_feature",
       "writeCount": 1,
       "writeHash": "17e0732ed89231b8",
+      "drawCount": 1,
+      "drawHash": "e1e840c5713ecd1d",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "multipart_panel_anchor.json",
+      "identifier": "wiki:multipart_panel_anchor",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 1,
+      "writeHash": "3b9d3665c6fb4138",
+      "drawCount": 1,
+      "drawHash": "e1e840c5713ecd1d",
+      "returned": {
+        "x": 0,
+        "y": 62,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 62
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "multipart_panel_anchor_block.json",
+      "identifier": "wiki:multipart_panel_anchor_block",
+      "typeId": "minecraft:single_block_feature",
+      "writeCount": 1,
+      "writeHash": "fb83ad405a73f45b",
       "drawCount": 1,
       "drawHash": "e1e840c5713ecd1d",
       "returned": {
@@ -930,6 +1855,108 @@
       "detail": false
     },
     {
+      "fileId": "search_panel_minus_x.json",
+      "identifier": "wiki:search_panel_minus_x",
+      "typeId": "minecraft:search_feature",
+      "writeCount": 30,
+      "writeHash": "5120ef1f9fd5e95e",
+      "drawCount": 30,
+      "drawHash": "0477010609dcde45",
+      "returned": {
+        "x": 1,
+        "y": 65,
+        "z": 2
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "search_panel_minus_y.json",
+      "identifier": "wiki:search_panel_minus_y",
+      "typeId": "minecraft:search_feature",
+      "writeCount": 30,
+      "writeHash": "fdb6f6bc8ca02290",
+      "drawCount": 30,
+      "drawHash": "0477010609dcde45",
+      "returned": {
+        "x": 2,
+        "y": 64,
+        "z": 2
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "search_panel_minus_z.json",
+      "identifier": "wiki:search_panel_minus_z",
+      "typeId": "minecraft:search_feature",
+      "writeCount": 30,
+      "writeHash": "34bcefbb11c152c5",
+      "drawCount": 30,
+      "drawHash": "0477010609dcde45",
+      "returned": {
+        "x": -2,
+        "y": 65,
+        "z": 1
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "search_panel_plus_x.json",
+      "identifier": "wiki:search_panel_plus_x",
+      "typeId": "minecraft:search_feature",
+      "writeCount": 30,
+      "writeHash": "616bd7dd9baf8f17",
+      "drawCount": 30,
+      "drawHash": "0477010609dcde45",
+      "returned": {
+        "x": -1,
+        "y": 65,
+        "z": -2
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "search_panel_plus_y.json",
+      "identifier": "wiki:search_panel_plus_y",
+      "typeId": "minecraft:search_feature",
+      "writeCount": 30,
+      "writeHash": "d4e190edf5b6f745",
+      "drawCount": 30,
+      "drawHash": "0477010609dcde45",
+      "returned": {
+        "x": -2,
+        "y": 62,
+        "z": 2
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "search_panel_plus_z.json",
+      "identifier": "wiki:search_panel_plus_z",
+      "typeId": "minecraft:search_feature",
+      "writeCount": 30,
+      "writeHash": "a3b23cf659cccfbc",
+      "drawCount": 30,
+      "drawHash": "0477010609dcde45",
+      "returned": {
+        "x": 2,
+        "y": 65,
+        "z": -1
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
       "fileId": "search_pumpkin_down.json",
       "identifier": "wiki:search_pumpkin_down",
       "typeId": "minecraft:search_feature",
@@ -1012,6 +2039,355 @@
       "detail": false
     },
     {
+      "fileId": "snap_panel_ceiling.json",
+      "identifier": "wiki:snap_panel_ceiling",
+      "typeId": "minecraft:aggregate_feature",
+      "writeCount": 27,
+      "writeHash": "d6bfbb3b89138bcc",
+      "drawCount": 27,
+      "drawHash": "58eab12fd81ee43d",
+      "returned": {
+        "x": -2,
+        "y": 66,
+        "z": -2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 66
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 66
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "snap_panel_ceiling_block.json",
+      "identifier": "wiki:snap_panel_ceiling_block",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 1,
+      "writeHash": "8820aa873f10d70f",
+      "drawCount": 1,
+      "drawHash": "e1e840c5713ecd1d",
+      "returned": {
+        "x": 0,
+        "y": 67,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 67
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "snap_panel_floor.json",
+      "identifier": "wiki:snap_panel_floor",
+      "typeId": "minecraft:aggregate_feature",
+      "writeCount": 27,
+      "writeHash": "31291ce6d48fa2d9",
+      "drawCount": 27,
+      "drawHash": "58eab12fd81ee43d",
+      "returned": {
+        "x": -2,
+        "y": 63,
+        "z": -2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "snap_panel_floor_block.json",
+      "identifier": "wiki:snap_panel_floor_block",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 1,
+      "writeHash": "e4bab15686f69167",
+      "drawCount": 1,
+      "drawHash": "e1e840c5713ecd1d",
+      "returned": {
+        "x": 0,
+        "y": 59,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 59
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "snap_panel_patch.json",
+      "identifier": "wiki:snap_panel_patch",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 25,
+      "writeHash": "5ed90c7926b4a2b9",
+      "drawCount": 25,
+      "drawHash": "f3cf95015678ca9d",
+      "returned": {
+        "x": -2,
+        "y": 63,
+        "z": -2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "snap_panel_patch_grid.json",
+      "identifier": "wiki:snap_panel_patch_grid",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 25,
+      "writeHash": "1bf1c51cc04c2319",
+      "drawCount": 25,
+      "drawHash": "f3cf95015678ca9d",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "snap_panel_snap_ceiling.json",
+      "identifier": "wiki:snap_panel_snap_ceiling",
+      "typeId": "minecraft:snap_to_surface_feature",
+      "writeCount": 0,
+      "writeHash": "cbf29ce484222325",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
+      "returned": null,
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "snap_panel_snap_floor.json",
+      "identifier": "wiki:snap_panel_snap_floor",
+      "typeId": "minecraft:snap_to_surface_feature",
+      "writeCount": 25,
+      "writeHash": "5ed90c7926b4a2b9",
+      "drawCount": 25,
+      "drawHash": "f3cf95015678ca9d",
+      "returned": {
+        "x": -2,
+        "y": 63,
+        "z": -2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
       "fileId": "snap_pumpkin_air_disallowed.json",
       "identifier": "wiki:snap_pumpkin_air_disallowed",
       "typeId": "minecraft:snap_to_surface_feature",
@@ -1032,6 +2408,74 @@
       "writeHash": "002d543ea0c35f3e",
       "drawCount": 1,
       "drawHash": "1839fda3abc29935",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "structure_panel_east.json",
+      "identifier": "wiki:structure_panel_east",
+      "typeId": "minecraft:structure_template_feature",
+      "writeCount": 5,
+      "writeHash": "9dd04c7c128bb05f",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "structure_panel_north.json",
+      "identifier": "wiki:structure_panel_north",
+      "typeId": "minecraft:structure_template_feature",
+      "writeCount": 5,
+      "writeHash": "4fe18beab7bf9d7f",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "structure_panel_south.json",
+      "identifier": "wiki:structure_panel_south",
+      "typeId": "minecraft:structure_template_feature",
+      "writeCount": 5,
+      "writeHash": "be72ca6dbd8413bf",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "structure_panel_west.json",
+      "identifier": "wiki:structure_panel_west",
+      "typeId": "minecraft:structure_template_feature",
+      "writeCount": 5,
+      "writeHash": "0e7944c663a3a967",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
       "returned": {
         "x": 0,
         "y": 63,
@@ -1089,6 +2533,142 @@
       "detail": false
     },
     {
+      "fileId": "tree_panel_acacia_trunk.json",
+      "identifier": "wiki:tree_panel_acacia_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 27,
+      "writeHash": "06054c61b0700cb3",
+      "drawCount": 2,
+      "drawHash": "cd8d185d23b83350",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "tree_panel_cherry_trunk.json",
+      "identifier": "wiki:tree_panel_cherry_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 28,
+      "writeHash": "899861af97966a4e",
+      "drawCount": 11,
+      "drawHash": "80daff0713fbffeb",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "tree_panel_fallen_trunk.json",
+      "identifier": "wiki:tree_panel_fallen_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 1,
+      "writeHash": "761e73efa931549c",
+      "drawCount": 2,
+      "drawHash": "8b53c91f43047f9f",
+      "returned": {
+        "x": 0,
+        "y": 64,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "tree_panel_fancy_trunk.json",
+      "identifier": "wiki:tree_panel_fancy_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 7655,
+      "writeHash": "c7862f498b11b8de",
+      "drawCount": 1255,
+      "drawHash": "8b3141ee800679d3",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "tree_panel_mangrove_trunk.json",
+      "identifier": "wiki:tree_panel_mangrove_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 53,
+      "writeHash": "a011f81b725bf5a5",
+      "drawCount": 48,
+      "drawHash": "6a8cec649fc25314",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "tree_panel_mega_trunk.json",
+      "identifier": "wiki:tree_panel_mega_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 80,
+      "writeHash": "84db73f8fa1cd370",
+      "drawCount": 4,
+      "drawHash": "93923cc816406c1b",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "tree_panel_poplar_trunk.json",
+      "identifier": "wiki:tree_panel_poplar_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 23,
+      "writeHash": "7419f0897585eaed",
+      "drawCount": 3,
+      "drawHash": "78be7f7484ea0f4c",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "tree_panel_trunk.json",
+      "identifier": "wiki:tree_panel_trunk",
+      "typeId": "minecraft:tree_feature",
+      "writeCount": 24,
+      "writeHash": "4113e913959285f0",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
       "fileId": "underwater_cave_demo.json",
       "identifier": "wiki:underwater_cave_demo",
       "typeId": "minecraft:underwater_cave_carver_feature",
@@ -1102,6 +2682,268 @@
         "z": 0
       },
       "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "veg_panel_ceiling.json",
+      "identifier": "wiki:veg_panel_ceiling",
+      "typeId": "minecraft:aggregate_feature",
+      "writeCount": 64,
+      "writeHash": "bb7889e8f09ee4d1",
+      "drawCount": 89,
+      "drawHash": "c6492a90330b3dbd",
+      "returned": {
+        "x": 2,
+        "y": 67,
+        "z": 2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 67
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 67
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "veg_panel_ceiling_slab.json",
+      "identifier": "wiki:veg_panel_ceiling_slab",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 25,
+      "writeHash": "8efa39624651f867",
+      "drawCount": 25,
+      "drawHash": "f3cf95015678ca9d",
+      "returned": {
+        "x": -2,
+        "y": 67,
+        "z": -2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 67
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 67
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "veg_panel_floor.json",
+      "identifier": "wiki:veg_panel_floor",
+      "typeId": "minecraft:aggregate_feature",
+      "writeCount": 25,
+      "writeHash": "8efa39624651f867",
+      "drawCount": 50,
+      "drawHash": "44abe2a729d24605",
+      "returned": {
+        "x": -2,
+        "y": 67,
+        "z": -2
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 67
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 67
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "veg_panel_floor_slab.json",
+      "identifier": "wiki:veg_panel_floor_slab",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 0,
+      "writeHash": "cbf29ce484222325",
+      "drawCount": 25,
+      "drawHash": "f3cf95015678ca9d",
+      "returned": null,
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 59
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": -2
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 59
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": -2
+        }
+      ],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "veg_panel_patch_ceiling.json",
+      "identifier": "wiki:veg_panel_patch_ceiling",
+      "typeId": "minecraft:vegetation_patch_feature",
+      "writeCount": 0,
+      "writeHash": "cbf29ce484222325",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
+      "returned": null,
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "veg_panel_patch_floor.json",
+      "identifier": "wiki:veg_panel_patch_floor",
+      "typeId": "minecraft:vegetation_patch_feature",
+      "writeCount": 0,
+      "writeHash": "cbf29ce484222325",
+      "drawCount": 0,
+      "drawHash": "cbf29ce484222325",
+      "returned": null,
+      "scope": [],
+      "error": null,
+      "detail": false
+    },
+    {
+      "fileId": "veg_panel_slab_grid.json",
+      "identifier": "wiki:veg_panel_slab_grid",
+      "typeId": "minecraft:scatter_feature",
+      "writeCount": 25,
+      "writeHash": "f4f0777f88761943",
+      "drawCount": 25,
+      "drawHash": "f3cf95015678ca9d",
+      "returned": {
+        "x": 0,
+        "y": 63,
+        "z": 0
+      },
+      "scope": [
+        {
+          "ns": "variable",
+          "key": "originx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "originy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "originz",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldx",
+          "value": 0
+        },
+        {
+          "ns": "variable",
+          "key": "worldy",
+          "value": 63
+        },
+        {
+          "ns": "variable",
+          "key": "worldz",
+          "value": 0
+        }
+      ],
       "error": null,
       "detail": false
     },
