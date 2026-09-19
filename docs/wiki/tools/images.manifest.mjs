@@ -1,8 +1,11 @@
 // images.manifest.mjs -- the single list of "which feature, run how, screenshot to where"
-// that generate-images.mjs walks. Each entry's `feature` must be an identifier defined
-// somewhere under fixtures/features/ (that whole directory is loaded as one pack -- see
-// generate-images.mjs's own doc comment). `out` is the PNG filename written under
-// docs/wiki/images/, and is what the wiki pages reference directly.
+// that generate-images.mjs walks. Each entry's `feature` must be an identifier defined under
+// fixtures/features/ or under figure-fixtures/features/ -- each of those directories is loaded
+// as one pack, and generate-images.mjs picks the pack that defines an entry's subject rather
+// than taking one here (see its packFor, and the note above it on why there are two packs at
+// all). Entries are not free to mix: every panel of a figure must come from the same pack, so
+// that the command a page prints reproduces the panel by hand. `out` is the PNG filename
+// written under docs/wiki/images/, and is what the wiki pages reference directly.
 //
 // Every field here is also documented in prose on the page that embeds the image -- keep
 // them in sync by hand. `origin`, when given, is passed straight through as `--origin` (world
