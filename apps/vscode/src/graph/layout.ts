@@ -181,7 +181,7 @@ const DEFAULT_OPTIONS: ResolvedOptions = {
   originY: 0,
 }
 
-/** How many shelf widths packBoxes tries before picking one. A CONSTANT, like every other pass
+/** How many width limits packBoxes tries before picking one. A CONSTANT, like every other pass
  * count here, so packing terminates in bounded time and gives the same answer every run; 32
  * candidates spread geometrically over the whole plausible range put successive widths about 10%
  * apart on a forty-component graph, which is finer than the boxes themselves are quantised. */
@@ -192,36 +192,42 @@ const PACK_WIDTH_CANDIDATES = 32
  * features -- and a threshold that tripped on merely above-average heights would break rows up
  * for no gain.
  *
- * This is the one rule here that COSTS score rather than earning it, and the cost is exactly one
- * extra row per box soloed: the short boxes that would have shared the tall one's row need a row
- * of their own instead. It is paid anyway, because the gap is not the only thing a reader groups
- * by -- boxes sharing a row share a top edge, and seven isolated single-node features strung
- * along the top edge of a 1272-tall rule read as part of that rule however wide the gap between
- * them is. Whitespace does not cover that pairing; a row break does. */
+ * This is the one rule here that COSTS score rather than earning it, and it is the most expensive
+ * thing in the packer: a soloed box gives up the whole width of the arrangement beside it, and
+ * nothing may be tucked underneath it either. It is paid anyway, ONCE (see OVERSIZE_OUTLIER_LIMIT),
+ * because the gap is not the only thing a reader groups by -- boxes sharing a band share a top
+ * edge, and seven isolated single-node features strung along the top edge of a 1272-tall rule read
+ * as part of that rule however wide the gap between them is. Whitespace does not cover that
+ * pairing; a band of its own does. */
 const OVERSIZE_HEIGHT_FACTOR = 3
 
-/** ...but only while the oversized boxes really are OUTLIERS: at most one box in this many may be
+/** ...but only while the oversized box really is AN OUTLIER: at most this many boxes may be
  * soloed, and if more than that qualify the rule is switched off entirely rather than applied to
  * a subset (which subset would be an arbitrary choice, and an unstable one).
  *
- * This guard is not defensive tidying, it is load-bearing, and the numbers say so. Because each
- * solo costs a row, the rule's cost scales with how many boxes trip it -- and "three times the
- * median" is a test against the TYPICAL box, not against the rest, so on a skewed distribution it
- * fires on a whole tier. Measured over the four plausible pack shapes, comparing the fit cost
- * (see packBoxes) against the same packing with no rule at all:
+ * This guard is not defensive tidying, it is load-bearing, and the numbers say so. A solo costs a
+ * whole band of the arrangement's width -- the entire row beside the tall box is given up -- and
+ * "three times the median" is a test against the TYPICAL box, not against the rest, so on a skewed
+ * distribution it fires on a whole tier and gives up a band per member.
  *
- *   one deep rule among 39 single features   1 solo   1.06x   <- the case the rule exists for
- *   the graph-sample.json fixture's shape     2 solos  1.41x
- *   25 singles, 10 three-deep, 5 medium, 1 huge      16 qualify -> OFF (1.00x; 3.13x ungated)
- *   20 singles, 8 four-deep, 3 huge                  11 qualify -> OFF (1.00x; 3.14x ungated)
+ * ONE, not a share of the input, and the measurement that moved it there is the 3531-node pack
+ * fixture: 41 components, median height 1595, five of them at or above 4785. Five qualifies under
+ * the old one-in-eight allowance (41/8 = 5), so five bands roughly 6,000 units tall were handed
+ * out -- 33,000 of the finished drawing's 52,272 units of height, for 41 drawings whose boxes come
+ * to 369M units of area in a world of 1,623M. That is the rule paying for itself four times over
+ * out of the reader's pocket. Measured, on that fixture, as a fraction of the node area actually
+ * on screen ("ink"):
  *
- * Ungated, the last two are a 3x regression -- which is a fresh helping of the column-shaped bug
- * this module was changed to fix. Eight keeps the worst case at 1.41x and switches the rule off
- * exactly when its own premise, "one component much larger than THE REST", has stopped being
- * true. The known cost of the on/off shape is that a pack with three genuinely huge components
- * and eight middling ones protects none of them; that is accepted, because the three then sit
- * beside boxes only a third their height, where the misreading the rule prevents barely arises. */
-const OVERSIZE_OUTLIER_SHARE = 8
+ *   one deep rule among 39 single features   1 solo   the case the rule exists for, unchanged
+ *   the 41-component pack fixture            5 -> OFF   ink 4.4% -> 7.1% from this change alone
+ *   20 singles, 8 four-deep, 3 huge          3 -> OFF   (already off under the old share)
+ *
+ * One is also what the rule's own premise says in as many words: "ONE component much larger than
+ * the rest". Two boxes three times the median are a tier, not an outlier, and a tier is what the
+ * whitespace between components is already there to separate. The known cost is that a pack with
+ * two genuinely huge components protects neither; that is accepted, because they then sit beside
+ * each other rather than beside singletons, which is where the misreading barely arises. */
+const OVERSIZE_OUTLIER_LIMIT = 1
 
 /** How many median/transpose sweeps the ordering phase runs. Eight is what graphviz's dot uses
  * for the same heuristic, and it is a CONSTANT rather than a convergence test on purpose -- a
@@ -395,21 +401,28 @@ export interface PackBoxesOptions {
  * of them be twice the size. It is also exactly the number the reported failure is about: forty
  * components in a column zoom to a few pixels a node, and nothing else here changes that.
  *
- * HOW: shelf packing -- fill a row left to right until the next box would pass a width limit,
- * then start a new row -- run once per candidate width limit, keeping the best-scoring result.
- * Shelves rather than a fixed grid because the boxes differ wildly in size (one deep rule among
- * forty single-node features) and a grid sized for the largest wastes a cell per small one.
- * Shelves rather than a true 2-D bin packer (skyline, guillotine) because those reorder and
- * interleave boxes to fill holes, and the reading order here is load-bearing: `roots` order is
- * what puts the rule the user came for at the top left, and a packer that buries it in the middle
- * to save 8% of the area has made the drawing worse.
+ * HOW: a SKYLINE pass -- each box goes at the lowest place it fits, leftmost among equals --
+ * run once per candidate width limit, keeping the best-scoring result. It used to be plain shelf
+ * packing (fill a row, break, start the next row at the tallest box's bottom edge) and the reason
+ * it is not any more is measured. On the 3531-node pack fixture the component boxes come to 369M
+ * square units; shelves arranged them over 1,623M, so 77% of the finished drawing was the dead
+ * space under short boxes in tall rows. A skyline fills that space -- the same 41 boxes come to
+ * 611M -- because a box that is half the height of its neighbour no longer forces the next row
+ * down past the neighbour's bottom edge; the next box simply sits under it.
  *
- * ORDER IS NEVER CHANGED. Boxes come out in the order they went in, and the caller feeds them in
- * seedOrder. Sorting by descending height is the textbook shelf refinement and is deliberately
- * NOT done: it packs a little tighter and it scrambles which drawing a reader finds first.
+ * ORDER IS NEVER CHANGED, and that is the difference between this and a textbook 2-D bin packer.
+ * Boxes come out in the order they went in, the caller feeds them in seedOrder, and READING ORDER
+ * is enforced as a hard constraint on the placement itself: no box is ever put above an earlier
+ * box, or to the left of one it shares a top edge with. So `roots` order still decides which
+ * drawing is top-left and a reader still meets the components in the order the pack declares them.
+ * That constraint costs real density -- an unconstrained skyline reaches 69% fill on the fixture
+ * against this one's 60% -- and it is paid, because a packer that buries the rule the user came
+ * for in the middle of the canvas to save a tenth of the area has made the drawing worse. Sorting
+ * the boxes by descending height, the other textbook refinement (71% fill), is not done for the
+ * same reason.
  *
  * Total and deterministic on any input: no box is ever dropped, one wider than every candidate
- * limit simply takes a row of its own at full size (nothing here scales a box down -- a squeezed
+ * limit is simply placed at x = 0 at full size (nothing here scales a box down -- a squeezed
  * drawing is not a smaller drawing, it is a different one), a non-finite or negative size reads
  * as 0, and every loop is bounded by a constant or by the input length. */
 export function packBoxes(boxes: readonly LayoutBox[], options: PackBoxesOptions = {}): PackedBox[] {
@@ -424,21 +437,20 @@ export function packBoxes(boxes: readonly LayoutBox[], options: PackBoxesOptions
   }))
   if (sizes.length === 0) return []
   if (sizes.length === 1) return [{ x: 0, y: 0 }]
-  if (packing === 'column') return shelve(sizes, gapX, gapY, Number.NEGATIVE_INFINITY, 0)
+  if (packing === 'column') return stackBoxes(sizes, gapY)
 
-  // A box this tall gets a row to itself rather than stretching a row of small ones around it.
+  // A box this tall gets a band to itself rather than stretching a row of small ones around it.
   // The median rather than the mean for the same reason the ordering phase uses one: the single
   // huge component this rule exists for would drag a mean up far enough to hide itself. And the
-  // rule only applies while such boxes are a small minority -- see OVERSIZE_OUTLIER_SHARE, which
-  // is where the measurements behind that are written down.
+  // rule only applies while such a box is the exception -- see OVERSIZE_OUTLIER_LIMIT, which is
+  // where the measurements behind that are written down.
   const median = medianOf(sizes.map((size) => size.height))
   const oversize = median > 0 ? median * OVERSIZE_HEIGHT_FACTOR : Number.POSITIVE_INFINITY
   let outliers = 0
   for (const size of sizes) {
     if (size.height >= oversize) outliers++
   }
-  const allowance = Math.max(1, Math.floor(sizes.length / OVERSIZE_OUTLIER_SHARE))
-  const soloHeight = outliers > 0 && outliers <= allowance ? oversize : Number.POSITIVE_INFINITY
+  const soloHeight = outliers > 0 && outliers <= OVERSIZE_OUTLIER_LIMIT ? oversize : Number.POSITIVE_INFINITY
 
   let widest = 0
   let strip = -gapX
@@ -455,7 +467,7 @@ export function packBoxes(boxes: readonly LayoutBox[], options: PackBoxesOptions
     // half, where they are interchangeable, and skip over the narrow half where they are not.
     const t = k / (PACK_WIDTH_CANDIDATES - 1)
     const limit = widest > 0 && strip > widest ? widest * Math.pow(strip / widest, t) : strip
-    const placed = shelve(sizes, gapX, gapY, limit, soloHeight)
+    const placed = skyline(sizes, gapX, gapY, limit, soloHeight)
     const score = scorePacking(sizes, placed, targetAspect)
     // Strictly better, so the narrowest of several equally good widths wins -- the same
     // earliest-wins tie-break the ordering phase uses, and the reason this is reproducible.
@@ -464,13 +476,58 @@ export function packBoxes(boxes: readonly LayoutBox[], options: PackBoxesOptions
       best = placed
     }
   }
-  return best ?? shelve(sizes, gapX, gapY, strip, soloHeight)
+  return best ?? skyline(sizes, gapX, gapY, strip, soloHeight)
 }
 
-/** One shelf pass at a fixed width limit. A row ends when the next box would cross `limit`, and
- * also on either side of an oversized box, so a tall drawing never has a stray row of unrelated
- * single nodes floating along its top edge -- which would read as part of it. */
-function shelve(
+/** Every box under the last one, in one column: what `componentPacking: 'column'` asks for. */
+function stackBoxes(sizes: ReadonlyArray<{ width: number; height: number }>, gapY: number): PackedBox[] {
+  const placed: PackedBox[] = []
+  let top = 0
+  for (const size of sizes) {
+    placed.push({ x: 0, y: top })
+    top += size.height + gapY
+  }
+  return placed
+}
+
+/** The packed profile, as a staircase: `edges[i]` is where a step starts and `tops[i]` is the
+ * first free y from there to the next step (the last step runs to infinity). Two parallel arrays
+ * rather than a list of objects, mutated in place rather than rebuilt, because this is the hot
+ * loop of the whole packing pass -- once per box, per candidate width, 32 times over. */
+interface Skyline {
+  edges: number[]
+  tops: number[]
+}
+
+/** One skyline pass at a fixed width limit.
+ *
+ * Each box is reserved as `width + gapX` by `height + gapY`, so two boxes whose reservations are
+ * disjoint are either gapX apart horizontally or gapY apart vertically -- which is exactly the
+ * separation guarantee the caller needs, obtained without a single pairwise test.
+ *
+ * THE TWO CONSTRAINTS, both of which are what make this a drawing rather than a bin:
+ *   - READING ORDER. `floorY` is the top of the box placed last and nothing may go above it;
+ *     `floorX` is that box's left edge and nothing sharing its top edge may go left of it. So the
+ *     sequence of placements runs down the page, and the boxes sharing any one y run left to
+ *     right, in input order. See packBoxes on what this costs.
+ *   - AN OVERSIZED BOX GETS ITS OWN BAND: it starts a fresh line below everything placed so far,
+ *     and the next box starts below IT, so nothing is ever strung along its top or tucked under
+ *     its skirt. See OVERSIZE_HEIGHT_FACTOR.
+ *
+ * Candidate positions are the staircase's own steps, which is the standard skyline argument: an
+ * optimal placement can always be slid left until it rests against a step, so the steps are the
+ * only x values worth trying.
+ *
+ * COST. Every box is one walk of the staircase, not one walk per candidate position: the window
+ * a box covers, `[x, x + width)`, only ever moves RIGHT as the candidate x does, so the highest
+ * step under it is a sliding-window maximum and a monotonic queue answers all of them in one
+ * pass. The naive "for each candidate, scan the steps it covers" is the same answer squared in
+ * the step count, and at 400 components that difference measured 557 ms against 8. What keeps the
+ * staircase itself short is `flatten`: steps at or below `floorY` can never be reached again -- a
+ * placement there would be lifted to `floorY` anyway -- so they are merged into it after every
+ * box, and the profile stays roughly as long as the number of boxes still poking above the last
+ * placement rather than one step per box. */
+function skyline(
   sizes: ReadonlyArray<{ width: number; height: number }>,
   gapX: number,
   gapY: number,
@@ -478,27 +535,129 @@ function shelve(
   soloHeight: number,
 ): PackedBox[] {
   const placed: PackedBox[] = []
-  let rowX = 0
-  let rowTop = 0
-  let rowHeight = 0
-  let rowCount = 0
-  let rowHasSolo = false
+  const sky: Skyline = { edges: [0], tops: [0] }
+  // Indices into the staircase, kept in increasing order with strictly decreasing tops, so the
+  // front is always the highest step in the current window. Allocated once for the whole pass.
+  const queue: number[] = []
+  let floorY = 0
+  let floorX = Number.NEGATIVE_INFINITY
+  let afterSolo = false
+  let highest = 0
   for (const size of sizes) {
+    const width = size.width + gapX
+    const height = size.height + gapY
     const solo = size.height >= soloHeight
-    if (rowCount > 0 && (solo || rowHasSolo || rowX + size.width > limit)) {
-      rowTop += rowHeight + gapY
-      rowX = 0
-      rowHeight = 0
-      rowCount = 0
-      rowHasSolo = false
+    let atX = 0
+    let atY = floorY
+    if (placed.length === 0) {
+      atX = 0
+      atY = 0
+    } else if (solo || afterSolo) {
+      // A band of its own, below everything: either this box is the oversized one, or the last
+      // box was and this one must not be tucked under it.
+      atX = 0
+      atY = highest
+    } else {
+      let bestX = Number.NaN
+      let bestY = Number.POSITIVE_INFINITY
+      const steps = sky.edges.length
+      queue.length = 0
+      let head = 0
+      let ahead = 0
+      // Nothing may be placed above the floor, so a candidate that reaches it cannot be beaten
+      // and the walk stops there. That is the common case -- the next box along a part-filled
+      // band rests on the floor beside the last one -- and it is what keeps this pass close to
+      // linear on the inputs that occur rather than at its quadratic worst case.
+      for (let step = 0; step < steps && bestY > floorY; step++) {
+        const x = sky.edges[step] ?? 0
+        const right = x + width
+        // Extend the window rightwards to every step this box would cover...
+        while (ahead < steps && (sky.edges[ahead] ?? 0) < right) {
+          const value = sky.tops[ahead] ?? 0
+          while (queue.length > head && (sky.tops[queue[queue.length - 1] ?? 0] ?? 0) <= value) queue.pop()
+          queue.push(ahead)
+          ahead++
+        }
+        // ...and drop the steps left of this candidate, which it no longer covers.
+        while (queue.length > head && (queue[head] ?? 0) < step) head++
+        // A box wider than the limit cannot be refused -- nothing here scales one down -- so the
+        // x = 0 candidate is always allowed and the limit only turns away boxes that have a
+        // leftward alternative.
+        if (x > 0 && right > limit) continue
+        const under = queue.length > head ? sky.tops[queue[head] ?? 0] ?? 0 : 0
+        const y = under > floorY ? under : floorY
+        if (y === floorY && x <= floorX) continue // would break reading order
+        if (y < bestY) {
+          bestY = y
+          bestX = x
+        }
+      }
+      if (Number.isNaN(bestX)) {
+        // Every step was refused, which can only happen when the whole current line is spoken for.
+        // A fresh line below everything is always legal: the last box's own reservation puts the
+        // profile strictly below floorY.
+        atX = 0
+        atY = highest > floorY ? highest : floorY
+      } else {
+        atX = bestX
+        atY = bestY
+      }
     }
-    placed.push({ x: rowX, y: rowTop })
-    rowX += size.width + gapX
-    rowHeight = Math.max(rowHeight, size.height)
-    rowCount++
-    rowHasSolo = solo
+    placed.push({ x: atX, y: atY })
+    const top = atY + height
+    if (top > highest) highest = top
+    raise(sky, atX, width, top)
+    floorY = atY
+    floorX = atX
+    afterSolo = solo
+    flatten(sky, floorY)
   }
   return placed
+}
+
+/** Raises `[x, x + width)` to `top`, splitting the steps it lands across. In place: the staircase
+ * is a few entries long and this runs once per box per candidate width. */
+function raise(sky: Skyline, x: number, width: number, top: number): void {
+  if (!(width > 0)) return // a box with no horizontal extent covers nothing and hides nothing
+  const { edges, tops } = sky
+  const right = x + width
+  let first = edges.length - 1
+  while (first > 0 && (edges[first] ?? 0) > x) first-- // the step x lands in
+  let last = first
+  while (last + 1 < edges.length && (edges[last + 1] ?? 0) < right) last++ // the last step covered
+  const tail = tops[last] ?? 0
+  const tailStartsAt = last + 1 < edges.length ? edges[last + 1] ?? right : Number.POSITIVE_INFINITY
+  const nextEdges: number[] = []
+  const nextTops: number[] = []
+  if ((edges[first] ?? 0) < x) {
+    nextEdges.push(edges[first] ?? 0)
+    nextTops.push(tops[first] ?? 0)
+  }
+  nextEdges.push(x)
+  nextTops.push(top)
+  if (tailStartsAt > right) {
+    nextEdges.push(right)
+    nextTops.push(tail)
+  }
+  edges.splice(first, last - first + 1, ...nextEdges)
+  tops.splice(first, last - first + 1, ...nextTops)
+}
+
+/** Flattens every step at or below `floorY` into it and coalesces the result, in place. Nothing
+ * below the floor can be used again (reading order forbids it), so this loses no placement, and
+ * it is what keeps the staircase short enough for the pass above to stay cheap. */
+function flatten(sky: Skyline, floorY: number): void {
+  const { edges, tops } = sky
+  let kept = 0
+  for (let step = 0; step < edges.length; step++) {
+    const value = Math.max(tops[step] ?? 0, floorY)
+    if (kept > 0 && tops[kept - 1] === value) continue
+    edges[kept] = edges[step] ?? 0
+    tops[kept] = value
+    kept++
+  }
+  edges.length = kept
+  tops.length = kept
 }
 
 /** `max(W / targetAspect, H)` over the packed bounding box: the reciprocal of the zoom a

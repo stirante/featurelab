@@ -101,7 +101,10 @@ describe('what a run measured, on the node that did it', () => {
 
       // Three numbers, three elements. Read separately on purpose -- a single blended figure
       // would satisfy "the card says something" and fail the only thing this row is for.
-      expect(await stats.locator('.flg-node-stat-writes').textContent()).toMatch(/^\d[\d,]* blk$/)
+      // "wr" and not "blk": this counter and the preview's PLACED tile count two different
+      // things off one run (writes performed against cells ended up written), and while both were
+      // labelled "blocks" the two panels reported one run as 110 and 79 with nothing saying why.
+      expect(await stats.locator('.flg-node-stat-writes').textContent()).toMatch(/^\d[\d,]* wr$/)
       expect(await stats.locator('.flg-node-stat-entered').textContent()).toMatch(/^×\d[\d,]*$/)
       // At NOUGHT, and still drawn. A wrapper that hands off relentlessly and one that never
       // hands off at all are the pair this counter exists to separate, and a row that hid the
@@ -168,7 +171,7 @@ describe('what a run measured, on the node that did it', () => {
       await card(j, TREE).locator('.flg-node-stats').waitFor({ state: 'visible', timeout: 20_000 })
 
       // Nothing on it. Not a nought, not a placeholder, not an empty row -- a pack of fifty-seven
-      // cards wearing "0 blk" would teach a reader to stop looking at the row on the one card
+      // cards wearing "0 wr" would teach a reader to stop looking at the row on the one card
       // where it means something.
       await j.clickNode(ELSEWHERE)
       expect(await card(j, ELSEWHERE).locator('.flg-node-stats').count()).toBe(0)
@@ -209,7 +212,7 @@ describe('what the run can and cannot say about a node', () => {
       const ran = j.page.locator('#flg-side .flg-run')
       await ran.waitFor({ state: 'visible', timeout: 20_000 })
       expect(await ran.locator('.flg-run-head').textContent()).toMatch(new RegExp(`This run — ${TREE} at origin -?\\d+,-?\\d+,-?\\d+`))
-      expect(await ran.textContent()).toMatch(/Wrote [\d,]+ blocks? in this run/)
+      expect(await ran.textContent()).toMatch(/Performed [\d,]+ writes? in this run/)
       expect(await ran.textContent()).toMatch(/entered \d+ time/)
 
       // 2. A node it never entered. NOT called dead, unused or unreachable -- the panel says what
@@ -257,7 +260,7 @@ describe('where a run stopped', () => {
     'a scatter whose iterations come out as 0 says so on its card and on the edge nothing went down',
     async () => {
       // Asked for as: when generation did not go on because of some Molang, mark where it stopped
-      // -- a scatter whose iterations is 0 being the example. Before, the card showed x1, 0 blk and
+      // -- a scatter whose iterations is 0 being the example. Before, the card showed x1, 0 wr and
       // ->0, which is also what a scatter whose child simply placed nothing looks like.
       const SCATTER = 'wiki:pumpkin_patch'
       const j = await journey({

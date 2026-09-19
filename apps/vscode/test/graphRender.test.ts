@@ -40,6 +40,7 @@ import {
   describeFanOut,
   edgeKey,
   jsonPathKey,
+  CATEGORY_MARK,
   resolvePositions,
   siblingsFor,
   summariseNodes,
@@ -47,6 +48,8 @@ import {
   type GraphNodeWire,
   type GraphWire,
 } from '../src/graph/render.js'
+import { convexHull, viewportMark } from '../src/graph/minimap.js'
+import { LEGEND_KEYS } from '../src/graph/legend.js'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const renderPath = path.join(dir, '..', 'src', 'graph', 'render.ts')
@@ -454,7 +457,10 @@ describe('summariseNodes: a node is categorised by what it delegates, not by a l
   it('counts fan-in, which is the number that says an edit here changes several files', () => {
     // ex:ore is reached by a weighted entry, a conditional entry and a tree's child slot.
     expect(summaries.get('ex:ore')!.in).toBe(3)
-    expect(describeFanIn(summaries.get('ex:ore')!).label).toBe('3')
+    // SPELLED OUT, not a bare number. The fan-out label beside it on the card reads "3 scatter",
+    // so a fan-in that read "3" put two numbers on one line distinguished only by the direction of
+    // a small arrow -- reviewers read the pair as two counts of the same thing.
+    expect(describeFanIn(summaries.get('ex:ore')!).label).toBe('3 use this')
     expect(describeFanIn(summaries.get('ex:ore')!).title).toMatch(/changes all 3/)
     // One parent is unremarkable and gets no row: a badge on every node is a badge on none.
     expect(describeFanIn(summaries.get('ex:seq')!).label).toBe('')
@@ -650,6 +656,66 @@ async function bundleRenderModule(): Promise<string> {
   return output.text
 }
 
+describe('the overview map, as arithmetic', () => {
+  it('hulls a cluster instead of boxing it', () => {
+    // A staircase, which is the shape the packer gives a component: a bounding box of it is
+    // mostly the empty space beside the stairs, and two neighbouring components' boxes overlap
+    // where the components do not -- which is how 41 separate drawings became one 33.5% wash.
+    const hull = convexHull([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 20, y: 10 },
+      { x: 20, y: 20 },
+      { x: 0, y: 20 },
+      // An interior point, which must not survive.
+      { x: 8, y: 12 },
+    ])
+    expect(hull).not.toContainEqual({ x: 8, y: 12 })
+    expect(hull.length).toBeLessThan(7)
+    for (const corner of [
+      { x: 0, y: 0 },
+      { x: 20, y: 20 },
+      { x: 0, y: 20 },
+    ]) {
+      expect(hull).toContainEqual(corner)
+    }
+  })
+
+  it('degenerate input comes back unchanged rather than empty', () => {
+    // One card is a component too, and a component that drew nothing would be a hole in the map
+    // exactly where a lonely feature is.
+    expect(convexHull([])).toEqual([])
+    expect(convexHull([{ x: 3, y: 4 }])).toEqual([{ x: 3, y: 4 }])
+    expect(convexHull([{ x: 3, y: 4 }, { x: 9, y: 4 }])).toHaveLength(2)
+  })
+
+  it('the camera rectangle has a floor, and the floor grows it about its own centre', () => {
+    const bounds = { x: 0, y: 0, w: 30000, h: 53000 }
+    // The real case: 1600x1000 px of viewport at zoom 0.9 over a 30,000-unit pack, mapped onto
+    // 200 css px. The true rectangle is a few pixels across -- smaller than the pointer hunting
+    // for it -- so it is floored.
+    const scale = 200 / bounds.w
+    const view = { x: 12000, y: 20000, w: 1600 / 0.9, h: 1000 / 0.9 }
+    const mark = viewportMark(view, bounds, scale)
+    expect(view.w * scale).toBeLessThan(16)
+    expect(mark.w).toBe(16)
+    expect(mark.h).toBe(16)
+    // STILL POINTING AT THE SAME PLACE. A floor applied from the corner would slide the mark by
+    // half its own size, which on a map this small is the difference between two clusters.
+    const trueCentreX = (view.x - bounds.x) * scale + (view.w * scale) / 2
+    const trueCentreY = (view.y - bounds.y) * scale + (view.h * scale) / 2
+    expect(mark.x + mark.w / 2).toBeCloseTo(trueCentreX, 6)
+    expect(mark.y + mark.h / 2).toBeCloseTo(trueCentreY, 6)
+  })
+
+  it('a rectangle already bigger than the floor is left exactly alone', () => {
+    const bounds = { x: 0, y: 0, w: 1000, h: 1000 }
+    const mark = viewportMark({ x: 100, y: 200, w: 400, h: 300 }, bounds, 1)
+    expect(mark).toEqual({ x: 100, y: 200, w: 400, h: 300 })
+  })
+})
+
 describe('graph render: real Chromium layout, interaction and theming', () => {
   let browser: Browser
   let server: { port: number; close: () => void }
@@ -705,7 +771,9 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       ({ graph, positions }) => {
         const api = (window as unknown as { FLG: Record<string, unknown> }).FLG
         const create = api.createGraphView as (host: HTMLElement, options?: unknown) => Record<string, unknown>
-        const view = create(document.getElementById('host')!)
+        const fanIns: string[] = []
+        ;(window as unknown as { fanIns: string[] }).fanIns = fanIns
+        const view = create(document.getElementById('host')!, { onFanIn: (id: string) => fanIns.push(id) })
         ;(window as unknown as { view: typeof view; events: unknown[] }).view = view
         const events: unknown[] = []
         ;(window as unknown as { events: unknown[] }).events = events
@@ -959,7 +1027,19 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       expect(state.focusedNodes).toBe(4)
       expect(state.litOpacity).toBe(1)
       expect(state.unlitOpacity).toBeLessThan(0.5)
-      expect(state.unlitNodeOpacity).toBeLessThan(0.5)
+      // A QUIETED CARD IS FADED, NOT ERASED, AND 0.6 IS THE FLOOR FOR THAT.
+      //
+      // This used to read `toBeLessThan(0.5)` against a stylesheet that said 0.35, which pinned
+      // the deep end of a fade rather than the fact being tested. At 0.35 a quieted card's own
+      // text measured 1.89:1 in Dark Modern and 1.45:1 in Light Modern -- 34 of the 57 cards on
+      // the fixture below the 3:1 floor for text of any size, on an ordinary click. The
+      // stylesheet says 0.6 now (and 0.85 for anyone whose platform asks for more contrast); see
+      // test/graphAccess.test.ts, which measures the resulting ratio rather than the number.
+      //
+      // What this assertion is for is unchanged and still worth having: the quieting must be a
+      // real, visible step down from the selected card, or the whole mechanism says nothing.
+      expect(state.unlitNodeOpacity).toBeGreaterThanOrEqual(0.6)
+      expect(state.unlitNodeOpacity).toBeLessThan(1)
 
       // NOTHING MOVED. The whole point of doing this with opacity is that the mental map of where
       // things are survives the click.
@@ -985,6 +1065,281 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       // click, or selecting the wrong node would be a dead end.
       await page.locator('.flg-node[data-node-id="ex:selfie"]').click({ timeout: 4000 })
       expect(await page.evaluate(() => (document.querySelector('.flg-node.flg-selected') as HTMLElement | null)?.dataset.nodeId)).toBe('ex:selfie')
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('quieting is written on the things being quieted, and only on what the culler drew', async () => {
+    const page = await load()
+    try {
+      await page.locator('.flg-node[data-node-id="ex:ore"]').click({ timeout: 4000 })
+      await page.waitForTimeout(200)
+      const state = await page.evaluate(() => ({
+        // The root class survives as a STATE MARKER -- the host and the tests read it -- and
+        // nothing in the stylesheet may hang off it. See applyQuieting in render.ts, and the
+        // stylesheet check in scale.test.ts.
+        hasFocus: document.querySelector('.flg-graph')!.classList.contains('flg-has-focus'),
+        quiet: document.querySelectorAll('.flg-quiet').length,
+        nodesQuiet: document.querySelectorAll('.flg-node.flg-quiet').length,
+        nodesDrawn: document.querySelectorAll('.flg-node:not(.flg-node-culled)').length,
+        // A lit thing is never also a quieted thing: the two classes are decided in one pass and
+        // a node wearing both would be a pass that ran twice.
+        bothFocus: document.querySelectorAll('.flg-node.flg-node-focus.flg-quiet').length,
+        bothIncident: document.querySelectorAll('.flg-incident.flg-quiet').length,
+        // Nothing but a card, an edge group or a chip may ever wear it.
+        stray: [...document.querySelectorAll('.flg-quiet')].filter(
+          (e) => !e.classList.contains('flg-node') && !e.classList.contains('flg-edge') && !e.classList.contains('flg-chip'),
+        ).length,
+      }))
+      expect(state.hasFocus).toBe(true)
+      expect(state.quiet).toBeGreaterThan(0)
+      expect(state.bothFocus).toBe(0)
+      expect(state.bothIncident).toBe(0)
+      expect(state.stray).toBe(0)
+      // THE BOUND THAT MAKES THE SELECTION CHEAP AT PACK SIZE. Every quieted card is a card the
+      // culler has drawn; on a real pack that is a viewport's worth out of 3,531. Writing the
+      // class onto every card instead would pass every opacity assertion in this file and put
+      // 270 ms back on a click.
+      expect(state.nodesQuiet).toBeLessThanOrEqual(state.nodesDrawn)
+
+      // And it is all taken off again.
+      await page.evaluate(() => (window as never as { view: { setSelection(s: unknown): void } }).view.setSelection(null))
+      await page.waitForTimeout(150)
+      expect(await page.evaluate(() => document.querySelectorAll('.flg-quiet').length)).toBe(0)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('an edge chip is painted over the cards it crosses, not under them', async () => {
+    const page = await load()
+    try {
+      // A chip and a card put deliberately on top of one another, with the card SELECTED -- which
+      // is the case that broke. A selected card takes `z-index: 3`, and a positive z-index beats
+      // every auto-positioned element in the same stacking context whatever the document order
+      // says, so the chip layer coming later in the DOM was not enough: measured on the compound
+      // fixture, a 208px chip had 49px of card over each end and 110px of label showing, with
+      // nothing truncated -- the words were laid out and painted over.
+      const probe = await page.evaluate(() => {
+        const chip = document.querySelector('.flg-chip') as HTMLElement | null
+        const card = document.querySelector('.flg-node') as HTMLElement | null
+        if (chip === null || card === null) return { error: 'fixture has no chip or no card' }
+        card.classList.add('flg-selected')
+        card.style.left = chip.style.left
+        card.style.top = chip.style.top
+        const r = chip.getBoundingClientRect()
+        const y = r.top + r.height / 2
+        const hits = [0.05, 0.5, 0.95].map((f) => {
+          const top = document.elementFromPoint(r.left + r.width * f, y)
+          return top === null ? 'nothing' : top.closest('.flg-chip') === chip ? 'chip' : 'card'
+        })
+        return { hits, chipLayerZ: getComputedStyle(document.querySelector('.flg-chips')!).zIndex, overlapped: card.getBoundingClientRect().width > 0 }
+      })
+      expect(probe.error).toBeUndefined()
+      expect(probe.hits, 'a card is painted over an edge chip -- see .flg-chips in graph.css').toEqual(['chip', 'chip', 'chip'])
+      // Kept below `.flg-node.flg-dragging` (4), so a card being carried is still never dragged
+      // under a label -- the promise that rule makes.
+      expect(Number(probe.chipLayerZ)).toBeLessThan(4)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the fan-in count is a control that asks for the list, not a caption', async () => {
+    const page = await load()
+    try {
+      // ex:ore is reached by three edges, so its card carries the line.
+      const line = page.locator('.flg-node[data-node-id="ex:ore"] .flg-node-fan-in')
+      expect(await line.count()).toBe(1)
+      expect(await line.evaluate((e) => e.tagName)).toBe('BUTTON')
+      await line.click({ timeout: 4000 })
+      await page.waitForTimeout(150)
+      const after = await page.evaluate(() => ({
+        fanIns: (window as unknown as { fanIns: string[] }).fanIns,
+        selected: (document.querySelector('.flg-node.flg-selected') as HTMLElement | null)?.dataset.nodeId,
+      }))
+      // BOTH, and in that order: the press selects the card it is on -- so the panel is showing
+      // this node -- and then asks the host for the list of the things that point at it. Asking
+      // without selecting would open a list about a node the panel is not showing.
+      expect(after.selected).toBe('ex:ore')
+      expect(after.fanIns).toEqual(['ex:ore'])
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the camera snaps off a card rather than framing half of one', async () => {
+    const page = await load()
+    try {
+      const result = await page.evaluate(() => {
+        const view = (
+          window as never as {
+            view: { getCamera(): { x: number; y: number; zoom: number }; setCamera(c: unknown): void; snapCameraToWholeCards(): void }
+          }
+        ).view
+        const host = document.querySelector('.flg-graph')!.getBoundingClientRect()
+        const cutBy = (): { lead: number; ids: string[] } => {
+          const ids: string[] = []
+          for (const box of document.querySelectorAll('.flg-node:not(.flg-node-culled)')) {
+            const r = box.getBoundingClientRect()
+            if (r.right <= host.left || r.left >= host.right || r.bottom <= host.top || r.top >= host.bottom) continue
+            if (r.left < host.left - 0.5 || r.top < host.top - 0.5) ids.push((box as HTMLElement).dataset.nodeId ?? '?')
+          }
+          return { lead: ids.length, ids }
+        }
+        // Aim deliberately through the middle of a card, both axes.
+        const first = document.querySelector('.flg-node') as HTMLElement
+        const camera = view.getCamera()
+        const r = first.getBoundingClientRect()
+        view.setCamera({
+          x: camera.x + (r.left - host.left) / camera.zoom + r.width / camera.zoom / 3,
+          y: camera.y + (r.top - host.top) / camera.zoom + r.height / camera.zoom / 3,
+        })
+        return new Promise<{ before: { lead: number; ids: string[] }; after: { lead: number; ids: string[] }; moved: boolean; idempotent: boolean }>(
+          (resolve) => {
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const before = cutBy()
+                const was = view.getCamera()
+                view.snapCameraToWholeCards()
+                const after = cutBy()
+                const settled = view.getCamera()
+                view.snapCameraToWholeCards()
+                const again = view.getCamera()
+                resolve({
+                  before,
+                  after,
+                  moved: settled.x !== was.x || settled.y !== was.y,
+                  idempotent: again.x === settled.x && again.y === settled.y,
+                })
+              }),
+            )
+          },
+        )
+      })
+      // The aim really did slice something, or this measured nothing.
+      expect(result.before.lead, 'the camera was not actually pointed through a card').toBeGreaterThan(0)
+      expect(result.moved).toBe(true)
+      // And nothing is left cut on a LEADING edge -- the left or the top, which is where a cut
+      // takes the START of the identifier and with it the only thing that names the feature.
+      expect(result.after.ids).toEqual([])
+      // It settles. An earlier version took the nearest boundary of whichever card it happened to
+      // find, which on two columns straddling one edge moved off one and onto the other for ever.
+      expect(result.idempotent).toBe(true)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the camera snaps off the cards on the TRAILING edge too, not only the leading one', async () => {
+    // THE HALF THAT WAS MISSING. The frame's width is fixed by the zoom, so moving the left edge
+    // onto a clean boundary moves the right edge by the same amount onto whatever is there. The
+    // snap scored `camera.x`/`camera.y` alone, so it produced an immaculate left edge over a
+    // constant ~155-world-unit overhang on the right -- measured as 2/6/5/3 cards cut at
+    // 57/600/1500/3531 nodes, three of them sliced mid-identifier in the screenshot.
+    //
+    // A 12x12 grid is used rather than the kitchen sink because this is about a frame with cards
+    // on BOTH sides of it, which is every real pack and is not the small fixture.
+    const page = await loadGrid()
+    try {
+      const result = await page.evaluate(() => {
+        const view = (
+          window as never as {
+            view: { getCamera(): { x: number; y: number; zoom: number }; setCamera(c: unknown): void; snapCameraToWholeCards(): void }
+          }
+        ).view
+        const cuts = (): { lead: number; trail: number; ids: string[] } => {
+          const host = document.querySelector('.flg-graph')!.getBoundingClientRect()
+          const ids: string[] = []
+          let lead = 0
+          let trail = 0
+          for (const box of document.querySelectorAll('.flg-node:not(.flg-node-culled)')) {
+            const r = box.getBoundingClientRect()
+            if (r.right <= host.left || r.left >= host.right || r.bottom <= host.top || r.top >= host.bottom) continue
+            const cutLead = r.left < host.left - 0.5 || r.top < host.top - 0.5
+            const cutTrail = r.right > host.right + 0.5 || r.bottom > host.bottom + 0.5
+            if (cutLead) lead++
+            if (cutTrail) trail++
+            if (cutLead || cutTrail) ids.push((box as HTMLElement).dataset.nodeId ?? '?')
+          }
+          return { lead, trail, ids }
+        }
+        // Aim through the middle of a card, both axes -- the same deliberate slice the leading-
+        // edge test makes, on a graph wide enough that the far edge lands in the grid as well.
+        const host = document.querySelector('.flg-graph')!.getBoundingClientRect()
+        const first = document.querySelector('.flg-node') as HTMLElement
+        const camera = view.getCamera()
+        const r = first.getBoundingClientRect()
+        view.setCamera({
+          x: camera.x + (r.left - host.left) / camera.zoom + r.width / camera.zoom / 3,
+          y: camera.y + (r.top - host.top) / camera.zoom + r.height / camera.zoom / 3,
+        })
+        return new Promise<{ before: ReturnType<typeof cuts>; after: ReturnType<typeof cuts>; idempotent: boolean }>((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const before = cuts()
+              view.snapCameraToWholeCards()
+              const after = cuts()
+              const settled = view.getCamera()
+              view.snapCameraToWholeCards()
+              const again = view.getCamera()
+              resolve({ before, after, idempotent: again.x === settled.x && again.y === settled.y })
+            }),
+          )
+        })
+      })
+      // The aim really did put cards under the far edges, or this measured nothing.
+      expect(result.before.trail, 'nothing was cut by a trailing edge to begin with').toBeGreaterThan(0)
+      // The leading edge stays the priority and stays clean -- a card cut there loses the START of
+      // its identifier, which is the part that names the feature.
+      expect(result.after.lead).toBe(0)
+      // And the far edge is no longer carrying the cost of that.
+      expect(result.after.trail).toBeLessThan(result.before.trail)
+      expect(result.after.ids).toEqual([])
+      expect(result.idempotent).toBe(true)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the overview map keeps out of the way of the cards it sits on, and says how to shut it', async () => {
+    const page = await load()
+    try {
+      const map = await page.evaluate(() => {
+        const body = document.querySelector('.flg-minimap-body') as HTMLElement
+        const toggle = document.querySelector('.flg-minimap-toggle') as HTMLElement
+        const t = toggle.getBoundingClientRect()
+        return {
+          idle: Number(getComputedStyle(body).opacity),
+          // The strip the collapse control lives on, which must NOT be faded with the map.
+          headIdle: Number(getComputedStyle(document.querySelector('.flg-minimap-head') as HTMLElement).opacity),
+          widgetIdle: Number(getComputedStyle(document.querySelector('.flg-minimap') as HTMLElement).opacity),
+          toggleW: t.width,
+          toggleH: t.height,
+          glyph: getComputedStyle(toggle).fontSize,
+        }
+      })
+      // It is 200px of furniture over the corner of the drawing. At 1440x900 on the wiki fixture
+      // it covered one card by 79% and another by 37%, and the way to collapse it was a 16x16
+      // chevron at font-size 10 in description grey. Quiet until looked at, and a real target.
+      expect(map.idle).toBeLessThanOrEqual(0.25)
+      expect(map.toggleW).toBeGreaterThanOrEqual(22)
+      expect(map.toggleH).toBeGreaterThanOrEqual(22)
+      expect(parseFloat(map.glyph)).toBeGreaterThanOrEqual(12)
+      // AND THE FADE IS ON THE MAP, NOT ON THE WHOLE WIDGET. `opacity` applies to an element and
+      // everything inside it, so 0.2 on the container took the header down with it and the
+      // collapse control measured 1.63:1 in Dark Modern and 1.43:1 in Light -- below about 1.5:1
+      // a 12px glyph is not faint, it is gone. It is the one control here whose entire purpose is
+      // to be found by somebody who wants the map out of their way, so it is never faded; the
+      // 200x120 canvas under it is what was ever in the way, and that is what fades.
+      // graphAccess.test.ts measures what the two themes then make of it.
+      expect(map.widgetIdle).toBe(1)
+      expect(map.headIdle).toBe(1)
+
+      await page.hover('.flg-minimap')
+      await page.waitForTimeout(250)
+      expect(await page.evaluate(() => Number(getComputedStyle(document.querySelector('.flg-minimap-body')!).opacity))).toBe(1)
     } finally {
       await page.close()
     }
@@ -1018,7 +1373,7 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       expect(state.hatch).toMatch(/gradient/)
       expect(state.ordinaryHatch).toBe('none')
       // And it says so in words, twice.
-      expect(state.text).toMatch(/not defined in this pack/)
+      expect(state.text).toBe('unresolved')
       expect(state.badge).toBe('unresolved')
 
       // A node in a cycle is a different shape again: a ring OUTSIDE the box, so the two red
@@ -1299,10 +1654,13 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       const before = await page.evaluate(() => document.querySelectorAll('.flg-node').length)
       const start = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number; zoom: number } } }).view.getCamera())
 
+      // MIDDLE BUTTON. A plain left drag on the background box-selects now (see the marquee
+      // tests below); the pan lives on the middle button and on space+drag, which is where every
+      // other tool in this genre puts it.
       await page.mouse.move(700, 800)
-      await page.mouse.down()
+      await page.mouse.down({ button: 'middle' })
       await page.mouse.move(560, 720, { steps: 6 })
-      await page.mouse.up()
+      await page.mouse.up({ button: 'middle' })
       const panned = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number; zoom: number } } }).view.getCamera())
       expect(panned.x).toBeGreaterThan(start.x)
       expect(panned.y).toBeGreaterThan(start.y)
@@ -1333,6 +1691,206 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       // and the transform is on the single world layer.
       expect(await page.evaluate(() => document.querySelectorAll('.flg-node').length)).toBe(before)
       expect(await page.evaluate(() => (document.querySelector('.flg-world') as HTMLElement).style.transform)).toContain('scale(')
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  // -- how much of the graph is on screen ---------------------------------
+  //
+  // WHAT THIS PINS, AND WHY IT IS NOT THE CULL COUNT. `nodesDrawn` answers "is it culling": it
+  // counts the cards attached to the document, which is the viewport grown half a screen per side
+  // -- about four times its area -- and it is deliberately sticky, because the whole value of the
+  // margin is that an ordinary pan does not recompute it. The status line asked it "how much of
+  // the graph can I see", and got a number three to twenty times too large that ALSO did not move
+  // when the camera zoomed in: a viewport that shrinks never leaves the band it was culled for,
+  // so eight notches of zoom left "about 22 of 57" over a screen with nothing whole on it.
+  //
+  // `nodesInView` is the answer to the question that was actually being asked, and the assertions
+  // below are the two halves of "honest": it agrees with counting rectangles in the DOM, and it
+  // TRACKS THE CAMERA. The second is the one that matters -- an honest count that stops being
+  // true is worse than no count, and the old number was honest at cold open and nowhere else.
+
+  /** A grid of cards spread over a world several screens wide, so there is always something on
+   * screen, something in the cull band and something well outside both. Nothing here depends on
+   * the layout engine: the positions are given, which is what makes the arithmetic checkable. */
+  function gridGraph(cols: number, rows: number): { graph: GraphWire; positions: Array<[string, { x: number; y: number }]> } {
+    const nodes: GraphNodeWire[] = []
+    const positions: Array<[string, { x: number; y: number }]> = []
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const id = `ex:n${String(r)}_${String(c)}`
+        nodes.push({ id, typeId: 'minecraft:ore_feature', file: `features/${id.slice(3)}.json`, coverage: 'implemented' })
+        positions.push([id, { x: c * (GRAPH_NODE_WIDTH + 60), y: r * (GRAPH_NODE_HEIGHT + 60) }])
+      }
+    }
+    return { graph: { nodes, edges: [], roots: nodes.map((n) => n.id) } as unknown as GraphWire, positions }
+  }
+
+  /** Renders the grid into the page `load` already set up. */
+  async function loadGrid(): Promise<Page> {
+    const page = await load()
+    await page.evaluate((g: { graph: unknown; positions: Array<[string, unknown]> }) => {
+      const w = window as never as { view: { render(graph: unknown, positions: Map<string, unknown>): void } }
+      w.view.render(g.graph, new Map(g.positions))
+    }, gridGraph(12, 12) as never)
+    await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+    return page
+  }
+
+  /** Counts, from the DOM, the cards whose box really overlaps the canvas -- the number a reader
+   * would get with a ruler. Deliberately computed a different way from the renderer's own count:
+   * client rectangles against the canvas rectangle, not world rectangles against a camera. */
+  const cardsTouchingViewport = (page: Page): Promise<number> =>
+    page.evaluate(() => {
+      const host = (document.querySelector('.flg-graph') as HTMLElement).getBoundingClientRect()
+      let n = 0
+      for (const el of document.querySelectorAll('.flg-node')) {
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 && r.height === 0) continue
+        if (r.right > host.left && r.left < host.right && r.bottom > host.top && r.top < host.bottom) n++
+      }
+      return n
+    })
+
+  const renderStats = (page: Page): Promise<{ nodes: number; nodesDrawn: number; nodesInView: number }> =>
+    page.evaluate(
+      () =>
+        (window as never as { view: { getRenderStats(): { nodes: number; nodesDrawn: number; nodesInView: number } } }).view.getRenderStats(),
+    )
+
+  it('reports the cards on screen, not the cards in the cull band', async () => {
+    const page = await loadGrid()
+    try {
+      const counted = await cardsTouchingViewport(page)
+      const stats = await renderStats(page)
+
+      // The number the status line quotes is the number a reader could count.
+      expect(stats.nodesInView).toBe(counted)
+      // And it is a genuinely different number from the one that used to be quoted: the band is
+      // wider than the frame, so it keeps cards nobody can see. Were these equal on this fixture
+      // the test would be passing for the wrong reason.
+      expect(stats.nodesDrawn).toBeGreaterThan(stats.nodesInView)
+      expect(stats.nodesInView).toBeGreaterThan(0)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the count follows a PANEL RESIZE, which moves no camera at all', async () => {
+    // The one way the frame changes without x, y or zoom changing -- and the one the count did
+    // not survive. Nothing in the view was watching the element's size, so `cull()` kept the set
+    // it had computed for the old viewport, `nodesInView` kept reporting it, and the host's line
+    // sat at "Showing 6 of 57 cards." over eleven of them until the camera next moved. A count
+    // that stops being true is worse than no count, which is the whole reason that line is
+    // recomputed from the camera in the first place.
+    const page = await loadGrid()
+    try {
+      const before = await renderStats(page)
+      expect(before.nodesInView).toBe(await cardsTouchingViewport(page))
+
+      // Grow the panel. The camera is untouched; only the window is dragged.
+      const camera = await page.evaluate(() => (window as never as { view: { getCamera(): unknown } }).view.getCamera())
+      await page.setViewportSize({ width: 1400, height: 1400 })
+      await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      expect(await page.evaluate(() => (window as never as { view: { getCamera(): unknown } }).view.getCamera())).toEqual(camera)
+
+      const counted = await cardsTouchingViewport(page)
+      expect(counted).toBeGreaterThan(before.nodesInView)
+      // WITHOUT ANYTHING HAVING MOVED. This is the assertion the fix exists for.
+      expect((await renderStats(page)).nodesInView).toBe(counted)
+
+      // And the other direction, because a panel that SHRINKS is the case the cull band's
+      // hysteresis hides: the smaller viewport never leaves the band it was culled for.
+      await page.setViewportSize({ width: 700, height: 600 })
+      await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      const smaller = await cardsTouchingViewport(page)
+      expect(smaller).toBeLessThan(counted)
+      expect((await renderStats(page)).nodesInView).toBe(smaller)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the count follows a zoom IN, which is exactly where the cull band does not', async () => {
+    const page = await loadGrid()
+    try {
+      const before = await renderStats(page)
+      expect(before.nodesInView).toBeGreaterThan(1)
+
+      // Zoom about the middle, the way ctrl+wheel and the `+` key do. Eight notches, because one
+      // is well inside the hysteresis on any viewport -- that is the whole finding.
+      await page.evaluate(() => {
+        const w = window as never as { view: { zoomBy(f: number): void } }
+        for (let i = 0; i < 8; i++) w.view.zoomBy(1.2)
+      })
+      await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+      const after = await renderStats(page)
+      // THE BUG, stated as an assertion: the kept set does not change, because a shrinking
+      // viewport never leaves the band it was culled for. If this ever stops holding, the
+      // assertion below has stopped proving anything and should be re-aimed, not relaxed.
+      expect(after.nodesDrawn).toBe(before.nodesDrawn)
+      // ...and the reported count moved anyway, because it is computed from the camera.
+      expect(after.nodesInView).toBeLessThan(before.nodesInView)
+      expect(after.nodesInView).toBe(await cardsTouchingViewport(page))
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('focusNode moves the camera AND tells the host, so a line driven off it stays true', async () => {
+    const page = await load()
+    try {
+      // A fresh view with a camera listener on it: `load` installs none, and the listener is half
+      // of what is pinned here -- a jump that moved the camera without notifying would leave
+      // whatever the status line said before the jump sitting under a completely different frame.
+      const report = await page.evaluate(async () => {
+        const api = (window as unknown as { FLG: Record<string, unknown> }).FLG
+        const create = api.createGraphView as (host: HTMLElement, options?: unknown) => Record<string, unknown>
+        const host = document.getElementById('host')!
+        host.replaceChildren()
+        const seen: number[] = []
+        let view: Record<string, unknown> | null = null
+        view = create(host, {
+          onCamera: () => seen.push((view!['getRenderStats'] as () => { nodesInView: number })().nodesInView),
+        }) as Record<string, unknown>
+        const nodes: unknown[] = []
+        const positions: Array<[string, unknown]> = []
+        for (let r = 0; r < 12; r++) {
+          for (let c = 0; c < 12; c++) {
+            const id = `ex:n${String(r)}_${String(c)}`
+            nodes.push({ id, typeId: 'minecraft:ore_feature', file: `features/${id.slice(3)}.json`, coverage: 'implemented' })
+            positions.push([id, { x: c * 292, y: r * 146 }])
+          }
+        }
+        ;(view['render'] as (g: unknown, p: Map<string, unknown>) => void)({ nodes, edges: [], roots: [] }, new Map(positions))
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+        const calls = seen.length
+        const far = 'ex:n11_11'
+        const cameraBefore = (view['getCamera'] as () => { x: number; y: number })()
+        ;(view['focusNode'] as (id: string) => void)(far)
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+        const cameraAfter = (view['getCamera'] as () => { x: number; y: number })()
+        const card = document.querySelector(`.flg-node[data-node-id="${far}"]`) as HTMLElement | null
+        const hostBox = (document.querySelector('.flg-graph') as HTMLElement).getBoundingClientRect()
+        const box = card === null ? null : card.getBoundingClientRect()
+        return {
+          notifiedAfterFocus: seen.length - calls,
+          moved: cameraAfter.x !== cameraBefore.x || cameraAfter.y !== cameraBefore.y,
+          onScreen:
+            box !== null && box.right > hostBox.left && box.left < hostBox.right && box.bottom > hostBox.top && box.top < hostBox.bottom,
+          lastReported: seen[seen.length - 1] ?? -1,
+        }
+      })
+
+      expect(report.moved).toBe(true)
+      // The card it was asked to go to is really in front of the reader...
+      expect(report.onScreen).toBe(true)
+      // ...the host was told, at least once, that the camera had moved...
+      expect(report.notifiedAfterFocus).toBeGreaterThan(0)
+      // ...and what it read when it was told was the count for where the camera is NOW.
+      expect(report.lastReported).toBe(await cardsTouchingViewport(page))
     } finally {
       await page.close()
     }
@@ -1481,13 +2039,13 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       // A DRAG IS NOT A SELECTION: the click the browser synthesises on release is swallowed.
       expect(await selections(page)).toEqual([])
 
-      // ...and the background still pans, which is the gesture the card drag had to be told
-      // apart from in the first place.
+      // ...and the background still pans on the middle button, which is the gesture the card
+      // drag had to be told apart from in the first place.
       const dropped = await cardAt(page, 'ex:ore')
       await page.mouse.move(700, 860)
-      await page.mouse.down()
+      await page.mouse.down({ button: 'middle' })
       await page.mouse.move(600, 800, { steps: 6 })
-      await page.mouse.up()
+      await page.mouse.up({ button: 'middle' })
       await page.waitForTimeout(60)
       const panned = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number; zoom: number } } }).view.getCamera())
       expect(panned.x).toBeGreaterThan(cameraBefore.x)
@@ -1567,24 +2125,33 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
     }
   }, 30_000)
 
-  it('arrow keys move a focused card, and report the burst once rather than the keypresses', async () => {
+  it('ALT+arrow moves a focused card, and reports the burst once rather than the keypresses', async () => {
+    // ALT, because the bare arrows now WALK from card to card -- see graphKeyboard.test.ts for
+    // what that swap bought and why it is the way round it is. The short version: navigating
+    // fifty-seven cards had no keys at all and cost 128 Tabs, while nudging a card by eight
+    // pixels held all four arrows; VS Code itself moves the thing under the cursor on Alt+Arrow.
+    // Shift still picks the larger step, so this gesture is the old one with Alt held.
     const page = await load()
     try {
-      const cameraBefore = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())
       await page.locator('.flg-node[data-node-id="ex:agg"]').focus()
+      // AFTER the focus, deliberately: a card taking focus brings the camera to it when it is
+      // off screen, which is the whole point of the roving tab stop. What this test is about is
+      // that the ARROWS do not move the camera, and reading it before the focus would measure
+      // the other thing.
+      const cameraBefore = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())
       const before = await cardAt(page, 'ex:agg')
 
-      await page.keyboard.press('ArrowRight')
-      await page.keyboard.press('ArrowRight')
-      await page.keyboard.press('ArrowDown')
-      await page.keyboard.press('Shift+ArrowDown')
+      await page.keyboard.press('Alt+ArrowRight')
+      await page.keyboard.press('Alt+ArrowRight')
+      await page.keyboard.press('Alt+ArrowDown')
+      await page.keyboard.press('Alt+Shift+ArrowDown')
       await page.waitForTimeout(60)
 
       const after = await cardAt(page, 'ex:agg')
       expect(after.x - before.x).toBeCloseTo(16, 3)
       expect(after.y - before.y).toBeCloseTo(48, 3)
-      // The arrows moved the CARD, not the view: on the canvas itself they still pan, which is
-      // why onKeyDown checks its own target.
+      // Alt+arrow moved the CARD, not the view: on the canvas itself the bare arrows still pan,
+      // which is why onKeyDown checks its own target.
       expect(await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())).toEqual(cameraBefore)
       // Nothing yet -- four presses are one gesture, and on the other end of a report is a file.
       expect(await movesReported(page)).toEqual([])
@@ -1674,7 +2241,11 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       expect(handles).toHaveLength(kitchenSinkGraph().nodes.length)
       for (const handle of handles) {
         expect(handle.role).toBe('button')
-        expect(handle.tabIndex).toBe(0)
+        // -1: OFF the tab sequence, and reached with F2 from the card it belongs to instead.
+        // Fifty-seven handles were fifty-seven tab stops interleaved with the cards, which is
+        // half of why crossing this canvas took 128 presses. Focusable is not the same as
+        // tabbable, and graphKeyboard.test.ts walks the F2 ring to prove the difference.
+        expect(handle.tabIndex).toBe(-1)
         expect(handle.label).toContain(handle.for)
         // Every handle answers for itself before it is touched, including the ones that refuse.
         expect(handle.title.length).toBeGreaterThan(20)
@@ -2012,6 +2583,360 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
     }
   }, 30_000)
 
+  // -- the furniture: marquee, minimap, legend ----------------------------
+  //
+  // Three things a reviewer looking at a real pack asked for, and each is tested through the
+  // real gesture or the real DOM rather than by calling into the view, for the same reason the
+  // drag tests are: what makes them work is what the browser does with a press, and a test that
+  // reached past that would pass over a control nobody can actually use.
+
+  it('a plain left drag on the background box-selects, and the pan moves to space and the middle button', async () => {
+    const page = await load()
+    try {
+      // THE GESTURE SWAP. Every node editor in the genre box-selects on a plain left drag, so
+      // that is the muscle memory arriving here; the pan that used to own it is not lost, it
+      // moves to the two places those same tools keep it.
+      const cameraBefore = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())
+
+      // Started from EMPTY canvas to the right of every column and in the gap between two rows --
+      // the fixture lays out on a 360 x 220 pitch over four columns, so (1360, 420) is clear of
+      // every card, of their chips and of their edges. It is also clear of the overview map and
+      // the legend button, which live in the bottom corners and (correctly) swallow a press.
+      const host = (await page.locator('.flg-graph').boundingBox())!
+      await page.mouse.move(host.x + 1360, host.y + 420)
+      await page.mouse.down()
+      await page.mouse.move(host.x + 2, host.y + 2, { steps: 8 })
+      // The rectangle is visible while the gesture is live -- it is the only feedback the
+      // gesture has.
+      expect(await page.locator('.flg-marquee').isVisible()).toBe(true)
+      await page.mouse.up()
+      await page.waitForTimeout(60)
+
+      const selection = await page.evaluate(
+        () => (window as never as { view: { getSelection(): { kind: string; nodeIds?: string[]; nodeId?: string } | null } }).view.getSelection(),
+      )
+      expect(selection?.kind).toBe('nodes')
+      expect(selection?.nodeIds).toEqual(expect.arrayContaining(['ex:rule', 'ex:seq']))
+      // AND IT DID NOT PAN. That is the whole point of the swap: reaching to select no longer
+      // flies the canvas somewhere.
+      expect(await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())).toEqual(cameraBefore)
+      expect(await page.locator('.flg-marquee').isVisible()).toBe(false)
+
+      // SPACE+DRAG pans, which is the drawing-tool idiom and the replacement for the gesture just
+      // taken away. The canvas has to hold focus for the key to reach it, exactly as the arrow
+      // keys already require.
+      await page.evaluate(() => (document.querySelector('.flg-graph') as HTMLElement).focus())
+      await page.keyboard.down(' ')
+      await page.mouse.move(host.x + 700, host.y + 700)
+      await page.mouse.down()
+      await page.mouse.move(host.x + 600, host.y + 640, { steps: 6 })
+      await page.mouse.up()
+      await page.keyboard.up(' ')
+      await page.waitForTimeout(60)
+      const panned = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())
+      expect(panned.x).toBeGreaterThan(cameraBefore.x)
+      expect(panned.y).toBeGreaterThan(cameraBefore.y)
+      // A space-drag is a pan and NOT a selection: the cards it passed over are untouched.
+      expect(
+        await page.evaluate(() => (window as never as { view: { getSelection(): { kind: string } | null } }).view.getSelection()),
+      ).toMatchObject({ kind: 'nodes' })
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('SHIFT+drag still marquees, so nobody who already learned the old gesture is broken', async () => {
+    const page = await load()
+    try {
+      const host = (await page.locator('.flg-graph').boundingBox())!
+      await page.keyboard.down('Shift')
+      await page.mouse.move(host.x + 1360, host.y + 420)
+      await page.mouse.down()
+      await page.mouse.move(host.x + 2, host.y + 2, { steps: 8 })
+      await page.mouse.up()
+      await page.keyboard.up('Shift')
+      await page.waitForTimeout(60)
+      const selection = await page.evaluate(
+        () => (window as never as { view: { getSelection(): { kind: string; nodeIds?: string[] } | null } }).view.getSelection(),
+      )
+      expect(selection?.kind).toBe('nodes')
+      expect(selection?.nodeIds).toEqual(expect.arrayContaining(['ex:rule', 'ex:seq']))
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('a plain click on empty canvas still clears the selection', async () => {
+    const page = await load()
+    try {
+      await page.locator('.flg-node[data-node-id="ex:tree"]').click({ timeout: 4000 })
+      expect(await page.evaluate(() => (window as never as { view: { getSelection(): unknown } }).view.getSelection())).not.toBeNull()
+      // A press-and-release with no travel is a click, not a marquee, and clearing is what a
+      // click on nothing has always meant. That behaviour used to live on the pan path and had
+      // to move here with the gesture.
+      const host = (await page.locator('.flg-graph').boundingBox())!
+      await page.mouse.click(host.x + host.width - 6, host.y + host.height - 120)
+      await page.waitForTimeout(60)
+      expect(await page.evaluate(() => (window as never as { view: { getSelection(): unknown } }).view.getSelection())).toBeNull()
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the minimap moves the camera, and says where the camera is', async () => {
+    const page = await load()
+    try {
+      const canvas = page.locator('.flg-minimap-canvas')
+      expect(await canvas.count()).toBe(1)
+      const map = (await canvas.boundingBox())!
+      expect(map.width).toBeGreaterThan(20)
+      expect(map.height).toBeGreaterThan(20)
+
+      const before = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number; zoom: number } } }).view.getCamera())
+      // Press near the bottom-right of the map, which is the far corner of the world.
+      await page.mouse.click(map.x + map.width - 4, map.y + map.height - 4)
+      await page.waitForTimeout(80)
+      const after = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number; zoom: number } } }).view.getCamera())
+
+      // It moved the camera TOWARD the point pressed, and did not change the zoom -- a map that
+      // also zoomed would answer a question nobody asked and lose the scale they were reading at.
+      expect(after.x).toBeGreaterThan(before.x)
+      expect(after.y).toBeGreaterThan(before.y)
+      expect(after.zoom).toBe(before.zoom)
+
+      // Dragging on it scrubs rather than jumping once: the pointer is held, so every move is
+      // another aim.
+      await page.mouse.move(map.x + 4, map.y + 4)
+      await page.mouse.down()
+      await page.mouse.move(map.x + 6, map.y + 6, { steps: 3 })
+      await page.mouse.up()
+      await page.waitForTimeout(80)
+      const scrubbed = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number } } }).view.getCamera())
+      expect(scrubbed.x).toBeLessThan(after.x)
+
+      // A press on the map is NOT a press on the canvas behind it: it must not start a marquee
+      // and must not clear the selection somebody is holding.
+      expect(await page.locator('.flg-marquee').isVisible()).toBe(false)
+
+      // And it collapses, because a map is furniture and furniture on a dense canvas has to be
+      // dismissible.
+      await page.locator('.flg-minimap-toggle').click()
+      await page.waitForTimeout(40)
+      expect(await page.locator('.flg-minimap-body').isVisible()).toBe(false)
+      expect(await page.locator('.flg-minimap-toggle').getAttribute('aria-expanded')).toBe('false')
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('space held turns the primary button into a pan, which means the canvas has to take focus first', async () => {
+    const page = await load()
+    try {
+      // THE DEFECT: this gesture was documented, keybound, styled -- and dead. onKeyPan only acts
+      // while the CANVAS has focus, which is right (space on a focused card is that card's
+      // activation key). But the press that starts every canvas gesture calls preventDefault on
+      // the pointerdown, which suppresses the compatibility mousedown, whose default action is
+      // "focus what was pressed". So clicking the canvas left document.activeElement on <body>,
+      // every key went to the body, and holding space did nothing at all except suppress the
+      // marquee. render.ts's takeFocus() is the fix, and this is the assertion that keeps it.
+      // A point the canvas ITSELF answers for -- not a card, not the overview map, not the key.
+      // Hunted rather than guessed at: the furniture sits in the corners and the cards move with
+      // the fixture, so a fixed offset is a test that passes for the wrong reason on a good day.
+      const at = await page.evaluate(() => {
+        const host = document.querySelector('.flg-graph') as HTMLElement
+        const box = host.getBoundingClientRect()
+        for (let y = box.bottom - 8; y > box.top + 8; y -= 12) {
+          for (let x = box.right - 8; x > box.left + 8; x -= 12) {
+            const hit = document.elementFromPoint(x, y)
+            if (hit === host) return { x, y }
+          }
+        }
+        throw new Error('no empty canvas to press on')
+      })
+      await page.mouse.move(at.x, at.y)
+      await page.mouse.down()
+      await page.mouse.up()
+
+      expect(
+        await page.evaluate(() => document.activeElement?.className ?? ''),
+        'a press on the canvas did not focus the canvas, so no key will ever reach it',
+      ).toContain('flg-graph')
+
+      // And now the gesture itself, end to end: hold space, drag, the camera moved.
+      const before = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())
+      await page.keyboard.down(' ')
+      await page.mouse.move(at.x, at.y)
+      await page.mouse.down()
+      await page.mouse.move(at.x - 80, at.y - 40, { steps: 4 })
+      await page.mouse.up()
+      await page.keyboard.up(' ')
+      const after = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())
+      expect(after.x, 'space+drag did not pan').toBeGreaterThan(before.x)
+
+      // And it was a PAN, not a box-select: the marquee must never have appeared.
+      expect(await page.locator('.flg-marquee').isVisible()).toBe(false)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('the legend names every glyph the renderer can draw, and every edge kind', async () => {
+    const page = await load()
+    try {
+      // CLOSED UNTIL ASKED FOR, and genuinely absent from the document until then -- the line
+      // samples carry the real `.flg-edge-*` classes, so a legend that existed while closed would
+      // change the answer to "how many dangling edges are drawn".
+      expect(await page.locator('.flg-legend-panel').isVisible()).toBe(false)
+      expect(await page.locator('.flg-legend-row').count()).toBe(0)
+
+      await page.locator('.flg-legend-button').click()
+      await page.waitForTimeout(40)
+      expect(await page.locator('.flg-legend-panel').isVisible()).toBe(true)
+
+      const named = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.flg-legend-row')]
+        return {
+          glyphs: rows.map((r) => r.querySelector('.flg-legend-glyph')?.textContent ?? '').filter((g) => g !== ''),
+          kinds: rows
+            .map((r) => r.querySelector('.flg-legend-swatch g')?.getAttribute('class') ?? '')
+            .filter((c) => c !== ''),
+          // Every row says what it MEANS, in words. A key that only repeats the label is not a
+          // key -- the reader could already read the label.
+          meanings: rows.map((r) => (r.querySelector('.flg-legend-meaning')?.textContent ?? '').length),
+          names: rows.map((r) => r.querySelector('.flg-legend-name')?.textContent ?? ''),
+        }
+      })
+
+      // EVERY glyph in CATEGORY_MARK, checked against the table itself rather than against a
+      // copy of it: a category added to the renderer without a row here fails this test, which is
+      // the only way a legend stays complete.
+      const marks = Object.values(CATEGORY_MARK)
+      expect(marks.length).toBeGreaterThanOrEqual(11)
+      for (const mark of marks) expect(named.glyphs, `glyph ${mark} is not in the key`).toContain(mark)
+
+      // And every edge kind the contract has, by the class the canvas actually draws it with.
+      for (const kind of ['rule', 'sequence', 'aggregate', 'weighted', 'conditional', 'scatter', 'filter', 'child']) {
+        expect(named.kinds.some((c) => c.split(/\s+/).includes(`flg-edge-${kind}`)), `edge kind ${kind} is not in the key`).toBe(true)
+      }
+      for (const length of named.meanings) expect(length).toBeGreaterThan(10)
+      expect(named.names.every((n) => n.trim() !== '')).toBe(true)
+
+      // COLOUR IS NEVER THE ONLY CARRIER, and the key says so rather than leaving it implied.
+      expect(await page.locator('.flg-legend-note').textContent()).toMatch(/told by colour alone/i)
+
+      // AND THE KEYS, in the panel named for them. The canvas is the one surface with no chrome
+      // to teach its own keyboard on -- the search box and the Add menu carry theirs inline --
+      // so a full keyboard interface was reachable only by reading `aria-keyshortcuts`.
+      const keyRows = await page.evaluate(() =>
+        [...document.querySelectorAll('.flg-legend-row-key')].map((r) => ({
+          keys: r.querySelector('.flg-legend-key')?.textContent ?? '',
+          meaning: r.querySelector('.flg-legend-meaning')?.textContent ?? '',
+        })),
+      )
+      expect(keyRows.map((r) => r.keys)).toEqual([...LEGEND_KEYS])
+      // Every chord says what it DOES, on the same rule the glyph rows follow.
+      for (const row of keyRows) expect(row.meaning.length, row.keys).toBeGreaterThan(10)
+      for (const chord of ['Arrows', 'Alt+Arrow', 'Home / End', 'Ctrl+Space', 'F2']) {
+        expect(keyRows.map((r) => r.keys), `${chord} is not in the key`).toContain(chord)
+      }
+      // NOT A SEPARATE LIST OF CLAIMS. Every chord above is one the canvas publishes on itself,
+      // so a binding that moves without this table moving fails here rather than turning the key
+      // into a page of instructions for keys that no longer do anything.
+      const published = (await page.getAttribute('.flg-graph', 'aria-keyshortcuts')) ?? ''
+      for (const atom of ['ArrowUp', 'Home', 'End', 'Enter', 'Control+Space', 'F2', 'Escape', 'Control+F', 'Control+G']) {
+        expect(published.split(/\s+/), `${atom} is claimed by the key`).toContain(atom)
+      }
+
+      // Dismissible, and the dismissal is reachable from the keyboard.
+      await page.locator('.flg-legend-close').click()
+      await page.waitForTimeout(40)
+      expect(await page.locator('.flg-legend-panel').isVisible()).toBe(false)
+      await page.evaluate(() => (document.querySelector('.flg-graph') as HTMLElement).focus())
+      await page.keyboard.press('?')
+      await page.waitForTimeout(40)
+      expect(await page.locator('.flg-legend-panel').isVisible()).toBe(true)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('draws an input port for every incoming delegation, and keeps the outgoing handle honest', async () => {
+    const page = await load()
+    try {
+      const ports = await page.evaluate(() => {
+        const of = (id: string) => document.querySelector(`.flg-node[data-node-id="${id}"]`) as HTMLElement
+        const count = (id: string) => of(id).querySelectorAll('.flg-node-inport').length
+        const outgoing = (id: string) => of(id).querySelector('.flg-node-port') as HTMLElement | null
+        // A card that CAN place another feature, and one that cannot. ex:agg delegates; ex:ore is
+        // a leaf and is the case the refusal rule exists for.
+        const handle = outgoing('ex:agg')
+        const leafHandle = outgoing('ex:ore')
+        return {
+          // ex:ore is reached by a weighted entry, a conditional entry and a tree's child slot.
+          ore: count('ex:ore'),
+          // A root is reached by nothing, so it wears no arrival marks at all.
+          rule: count('ex:rule'),
+          // The outgoing handle is now VISIBLE without hovering -- it was undiscoverable.
+          handleOpacity: handle ? getComputedStyle(handle).opacity : '',
+          // ...but a node that cannot place another feature still refuses to advertise one.
+          leafRefuses: leafHandle?.dataset['refuses'] ?? '',
+          leafOpacity: leafHandle ? getComputedStyle(leafHandle).opacity : '',
+        }
+      })
+      expect(ports.ore).toBe(3)
+      expect(ports.rule).toBe(0)
+
+      // A leaf: nothing can be placed by it, so its handle is drawn transparent even though every
+      // other card's handle is now on. That rule is the one thing the "always visible" change was
+      // not allowed to break.
+      const leaf = await page.evaluate(() => {
+        const box = document.querySelector('.flg-node[data-node-id="ex:missing_target"]') as HTMLElement
+        const port = box.querySelector('.flg-node-port') as HTMLElement | null
+        return { refuses: port?.dataset['refuses'] ?? '', opacity: port ? getComputedStyle(port).opacity : '' }
+      })
+      if (leaf.refuses === 'true') expect(Number(leaf.opacity)).toBe(0)
+      // The connectable card's handle really is on the canvas without a hover.
+      expect(Number(ports.handleOpacity)).toBeGreaterThan(0)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
+  it('fitting a one-node pack shows a card, not a billboard', async () => {
+    const page = await load()
+    try {
+      // THE OTHER END OF THE FIT CLAMP. The arithmetic answer for a single 232x86 card in a
+      // 1400x900 panel is a zoom of about 5, and at that scale the card fills the viewport and
+      // every bit of context a fit was asked for is gone. Fit means "show me all of it", not
+      // "make it as large as it will go", so it stops at the scale the card was designed at.
+      const report = await page.evaluate(() => {
+        const api = (window as unknown as { FLG: Record<string, unknown> }).FLG
+        const view = (window as unknown as { view: Record<string, unknown> }).view
+        void api
+        ;(view.render as (g: unknown, p: Map<string, unknown>) => void)(
+          { nodes: [{ id: 'ex:only', typeId: 'minecraft:ore_feature' }], edges: [], roots: ['ex:only'] },
+          new Map([['ex:only', { x: 0, y: 0 }]]),
+        )
+        return (view.zoomToFit as (p?: number) => { zoom: number; fitsAll: boolean; components: number })()
+      })
+      expect(report.fitsAll).toBe(true)
+      expect(report.components).toBe(1)
+      expect(report.zoom).toBeLessThanOrEqual(1)
+      expect(report.zoom).toBeGreaterThan(0.5)
+
+      await page.waitForTimeout(80)
+      const host = (await page.locator('.flg-graph').boundingBox())!
+      const card = (await page.locator('.flg-node[data-node-id="ex:only"]').boundingBox())!
+      // It is on screen, and it is nowhere near filling it.
+      expect(card.width).toBeLessThan(host.width / 2)
+      expect(card.height).toBeLessThan(host.height / 2)
+      expect(card.x).toBeGreaterThanOrEqual(host.x - 1)
+      expect(card.y).toBeGreaterThanOrEqual(host.y - 1)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
   it('clamps zoom and frames the whole graph on zoomToFit, dangling nodes included', async () => {
     const page = await load()
     try {
@@ -2156,7 +3081,7 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
     }
   }, 30_000)
 
-  it('nodes and chips are keyboard reachable and activate with Enter', async () => {
+  it('nodes and chips are keyboard reachable and activate with Enter, on ONE roving tab stop', async () => {
     const page = await load()
     try {
       const activated = await page.evaluate(() => {
@@ -2165,12 +3090,31 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
         const focused = document.activeElement === node
         node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
         const events = (window as never as { events: Array<{ via: string }> }).events
-        return { focused, tabIndex: node.tabIndex, role: node.getAttribute('role'), activate: events.some((e) => e.via === 'onActivate') }
+        // Every focusable thing the canvas draws, and how many of them Tab would actually stop
+        // at. The answer has to be ONE whatever the graph is -- see graphKeyboard.test.ts.
+        const canvas = document.querySelector('.flg-graph') as HTMLElement
+        const tabbable = [...canvas.querySelectorAll<HTMLElement>('.flg-node, .flg-node-port, .flg-chip, .flg-node-fan-in, .flg-frame-head, .flg-group-chevron')]
+          .filter((el) => el.tabIndex >= 0)
+        return {
+          focused,
+          tabIndex: node.tabIndex,
+          role: node.getAttribute('role'),
+          activate: events.some((e) => e.via === 'onActivate'),
+          tabStops: tabbable.length,
+          stopIsTheFocusedCard: tabbable.length === 1 && tabbable[0] === node,
+          rootTabIndex: canvas.tabIndex,
+        }
       })
       expect(activated.focused).toBe(true)
-      expect(activated.tabIndex).toBe(0)
       expect(activated.role).toBe('button')
       expect(activated.activate).toBe(true)
+      // THE ROVING CONTRACT. A card is focusable at -1 and becomes the canvas's one tab stop
+      // when it takes focus; the root gives up its own 0 while a card holds it, so the canvas
+      // never offers two ways in. 141 of these elements carried `tabindex=0` before.
+      expect(activated.tabStops).toBe(1)
+      expect(activated.stopIsTheFocusedCard).toBe(true)
+      expect(activated.tabIndex).toBe(0)
+      expect(activated.rootTabIndex).toBe(-1)
     } finally {
       await page.close()
     }

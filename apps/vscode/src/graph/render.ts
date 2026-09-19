@@ -51,9 +51,13 @@
 // things follow.
 //
 //   - THE GESTURES DO NOT FIGHT. A primary-button press on a card drags the CARD; the same press
-//     on the background pans the CAMERA; the middle button pans from anywhere, card included.
-//     There is no mode and no modifier to remember, because the thing under the pointer already
-//     says which of the two is meant.
+//     on the background BOX-SELECTS. Panning is the middle button, from anywhere, card included,
+//     or space held with the primary button -- the drawing-tool idiom. The thing under the
+//     pointer says which of the first two is meant, with no mode and no modifier to remember.
+//     (The primary button on the background used to pan, and this comment used to say so for a
+//     while after it stopped being true. Selecting several cards at once is the gesture that
+//     earned the slot; a canvas whose only way to move is a middle button people do not all have
+//     is why space+drag exists beside it.)
 //   - A MOVE RE-ROUTES, IT DOES NOT REDRAW (rerouteEdges). Edges attach at ports computed from
 //     node positions, so moving a card has to move its edges -- but calling render() for that
 //     rebuilds every element on the canvas, and it was MEASURED at about 10 ms for this repo's
@@ -89,6 +93,9 @@
 // setAttribute -- so a feature named `<img onerror=...>` is text, not markup.
 
 import { connectSourcePreview, previewConnection } from './connect.js'
+import { createLegend, type Legend } from './legend.js'
+import { createMinimap, type Minimap, type MinimapNode } from './minimap.js'
+import { encloses, hullRect, keepRect, overlaps, unionRect, viewportRect, type WorldRect } from './viewport.js'
 
 /** The `minecraft:*` feature type namespace, stripped from a node's type line for display --
  * see renderNode's own comment for why (the full value is kept in the title/dataset). */
@@ -105,6 +112,26 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
  * on `.flg-node` and says so; they must move together. */
 export const GRAPH_NODE_WIDTH = 232
 export const GRAPH_NODE_HEIGHT = 86
+
+/** What a card's height is allowed to become once its CONTENT is known.
+ *
+ * GRAPH_NODE_HEIGHT above is the number the LAYOUT reserves per row and is still fixed, because a
+ * layout that had to measure the cards to place the cards would be circular (see that constant's
+ * own comment). What is not fixed any more is what the card actually draws in that reservation.
+ * A leaf with no fan line, no badges and a short type spent about forty per cent of 86 units on
+ * empty space; a card with a coverage note, a root badge and a two-kind fan line clipped its last
+ * row mid-word. Both are the same bug -- a box sized for the average of two different cards.
+ *
+ * The range is bounded at BOTH ends and neither bound is arbitrary. The floor is the three rows
+ * every card always has (header, type, badges) with their real leading; below it the card stops
+ * being readable rather than becoming compact. The ceiling is the layout's own row pitch minus a
+ * gap: autoLayout's default `rowGap` is 28 on a reserved 86, so a card may grow to 104 and still
+ * leave ten units of air below it -- 114 would touch the row beneath, and cards that touch read
+ * as one object.
+ *
+ * The height is COMPUTED, never measured: see cardHeight. */
+export const CARD_MIN_HEIGHT = 64
+export const CARD_MAX_HEIGHT = 104
 
 /** How far a node's edges attach outside its box, so an arrowhead tip lands just off the
  * border rather than under it. */
@@ -170,8 +197,50 @@ const ARROW_HALF_WIDTH = 4
 const ZOOM_BAND_FAR = 0.55
 const ZOOM_BAND_NEAR = 0.9
 
+/** A FOURTH band, below `far`, for the scale a real pack has to be framed at.
+ *
+ * `far` was written for a fifty-seven-node fixture framed in a panel, which lands around 0.12 and
+ * puts a card at thirty pixels. A 3531-node pack lays out to roughly 30,600 x 53,000 units and
+ * frames at about 0.011, where a card is two and a half pixels wide and under one pixel tall. The
+ * `far` treatment -- a solid block in the category colour, rounded corners, a border -- does not
+ * degrade gracefully to that: the border is the whole card and every card is the same grey.
+ *
+ * Out here the drawing answers one question and only one: WHERE THINGS ARE. So the cards lose
+ * their borders and radii and keep only their fill, the edges keep a one-pixel non-scaling
+ * stroke, and the arrowheads and chips go entirely. The threshold is where a card falls below
+ * about eight screen pixels wide (232 * 0.035), which is where a rounded, bordered box stops
+ * reading as a box. */
+const ZOOM_BAND_DISTANT = 0.035
+
+/** The interaction floor. Zooming out past this by wheel or keyboard is refused, because below it
+ * a pointer cannot reliably hit anything and the gestures stop meaning what they say. */
 const DEFAULT_MIN_ZOOM = 0.1
 const DEFAULT_MAX_ZOOM = 4
+
+/** The floor FIT is allowed to reach, which is deliberately far below the interaction floor.
+ *
+ * "Fit" is a promise: it says the whole drawing is now on screen. Clamping it at the interaction
+ * floor broke that promise silently and catastrophically -- a real pack needs about 0.011 and the
+ * floor is 0.1, so Fit framed one ninth of the world in each direction, landed on whatever
+ * whitespace happened to be at the centre of a 41-component packing, and showed a BLANK CANVAS
+ * while the status line said the graph was all there. A view that lies about what it is showing
+ * is worse than one that shows less.
+ *
+ * So fit may go as far out as it needs to, the camera's own floor follows it down (see
+ * `zoomFloor`) so the user can get back to that view by wheel, and the drawing switches to the
+ * `distant` band where a two-pixel card is drawn as the two-pixel mark it honestly is. This
+ * number is the point where even that stops being true: 0.002 puts a card at half a pixel, which
+ * paints nothing on any display, and a "fit" that shows an empty canvas is the bug again by a
+ * different route. A pack that cannot fit above it is reported as not fitting -- see
+ * GraphFitReport -- rather than being framed dishonestly. */
+const FIT_MIN_ZOOM = 0.002
+
+/** The ceiling FIT is allowed to reach. A one-node pack has a 232x86 content box in a 1400x900
+ * panel, so the arithmetic answer is a zoom of about 5 and the card fills the viewport like a
+ * billboard -- which is not "fitted", it is magnified, and it throws away every bit of context a
+ * fit is asked for. 1 is the scale the card was designed at and the scale the default camera
+ * uses, so a pack small enough to fit whole is simply shown at its natural size. */
+const FIT_MAX_ZOOM = 1
 
 /** How far a pointer must travel, in SCREEN pixels, before a press on a card stops being a click
  * and becomes a drag.
@@ -220,6 +289,31 @@ const FRAME_HEAD = 24
  * pretends the short form is the expression -- see truncate(). */
 const MOLANG_CHIP_CHARS = 24
 
+/** How many member ids a collapsed group's card shows on its face, and how many its hover names.
+ *
+ * Three on the card because the box is a fixed 232x86 with its rows budgeted to the pixel: three
+ * bare ids is one line at the card's width and a fourth would either wrap the box or be elided
+ * into uselessness. Six in the `title`, where there is room and where somebody has asked. Both
+ * say how many are left rather than stopping silently -- "+4" is a fact; a truncated list read as
+ * a full one is a lie the card tells. */
+const GROUP_CARD_MEMBERS = 3
+const GROUP_TITLE_MEMBERS = 6
+
+/** An identifier without its namespace -- what a card has room for. `wiki:` on every line of a
+ * three-name list is the same five characters three times and none of the difference. */
+function bareId(id: string): string {
+  const colon = id.indexOf(':')
+  return colon >= 0 ? id.slice(colon + 1) : id
+}
+
+/** The sentence a collapsed group's hover and its aria-label add: who is in there, by name. */
+function memberSentence(memberIds: readonly string[]): string {
+  if (memberIds.length === 0) return ''
+  const shown = memberIds.slice(0, GROUP_TITLE_MEMBERS)
+  const rest = memberIds.length - shown.length
+  return `\nInside: ${shown.join(', ')}${rest > 0 ? `, and ${String(rest)} more` : ''}.`
+}
+
 // ---------------------------------------------------------------------------
 // The wire contract, as TypeScript
 // ---------------------------------------------------------------------------
@@ -261,6 +355,10 @@ export interface GraphNodeGroupWire {
   readonly name: string
   /** How many members the card stands for. */
   readonly count: number
+  /** Which ones, in graph order. Optional only so a caller that predates it still type-checks;
+   * see GroupNodeSummary.memberIds for why a card that names none of its members is a hole in
+   * the picture rather than a tidy fold. */
+  readonly memberIds?: readonly string[]
 }
 
 /** An EXPANDED group, as the renderer draws it: a frame behind its members' cards, sized to their
@@ -270,6 +368,10 @@ export interface GraphFrameWire {
   readonly groupId: string
   readonly name: string
   readonly memberIds: readonly string[]
+  /** Whether the group is down to ONE member. Drawn as a word on the frame's header rather than
+   * left to the reader to notice, because a group of one and a group of nine are the same
+   * picture minus eight cards: a frame, a name, a chevron. See groups.ts's expandedFrames. */
+  readonly lone?: boolean
 }
 
 /** Mirrors wire.Annotation. Carried through to the selection payload untouched -- this file
@@ -354,6 +456,54 @@ export interface GraphCamera {
   zoom: number
 }
 
+/** What a "fit" actually managed to do.
+ *
+ * This type exists because the old zoomToFit could not answer the one question a status line
+ * needs -- is the whole graph on screen now -- and the status line answered it anyway, wrongly.
+ * Everything here is a statement about the camera that was just set, so a host can write a
+ * sentence rather than an assumption. */
+export interface GraphFitReport {
+  /** The zoom the camera was put at. */
+  zoom: number
+  /** Whether every drawn thing is inside the viewport at that zoom. False only when the content
+   * needs a scale below FIT_MIN_ZOOM, where a card would paint less than half a pixel. */
+  fitsAll: boolean
+  /** The fraction of the content's area that is on screen, 0..1. Exactly 1 whenever `fitsAll`. */
+  covered: number
+  /** How many separate drawings the content is, so a host can say "41 groups, all of them" or
+   * "the largest of 41" without recomputing components itself. */
+  components: number
+  /** The world box that was framed -- everything when `fitsAll`, the largest component otherwise. */
+  bounds: GraphRect
+}
+
+/** How much of the graph exists against how much of it is in the DOM. See GraphView.getRenderStats. */
+export interface GraphRenderStats {
+  nodes: number
+  edges: number
+  /** Cards currently attached to the document. */
+  nodesDrawn: number
+  /** Edges currently attached -- each is four SVG paths and one HTML chip. */
+  edgesDrawn: number
+  /** Cards whose box actually intersects the VIEWPORT -- what a reader can see, not what is kept.
+   *
+   * `nodesDrawn` is a fact about the DOM and about the cull band, which is the viewport grown half
+   * a screen per side, i.e. roughly four times its area. It is the right number for "is it
+   * culling" and the wrong number for "how much of the graph am I looking at", and it was being
+   * used for both: the status line said "about 22 of 57" over a screen holding seventeen, and
+   * "about 79 of 3531" over a screen holding sixteen.
+   *
+   * Worse, it does not MOVE when you zoom in. The cull set is recomputed only when the viewport
+   * leaves the band it was computed for (viewport.ts's `encloses`), and a viewport that shrinks
+   * never leaves it -- so eight notches of zoom, ending with nothing readable on screen, left the
+   * count exactly where it started. This one is recomputed on every camera frame, including the
+   * frames the culler skips, because it is a fact about the camera.
+   *
+   * Cheap for the same reason the culler is: it filters the DRAWN set, a few hundred cards at any
+   * zoom, not the graph. */
+  nodesInView: number
+}
+
 /** What a click/keyboard activation reports. `null` is a real value (the user clicked empty
  * canvas), not "nothing happened". */
 export type GraphSelection =
@@ -431,6 +581,36 @@ export interface GraphViewOptions {
    * connection mean something else: what an edit does belongs in one place, and connect.ts is
    * that place. */
   connectPolicy?: GraphConnectPolicy | false
+  /** Whether to draw the overview map in the bottom-right corner. On by default: the pack this
+   * editor is for is 41 separate drawings spread over 30,600 x 53,000 units, and without a map
+   * the only way to find out what is off screen is to go and look. `false` is for a host that
+   * embeds this canvas somewhere too small for it. */
+  minimap?: boolean
+  /** Whether the overview map starts collapsed. */
+  minimapCollapsed?: boolean
+  /** Whether to offer the key to the glyphs and line styles. On by default, closed by default. */
+  legend?: boolean
+  /** How far off screen an element has to be before it stops being drawn, as a fraction of the
+   * viewport. See viewport.ts. `0` is not "no margin" -- it is the floor only -- and culling
+   * cannot be turned off, because at pack size it is the difference between an editor and a
+   * slideshow. */
+  cullMarginFraction?: number
+  /** The camera settled somewhere new. Coalesced to one call per animation frame, exactly like
+   * the transform write itself, so a host may do real work in it -- but not per-event work: a
+   * wheel emits faster than the compositor paints.
+   *
+   * It exists for the status line. Anything a host says about HOW MUCH OF THE GRAPH IS ON SCREEN
+   * is a statement about the camera, and a sentence computed once when the pack loaded goes stale
+   * the first time anybody scrolls -- which is what "Showing one of 22 separate groups. Fit shows
+   * them all." said after Fit had already shown them all. Pair it with getRenderStats(), which is
+   * four numbers off counters this view already keeps. */
+  onCamera?: (camera: GraphCamera) => void
+  /** The reader pressed a card's "N use this" line -- the count of features that delegate to it.
+   * The selection has already moved to that card; what the host is being asked for is the LIST
+   * of the N, which on this canvas cannot be drawn (see the card's own comment, and the
+   * inspector's renderLineage). Left out, the line is still a button and still selects, which is
+   * the honest fallback for a host with nowhere to put a list. */
+  onFanIn?: (nodeId: string) => void
 }
 
 /** One node the user moved, as onNodeMove reports it.
@@ -558,8 +738,53 @@ export interface GraphView {
   getCamera(): GraphCamera
   setCamera(camera: Partial<GraphCamera>): void
   /** Frames everything currently drawn, including the dangling stubs of unresolved nodes.
-   * No-op on an empty graph. */
-  zoomToFit(paddingPx?: number): void
+   * No-op on an empty graph.
+   *
+   * IT REALLY FITS, and the report says so. The zoom it chooses is NOT clamped to the interaction
+   * floor -- see FIT_MIN_ZOOM for the blank canvas that clamp produced on a real pack -- and the
+   * returned report is how a host can say something true in a status line instead of guessing.
+   * `fitsAll: false` means the content is too large even for FIT_MIN_ZOOM, which is the only case
+   * where the camera has been placed on something less than everything; `covered` is then the
+   * fraction of the content actually framed. */
+  zoomToFit(paddingPx?: number): GraphFitReport
+  /** Nudges the camera so the top and left edges of the viewport do not cut a card or an edge
+   * chip in half. Never moves further than a quarter of a screen, so it tidies a frame rather
+   * than choosing a different one; see the implementation for what was measured. Applies the
+   * camera synchronously, because it has to measure what is drawn. */
+  snapCameraToWholeCards(): void
+  /** What the last fit produced, without moving the camera. Same shape as zoomToFit's return. */
+  getFitReport(paddingPx?: number): GraphFitReport
+  /** How much of the graph exists, and how much of it is currently in the DOM.
+   *
+   * Exposed because "is it culling" is otherwise unanswerable from outside: counting `.flg-node`
+   * elements tells you what is drawn and nothing about what exists, and the two differ by two
+   * orders of magnitude on a real pack. Cheap -- four numbers off counters the view already
+   * keeps. */
+  getRenderStats(): GraphRenderStats
+  /** Which nodes a search currently matches, or `null` for "nothing is being searched".
+   *
+   * Cards that do not match are quieted and the overview map dims them, so the answer to "where
+   * are my hits" is legible from the corner of the screen without moving the camera. Purely
+   * additive classes and one canvas redraw; no re-render, and no effect on the selection. */
+  setHighlight(nodeIds: ReadonlySet<string> | null): void
+  /** Opens or closes the key to the glyphs and line styles. No-op when the legend is off. */
+  setLegendOpen(open: boolean): void
+  /** Flips the key open or shut -- what the `?` key does when the canvas has focus, offered
+   * so a host can offer the same key from the rest of its panel without keeping a second copy
+   * of what the legend's state is. No-op when the legend is off. */
+  toggleLegend(): void
+  /** Whether the key is open, and whether the overview map is folded away. Both are things a
+   * reader set deliberately and expect to find as they left them, and a host that has to
+   * remember them across a panel being closed cannot do so without being able to ask. */
+  isLegendOpen(): boolean
+  isMinimapCollapsed(): boolean
+  /** Zooms about the middle of the viewport, `factor` > 1 in and < 1 out -- exactly what the
+   * `+` and `-` keys do when the canvas has focus. Exposed for the same reason toggleLegend is:
+   * a host offering these keys panel-wide must not re-derive them from setCamera, which zooms
+   * about the corner and would walk the view sideways every press. */
+  zoomBy(factor: number): void
+  /** Collapses or expands the overview map. No-op when the minimap is off. */
+  setMinimapCollapsed(collapsed: boolean): void
   /** Centres the camera on one node without changing zoom. No-op for an unknown id. */
   focusNode(nodeId: string): void
   /** Puts one run's measurements on the cards it has rows for, and takes them off every other
@@ -974,7 +1199,7 @@ export type NodeCategory = GraphEdgeKind | 'leaf' | 'unresolved' | 'external'
 /** Leading glyph per category. Present so the category is never carried by colour alone: these
  * are the same marks the matching edge chips use, so "the ▽ box" and "the ▽ chips leaving it"
  * are the same statement twice. */
-const CATEGORY_MARK: Record<NodeCategory, string> = {
+export const CATEGORY_MARK: Record<NodeCategory, string> = {
   rule: '▶',
   sequence: '↓',
   aggregate: '≡',
@@ -1074,9 +1299,67 @@ export function describeFanIn(summary: NodeSummary): { label: string; title: str
   // every one of them. That is the fact worth a row.
   if (summary.in < 2) return { label: '', title: '' }
   return {
-    label: String(summary.in),
+    // A SENTENCE, not a bare number. The fan-out line beside it reads "3 scatter", so a fan-in
+    // that read "11" put two numbers on one line with nothing to tell them apart except an arrow
+    // glyph pointing the other way -- and reviewers read the pair as "3 of something, 11 of the
+    // same thing". "11 use this" is three characters longer and cannot be misread: it names the
+    // relationship, and the relationship is the whole point of the row (this box is load-bearing;
+    // eleven other features break if you change it).
+    label: `${summary.in} use this`,
     title: `${summary.in} features delegate to this one -- editing it changes all ${summary.in}.`,
   }
+}
+
+/** How tall this card should be drawn, in world units, from what it is going to CONTAIN.
+ *
+ * Computed, never measured. render.ts must not read layout back out of the DOM to decide the
+ * geometry it then writes into the DOM: that is a forced reflow per card (3531 of them on a real
+ * pack, each invalidating the next) and it is circular besides -- the ports and the edge routing
+ * read the same rect, so the drawing would depend on a measurement of itself.
+ *
+ * So the rows are counted instead. They are the rows renderNode actually emits, in the order it
+ * emits them, and each number is that row's line box plus its leading as media/graph.css sizes it.
+ * The two files have to move together; the stylesheet says so beside `.flg-node`.
+ *
+ * The result is clamped into [CARD_MIN_HEIGHT, CARD_MAX_HEIGHT] -- see those constants for why
+ * both ends are bounded and why the top one is 104 and not more. */
+export function cardHeight(node: GraphNodeWire, summary: NodeSummary, state: CardHeightState = {}): number {
+  // The header: the glyph and the identifier. Always present, and the one row that is never
+  // abbreviated -- the identifier is what the reader came for.
+  let height = 4 + 30
+  // The type line, or the sentence that stands in for it on an unresolved or external node.
+  height += 19
+  // The fan line. RESERVED ON EVERY CARD, even one with nothing to put in it, and that is not
+  // waste -- it is the row a preview run's measurements land in (see applyNodeStatsTo). A card
+  // that grew when a preview finished would shift every card below it and move the canvas under a
+  // pointer that had not moved, which is the one thing this drawing promises never to do. So the
+  // room is paid for up front by every card rather than claimed later by the few that get a
+  // result, and the card's height does not depend on `nodeStats` at all.
+  height += 16
+  // The badge row. This is where the clipping came from: a shared, out-of-scope, annotated node
+  // inside a cycle carries four badges, `.flg-node-badges` wraps, and the second row landed below
+  // a box that was overflow: hidden -- so the badge nobody could see was the one saying the type
+  // is not implemented. Two badges fit across 232 units; three or more take a second row.
+  let badges = 0
+  if (describeCoverage(node).label !== '') badges++
+  if (state.isRoot === true) badges++
+  if (state.inCycle === true) badges++
+  if ((node.annotations?.length ?? 0) > 0) badges++
+  if (badges > 0) height += 22
+  if (badges > 2) height += 20
+  height += 5
+  return Math.max(CARD_MIN_HEIGHT, Math.min(CARD_MAX_HEIGHT, height))
+}
+
+/** The facts about a card that are not on its node but decide how tall it is: whether the graph
+ * calls it a root, and whether it sits in a cycle. Both are badges, and badges are a row.
+ *
+ * DELIBERATELY NOTHING ABOUT A PREVIEW RUN. A run's stats row and its stop badge are applied to a
+ * card that is already drawn, and they must not change its size -- see the fan-line comment in
+ * cardHeight. */
+export interface CardHeightState {
+  isRoot?: boolean
+  inCycle?: boolean
 }
 
 /** Places every node box, in world units, keyed by id.
@@ -1448,6 +1731,18 @@ function routedGeometry(start: GraphPoint, startRight: boolean, end: GraphPoint,
   }
 }
 
+/** The world rectangle an edge occupies, for culling.
+ *
+ * A routed edge is a cubic and lives inside the hull of its four control points -- over-estimated
+ * on purpose (see viewport.ts's hullRect), because an under-estimate hides a line that should be
+ * drawn and an over-estimate merely keeps one that need not be. A self-loop has no curve recorded
+ * (its label point is already clear of the box by construction), so its own card's box is unioned
+ * with the arc's apex instead. */
+function edgeBox(geometry: EdgeGeometry, ownerRect: GraphRect): WorldRect {
+  if (geometry.curve) return hullRect(geometry.curve)
+  return unionRect(ownerRect, { x: geometry.label.x - 40, y: geometry.label.y - 20, w: 80, h: 40 })
+}
+
 /** Which side each end of each edge attaches to, and its slot in that side's fan.
  *
  * One flat pass to classify, one sort per side, one flat pass to number -- no traversal, so a
@@ -1544,11 +1839,28 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   const wheelBehavior = options.wheelBehavior ?? 'pan'
   const minZoom = options.minZoom ?? DEFAULT_MIN_ZOOM
   const maxZoom = options.maxZoom ?? DEFAULT_MAX_ZOOM
+  const cullMarginFraction = options.cullMarginFraction
+
+  /** The zoom the camera may actually be taken down to, which is the interaction floor OR the
+   * scale the current graph fits at, whichever is smaller.
+   *
+   * Without this, fit and zoom disagree: Fit puts a real pack at 0.011, the wheel refuses to go
+   * below 0.1, and the first scroll out of the fitted view jumps nine-fold and cannot be undone.
+   * Re-derived whenever the content bounds change. */
+  let zoomFloor = minZoom
 
   const root = el('div', 'flg-graph')
   root.tabIndex = 0
   root.setAttribute('role', 'application')
   root.setAttribute('aria-label', options.ariaLabel ?? 'Feature delegation graph')
+  // THE CANVAS'S OWN KEYS, said once on the widget rather than fifty-seven times on the cards.
+  // `role="application"` means a screen reader hands every key straight through, so what the
+  // keys ARE has to be discoverable from somewhere; this is the attribute for it, and it is
+  // silent until asked for.
+  root.setAttribute(
+    'aria-keyshortcuts',
+    'ArrowUp ArrowDown ArrowLeft ArrowRight Home End Enter Control+Space F2 Escape Control+G Control+F Plus Minus 0',
+  )
   const world = el('div', 'flg-world')
   const edgeLayer = svg('svg', 'flg-edges')
   const chipLayer = el('div', 'flg-chips')
@@ -1581,6 +1893,27 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   // rectangle in the world would scale with the camera under a pointer that did not move.
   const marqueeBox = el('div', 'flg-marquee')
   marqueeBox.hidden = true
+  // THE GESTURE CURSOR, and the only element on this canvas whose whole job is to wear one.
+  //
+  // `cursor` is an INHERITED property. Setting it on the canvas root -- which is what a
+  // `flg-panning` / `flg-dragging-node` class there did -- changes the computed style of every
+  // descendant, and the descendants are the 3,531 card boxes that STAY in the document so
+  // `.flg-node[data-node-id]` keeps answering for cards the camera cannot see (see viewport.ts).
+  // Starting a pan cost ~230 ms of style recalculation for a change of cursor shape; starting a
+  // drag cost ~280. An absolutely positioned sibling that nothing inherits from costs a class
+  // toggle. scale.test.ts holds the budget.
+  //
+  // It TAKES POINTER EVENTS while it is up, because a cursor is decided by hit testing and an
+  // element skipped for hit testing cannot decide one. During a gesture that costs nothing:
+  // pointer capture routes the moves and the release to the element that started it, whatever is
+  // under the pointer. While space is merely HELD it is also what makes the pan available from
+  // over a card as well as from the background -- the drawing-tool idiom this borrows from does
+  // the same, and onPointerDown counts this element as background for exactly that reason.
+  //
+  // BELOW the furniture (z-index 6 against the minimap's and the legend's 7), so the map and the
+  // key keep their own cursors and stay clickable while a gesture is in flight.
+  const gestureCursor = el('div', 'flg-gesture-cursor')
+  gestureCursor.hidden = true
   // The verdict, in SCREEN space on the static host rather than in the world: it is a label about
   // the gesture, not a thing in the drawing, so it must not scale with the camera or slide when
   // the view pans under a held pointer.
@@ -1590,7 +1923,35 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   linkTip.append(linkTipLabel, linkTipDetail)
   linkTip.setAttribute('role', 'status')
   linkTip.hidden = true
-  root.append(world, marqueeBox, linkTip)
+  root.append(world, marqueeBox, gestureCursor, linkTip)
+
+  /** The key to the glyphs and the line styles. In SCREEN space on the canvas root, like the
+   * marquee and the link tip: it is furniture, not part of the drawing. */
+  const legend: Legend | null = options.legend === false ? null : createLegend({ marks: CATEGORY_MARK })
+  if (legend) root.append(legend.element)
+
+  /** The overview map. Also screen space, bottom right. Fed by render() and by every camera
+   * change; see minimap.ts for why following the camera is cheap. */
+  const minimap: Minimap | null =
+    options.minimap === false
+      ? null
+      : createMinimap({
+          collapsed: options.minimapCollapsed ?? false,
+          // The map names a world POINT and the camera is centred on it. Centring rather than
+          // anchoring top-left because the pointer is aimed at a thing, and a thing put in the
+          // corner of the viewport is a thing half off the screen.
+          onJump: (point) => {
+            const box = root.getBoundingClientRect()
+            const width = box.width || host.clientWidth
+            const height = box.height || host.clientHeight
+            camera = { ...camera, x: point.x - width / (2 * camera.zoom), y: point.y - height / (2 * camera.zoom) }
+            scheduleCamera()
+          },
+        })
+  if (minimap) {
+    minimap.element.hidden = true
+    root.append(minimap.element)
+  }
   host.append(root)
 
   let camera: GraphCamera = { x: 0, y: 0, zoom: 1 }
@@ -1627,6 +1988,9 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   interface EdgeVisual {
     edge: GraphEdgeWire
     index: number
+    /** The <g> holding the four paths. Held because culling attaches and detaches the whole
+     * group, and because the selection class has to land on it rather than on the line. */
+    group: SVGGElement
     casing: SVGPathElement
     line: SVGPathElement
     arrow: SVGPathElement
@@ -1643,8 +2007,77 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     fromY: number
     toX: number
     toY: number
+    /** The bounding box of this edge's curve, in world units, for culling. Kept beside the ports
+     * because it is derived from them and is re-derived in exactly the same place (rerouteEdges)
+     * when they move -- a cull rectangle that lagged the geometry by a frame would blank an edge
+     * the moment it was dragged into view. */
+    box: WorldRect
+    /** Whether this edge's elements are currently in the document. */
+    drawn: boolean
+    /** Whether this edge is currently wearing `flg-quiet`. Remembered so applyQuieting writes a
+     * class only when the answer CHANGED -- a selection that quiets the same 128 drawn edges it
+     * quieted last time should cost nothing. */
+    quiet: boolean
+    /** The dot drawn on the TARGET card where this edge lands, or null for a self-loop and for an
+     * edge whose target was never drawn. Lives on the card, moves with the curve. */
+    inDot: HTMLElement | null
   }
   const edgeVisuals: EdgeVisual[] = []
+
+  // -- culling -------------------------------------------------------------
+  //
+  // See viewport.ts for the arithmetic and for why there is a margin. What lives here is the
+  // bookkeeping: which elements are attached, which must never be detached whatever the camera
+  // does, and when it is worth asking again.
+  //
+  // WHAT IS PINNED, AND WHY EACH ONE HAS TO BE. Culling is allowed to remove things nobody can
+  // see. It is not allowed to remove things the rest of this file still has to be able to find:
+  //
+  //   - THE SELECTION. `isOnScreen` measures the selected card to decide whether the canvas
+  //     quiets, and a detached element measures as a zero-sized box at the origin -- so an
+  //     off-screen selection would report itself as on screen at 0,0 and the off-screen indicator
+  //     would go out exactly when it is needed. Pinned, and therefore measured honestly.
+  //   - KEYBOARD FOCUS. Removing the focused element moves focus to <body>, which on a canvas
+  //     being navigated by Tab means the next Tab starts again from the top of the document. A
+  //     focus that silently resets is worse than a slow canvas.
+  //   - THE GESTURE IN FLIGHT. A card being dragged, and the source and target of a connection
+  //     being drawn, are all things whose element is held by a live gesture.
+  //
+  // Those sets are tiny -- one selection, one focus, one gesture -- so pinning costs nothing and
+  // removes an entire class of bug that would only ever appear on a graph large enough to cull.
+  interface NodeVisual {
+    id: string
+    box: HTMLElement
+    /** The LIVE rect, the same object the router and the drag path mutate -- not a copy. A cull
+     * box copied at render time would describe where a card used to be the moment anybody moved
+     * it, which is exactly when getting it wrong is visible. */
+    rect: GraphRect
+    /** How far above its own box this card draws, which is non-zero only for a self-loop's arc. */
+    overhang: number
+    drawn: boolean
+    /** Whether this card is currently wearing `flg-quiet` -- see EdgeVisual.quiet. */
+    quiet: boolean
+    /** Whether this card is currently wearing `flg-node-dim`, which is the same bookkeeping for
+     * the search's half of the same idea. */
+    dim: boolean
+  }
+  const nodeVisuals: NodeVisual[] = []
+  const nodeVisualById = new Map<string, NodeVisual>()
+  /** The world rectangle the current attachment set was computed for. While the viewport is still
+   * inside it nothing is recomputed, which is what keeps a pan at one transform write. */
+  let culledFor: WorldRect | null = null
+  let nodesDrawn = 0
+  let edgesDrawn = 0
+  /** The cards the last cull kept, in no particular order. Held as a list rather than re-derived
+   * because the in-view count has to be recomputed on the frames the culler SKIPS, and walking
+   * every card on every frame of every pan is the whole-graph per-frame pass this file exists to
+   * avoid. A card outside the band cannot be inside the viewport, so this is the complete set of
+   * candidates and filtering it is exact, not an approximation. */
+  let drawnVisuals: NodeVisual[] = []
+  /** See GraphRenderStats.nodesInView. */
+  let nodesInView = 0
+  /** Which nodes a search matches, or null. Only the minimap and one class use it. */
+  let highlighted: ReadonlySet<string> | null = null
   /** The expanded groups this view was last handed, and the frame drawn for each. A frame's
    * geometry is derived from its members' rects (layoutFrames) rather than stored, so moving a
    * member moves the frame by construction. */
@@ -1677,6 +2110,33 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   let frame = 0
   let disposed = false
 
+  /** Re-decides what is on screen when the PANEL changes size rather than the camera.
+   *
+   * A resize moves neither x, y nor zoom, so nothing here used to notice one at all: `cull()`
+   * kept the set it had computed for the old viewport, `getRenderStats().nodesInView` went on
+   * reporting it, and the host's status line kept a number the screen had disgreed with since the
+   * drag of the window edge. Measured: drag the panel wider and "Showing 6 of 57 cards." sat over
+   * eleven of them until the camera next moved -- and a count that stops being true is worse than
+   * no count, which is the whole reason that line was rewritten to be recomputed from the camera.
+   *
+   * applyCamera and not a bare cull(): it re-culls, re-decides the zoom band and the on-screen
+   * class, and then tells the host -- and the host's `onCamera` callback is the ONE thing that
+   * makes the line say the new number. Through the ordinary rAF coalescer, because a window drag
+   * emits a resize per frame or faster.
+   *
+   * ResizeObserver rather than window's `resize` event: the panel can change size without the
+   * window doing (a sidebar opening, the editor group being dragged), and those are the cases a
+   * window listener would miss. It fires once on observe, which costs one redundant recompute on
+   * open and is simpler than suppressing it. */
+  const sizeObserver =
+    typeof ResizeObserver === 'function'
+      ? new ResizeObserver(() => {
+          if (disposed) return
+          scheduleCamera()
+        })
+      : null
+  sizeObserver?.observe(host)
+
   function applyCamera(): void {
     frame = 0
     // ONE transform on ONE element repositions the whole scene -- edges, nodes and chips all
@@ -1684,13 +2144,186 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     // never rebuilds an element. That is what makes panning around a large pack cost the same
     // as panning around a small one.
     world.style.transform = `translate(${-camera.x * camera.zoom}px, ${-camera.y * camera.zoom}px) scale(${camera.zoom})`
-    root.dataset.zoomBand = camera.zoom < ZOOM_BAND_FAR ? 'far' : camera.zoom < ZOOM_BAND_NEAR ? 'mid' : 'near'
+    const band =
+      camera.zoom < ZOOM_BAND_DISTANT ? 'distant' : camera.zoom < ZOOM_BAND_FAR ? 'far' : camera.zoom < ZOOM_BAND_NEAR ? 'mid' : 'near'
+    // Written only when it CHANGED. The attribute is on the canvas root and the stylesheet keys
+    // `display` rules off it, so assigning it invalidates style for everything underneath --
+    // measured at 125 ms of style recalculation plus 86 ms of layout on a real pack. The DOM does
+    // not skip a same-value attribute write, so this guard is what makes an ordinary pan free.
+    if (root.dataset.zoomBand !== band) root.dataset.zoomBand = band
+    cull()
     // Whether the selection is on screen changes as the camera moves, and the quieting depends on
     // it -- so the class has to be re-decided here rather than only when the selection changes.
     // Cheap: one getBoundingClientRect against one element, no traversal.
     if (selection?.kind === 'node') {
       root.classList.toggle('flg-has-focus', isOnScreen(selection.nodeId))
     }
+    // LAST, after cull(), so a host asking getRenderStats() in here is told what is on screen NOW
+    // and not what was on screen one frame ago. Guarded, because a host callback that throws must
+    // not take the camera down with it: the transform is already written, and the alternative is
+    // a canvas frozen mid-pan by somebody else's status line.
+    if (options.onCamera !== undefined) {
+      try {
+        options.onCamera({ ...camera })
+      } catch {
+        // A host's own reporting is not this view's business to repair, and is certainly not
+        // worth a dropped frame.
+      }
+    }
+  }
+
+  /** The world rectangle currently on screen. */
+  function cameraRect(): WorldRect {
+    const box = root.getBoundingClientRect()
+    return viewportRect(camera, box.width || host.clientWidth, box.height || host.clientHeight)
+  }
+
+  /** How many kept cards really touch `view`.
+   *
+   * THE CARD'S OWN BOX, not the extent the culler uses. The extent is widened by `overhang` for a
+   * self-loop, whose arc reaches above the card it belongs to -- correct for "must this stay in
+   * the document", wrong for "is this card on screen", because an arc dipping into the frame is
+   * not a card somebody can read. Counting the box is what makes the number agree with what a
+   * reader would get by counting rectangles.
+   *
+   * Over `drawnVisuals`, which is a few hundred at any zoom. A card outside the kept band is
+   * outside the viewport by construction (the band contains the viewport), so nothing is missed. */
+  function countInView(view: WorldRect): number {
+    let n = 0
+    for (const visual of drawnVisuals) if (overlaps(view, visual.rect)) n++
+    return n
+  }
+
+  /** Attaches everything inside the kept band and detaches everything outside it.
+   *
+   * Two flat passes, one over the cards and one over the edges, of five comparisons each. At pack
+   * size that is about 8,000 comparisons -- well under a tenth of a millisecond -- and it does not
+   * run on most frames at all, because of the `encloses` guard: the set is computed for a band
+   * half a viewport wider than the viewport, so a pan only recomputes after it has travelled that
+   * far. `force` is for the cases where the CONTENTS changed rather than the camera (a render, a
+   * selection, a drag that moved a card out of the band it was culled for).
+   *
+   * Attach order drifts from draw order over time, because an element that comes back is appended
+   * rather than reinserted at its original index. That is deliberate: finding the correct sibling
+   * is a scan, and the only thing DOM order decides here is which of two OVERLAPPING cards paints
+   * on top -- a layered layout does not overlap cards, and the alternative is paying a scan per
+   * element per pan. */
+  function cull(force = false): void {
+    if (nodeVisuals.length === 0 && edgeVisuals.length === 0) return
+    const view = cameraRect()
+    if (!force && culledFor !== null && encloses(culledFor, view)) {
+      // The KEPT set is still correct -- that is what the hysteresis says -- but what is ON SCREEN
+      // is not, and this is the branch every zoom-in takes. Recounted here, over the kept set only.
+      nodesInView = countInView(view)
+      if (minimap) minimap.setViewport(view)
+      return
+    }
+    const keep = keepRect(view, cullMarginFraction)
+    culledFor = keep
+
+    const pinned = pinnedNodes()
+    let drawnNodes = 0
+    const kept: NodeVisual[] = []
+    for (const visual of nodeVisuals) {
+      const rect = visual.rect
+      const extent: WorldRect = { x: rect.x, y: rect.y - visual.overhang, w: rect.w, h: rect.h + visual.overhang }
+      const wanted = overlaps(keep, extent) || pinned.has(visual.id)
+      if (wanted) {
+        drawnNodes++
+        kept.push(visual)
+      }
+      if (wanted === visual.drawn) continue
+      visual.drawn = wanted
+      // A CLASS, NOT A DETACHMENT -- and this is the one place culling is deliberately less
+      // aggressive than it could be.
+      //
+      // A card's PRESENCE in the document is a contract that reaches well outside this file.
+      // `.flg-node[data-node-id="..."]` is how the host reveals a search hit, how a test finds a
+      // node it is about to click, and -- through `state: 'detached'` -- how "this feature was
+      // deleted" is told apart from "this feature exists". Removing a card because the camera is
+      // pointed elsewhere would silently redefine all three: absence would stop meaning absence.
+      //
+      // `content-visibility: hidden` (media/graph.css) buys the part that actually cost
+      // something. The browser skips style, layout and paint for everything INSIDE the card --
+      // which is nine tenths of the elements -- while the card itself keeps its box, so it is
+      // still found by a selector, still measures honestly, and still hit-tests. The edges and
+      // chips, which carry no such contract from off screen, are detached outright below.
+      visual.box.classList.toggle('flg-node-culled', !wanted)
+    }
+    nodesDrawn = drawnNodes
+    drawnVisuals = kept
+    nodesInView = countInView(view)
+
+    let drawnEdges = 0
+    for (const visual of edgeVisuals) {
+      // An edge is kept when its own box is in view OR either end is pinned: tracing "what is my
+      // selection connected to" is precisely the question asked about a node whose neighbours are
+      // off screen, and an edge culled at the far end would leave the highlighted fan stopping in
+      // mid-air.
+      const wanted = overlaps(keep, visual.box) || pinned.has(visual.edge.from) || pinned.has(visual.edge.to)
+      if (wanted) drawnEdges++
+      if (wanted === visual.drawn) continue
+      visual.drawn = wanted
+      // THE <g> STAYS, ITS FOUR PATHS DO NOT. Same contract as the cards, reached differently:
+      // `[data-edge-key]` is how the host and the tests ask "does this delegation exist", and an
+      // edge that disappeared when the camera moved would make that question unanswerable. The
+      // group is the element carrying that attribute and it is empty when culled, which costs one
+      // SVG element with no box and no layout; the casing, the line, the arrowhead, the fat hit
+      // path and the chip -- five elements per edge, and the whole of the expense -- come and go.
+      if (wanted) {
+        visual.group.append(visual.casing, visual.line, visual.arrow, visual.hit)
+        chipLayer.append(visual.chip)
+      } else {
+        visual.casing.remove()
+        visual.line.remove()
+        visual.arrow.remove()
+        visual.hit.remove()
+        visual.chip.remove()
+      }
+    }
+    edgesDrawn = drawnEdges
+    // A pan with a selection alive draws cards and edges that did not exist in the document's
+    // painted set when the selection was made, and an un-quieted card arriving into a quieted
+    // canvas reads as a second selection. Only reached when the drawn set actually changed --
+    // the hysteresis return above is still one transform write and nothing else.
+    applyQuieting()
+    applyHighlightDim()
+    if (minimap) minimap.setViewport(view)
+  }
+
+  /** Files one card with the culler. `extent` starts as the card's own box and is widened later
+   * for a self-loop, whose arc reaches above it (see the loop in render()). */
+  function registerNodeVisual(id: string, box: HTMLElement, rect: GraphRect): void {
+    // EVERY CARD IS BORN CULLED, and the first cull un-culls the handful the camera can see.
+    //
+    // The order matters and was measured. render() hands the whole set of cards to the document
+    // in one call; if they went in un-culled, the browser would style and lay out all 3531 of
+    // them -- and their ~35,000 children -- before the cull got a chance to say that 3528 of them
+    // are off screen. That put ~800 ms on every refresh, i.e. on every file save. Going in already
+    // marked, their subtrees are skipped on the way in and never touched at all.
+    box.classList.add('flg-node-culled')
+    const visual: NodeVisual = { id, box, rect, overhang: 0, drawn: false, quiet: false, dim: false }
+    nodeVisuals.push(visual)
+    nodeVisualById.set(id, visual)
+  }
+
+  /** Elements culling must never take away. See the note above NodeVisual for why each one. */
+  function pinnedNodes(): Set<string> {
+    const pinned = new Set<string>()
+    const sel = selection
+    if (sel?.kind === 'node') pinned.add(sel.nodeId)
+    else if (sel?.kind === 'nodes') for (const id of sel.nodeIds) pinned.add(id)
+    if (drag !== null) for (const id of drag.nodeIds) pinned.add(id)
+    if (link !== null) {
+      pinned.add(link.from)
+      if (link.target !== null) pinned.add(link.target)
+    }
+    const active = document.activeElement
+    if (active instanceof HTMLElement) {
+      const focused = active.dataset['nodeId'] ?? (active.closest('.flg-node') as HTMLElement | null)?.dataset['nodeId']
+      if (focused !== undefined) pinned.add(focused)
+    }
+    return pinned
   }
 
   function scheduleCamera(): void {
@@ -1702,9 +2335,12 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     frame = requestAnimationFrame(applyCamera)
   }
 
+  /** The interaction floor, EXCEPT that a graph which only fits below it lowers the floor to
+   * wherever it fits (see `zoomFloor`). Without that, the view someone reaches with Fit is a view
+   * they can never get back to: one notch out of it snaps nine-fold to the fixed floor. */
   function clampZoom(z: number): number {
     if (!Number.isFinite(z)) return camera.zoom
-    return Math.min(maxZoom, Math.max(minZoom, z))
+    return Math.min(maxZoom, Math.max(zoomFloor, z))
   }
 
   function emitSelect(next: GraphSelection): void {
@@ -1765,19 +2401,40 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     return keys
   }
 
+  /** The registry keys currently wearing `flg-selected`. */
+  const paintedKeys = new Set<string>()
+
   function paintSelection(): void {
     const keys = selectionKeys(selection)
     root.classList.toggle('flg-has-multi', selection?.kind === 'nodes')
-    for (const [entryKey, elements] of selectable) {
-      const on = keys.has(entryKey)
-      for (const element of elements) {
-        element.classList.toggle('flg-selected', on)
+    // ONLY THE ELEMENTS THAT CHANGED. The old pass walked the whole registry and toggled a class
+    // on every entry, which at pack size is about 8,000 entries and 20,000 class writes -- and a
+    // class write is a style invalidation whether or not the class actually changed value, so
+    // selecting one card invalidated the entire document. Measured at 286 ms for one click. The
+    // set of keys that change between two selections is at most a handful.
+    for (const key of paintedKeys) {
+      if (keys.has(key)) continue
+      for (const element of selectable.get(key) ?? []) {
+        element.classList.remove('flg-selected')
+        if (element instanceof HTMLElement) element.setAttribute('aria-pressed', 'false')
+      }
+    }
+    for (const key of keys) {
+      if (paintedKeys.has(key)) continue
+      for (const element of selectable.get(key) ?? []) {
+        element.classList.add('flg-selected')
         // Only the focusable HTML controls carry aria-pressed -- an SVG <g> registered purely so
         // the line restyles with its chip is decoration, and announcing it as a second pressed
         // button would double every edge in a screen reader's control list.
-        if (element instanceof HTMLElement) element.setAttribute('aria-pressed', String(on))
+        if (element instanceof HTMLElement) element.setAttribute('aria-pressed', 'true')
       }
     }
+    paintedKeys.clear()
+    for (const key of keys) paintedKeys.add(key)
+    // A selection pins its own card and its own edges (see pinnedNodes), so the culled set has to
+    // be recomputed even though the camera did not move -- otherwise selecting a node that is off
+    // screen would light up an element that is not there.
+    cull(true)
     paintIncidence()
   }
 
@@ -1801,6 +2458,71 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     return node.right > view.left && node.left < view.right && node.bottom > view.top && node.top < view.bottom
   }
 
+  /** Whether the canvas is currently quieted around a selection. Read by applyQuieting, which is
+   * the only thing allowed to put `flg-quiet` on anything. */
+  let quieting = false
+
+  /** PUTS THE QUIETING ON THE THINGS BEING QUIETED, ONE CLASS EACH, AND ONLY ON WHAT IS DRAWN.
+   *
+   * This used to be seven rules hanging off a class on the canvas root --
+   * `.flg-graph.flg-has-focus .flg-node { opacity: .35 }` and six more like it. That reads well
+   * and is the single most expensive line this renderer ever had. A class on the ROOT with rules
+   * whose SUBJECT is a descendant makes the browser re-match every element that could be that
+   * subject, and by contract this document keeps all 3,531 card boxes and all 4,580 edge groups
+   * whatever the camera is pointed at (see the note on cull()). One class write on one element
+   * therefore walked ~40,000 elements. Measured on the real bundle under the real CSP, pack
+   * fixture, click to painted frame: 280 ms median, 250 ms of it style recalculation. With the
+   * same seven rules deleted live through the CSSOM and nothing else changed: 57 ms, 8 ms style.
+   * `getComputedStyle()` straight after adding the class to the root: 433 ms; the same class on
+   * ONE card: 0.1 ms. It is the same defect the gesture cursor had (`cursor` is inherited, so
+   * `flg-panning` on the root recomputed every card to change a pointer shape) and it has the
+   * same shape of fix: do not let a whole-document invalidation be the carrier of a local change.
+   *
+   * WHY PER-ELEMENT AND NOT A SCRIM OR A WRAPPER. An overlay dimming everything, with the lit
+   * things raised above it, is O(1) and was the first design tried. It cannot be done without
+   * moving elements: the edges are SVG `<g>`s inside one `<svg>`, where `z-index` does not apply,
+   * so every incident edge would have to be relocated into a second SVG above the scrim and put
+   * back afterwards -- and the hover-restore rule below ("a quieted thing is still reachable")
+   * would need a card moved on every pointerover, because a child cannot out-opacity the group it
+   * is in. Per-element keeps the drawing pixel-identical, keeps hover/drag/link-source overrides
+   * as plain CSS, and is bounded: the class only ever goes on what the culler has DRAWN, which is
+   * a viewport's worth -- ~105 cards and ~128 edges at pack size, not 8,111 elements.
+   *
+   * Idempotent, and called from both paintIncidence and cull, because a pan with a selection
+   * alive draws cards that were not there when the selection was made. */
+  /** The search's half of the same idea, and bounded the same way.
+   *
+   * `flg-node-dim` used to be written over EVERY card on every search -- 3,531 class toggles,
+   * with a rule (`.flg-graph.flg-has-highlight .flg-node.flg-node-dim`) that made the root class
+   * a whole-document invalidation on top. Measured at 226 ms to start a search on the pack
+   * fixture. The rule lost its ancestor (see graph.css) and the writes are now bounded by what
+   * the culler drew, which is the same shape as applyQuieting -- and, like it, re-applied from
+   * cull() so a card panned into view under a live search arrives already dimmed. */
+  function applyHighlightDim(): void {
+    for (const visual of nodeVisuals) {
+      const dim = highlighted !== null && visual.drawn && !highlighted.has(visual.id)
+      if (dim === visual.dim) continue
+      visual.dim = dim
+      visual.box.classList.toggle('flg-node-dim', dim)
+    }
+  }
+
+  function applyQuieting(): void {
+    for (const visual of nodeVisuals) {
+      const quiet = quieting && visual.drawn && !visual.box.classList.contains('flg-node-focus')
+      if (quiet === visual.quiet) continue
+      visual.quiet = quiet
+      visual.box.classList.toggle('flg-quiet', quiet)
+    }
+    for (const visual of edgeVisuals) {
+      const quiet = quieting && visual.drawn && !visual.group.classList.contains('flg-incident')
+      if (quiet === visual.quiet) continue
+      visual.quiet = quiet
+      visual.group.classList.toggle('flg-quiet', quiet)
+      visual.chip.classList.toggle('flg-quiet', quiet)
+    }
+  }
+
   function paintIncidence(): void {
     const focus = selection?.kind === 'node' ? selection.nodeId : null
     for (const element of litElements) element.classList.remove('flg-incident', 'flg-node-focus')
@@ -1809,8 +2531,16 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     // while the thing it answers about is on screen. Pan away from a selection and every rule
     // below would fire with nothing lit to contrast against: the whole canvas dims and reads as a
     // disabled panel, with no hint that the cause is a selection somewhere off in the distance.
-    root.classList.toggle('flg-has-focus', focus !== null && isOnScreen(focus))
-    if (focus === null) return
+    //
+    // The class on the root is now a STATE MARKER and nothing else -- no rule in graph.css hangs
+    // a descendant off it, which is what makes writing it free. The host and the tests read it to
+    // ask "is the canvas quieted", and applyQuieting below is what actually quiets.
+    quieting = focus !== null && isOnScreen(focus)
+    root.classList.toggle('flg-has-focus', quieting)
+    if (focus === null) {
+      applyQuieting()
+      return
+    }
 
     for (const element of edgeGroupsByNode.get(focus) ?? []) {
       element.classList.add('flg-incident')
@@ -1825,12 +2555,16 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       if (edge.from === focus) neighbours.add(edge.to)
       else if (edge.to === focus) neighbours.add(edge.from)
     }
-    for (const box of nodeBoxes) {
-      const id = (box as HTMLElement).dataset.nodeId
-      if (id === undefined || !neighbours.has(id)) continue
+    // Looked up by id rather than filtered out of every card on the canvas: the neighbours of one
+    // node are a handful and the cards are thousands, so walking the cards to find them was
+    // 3,531 dataset reads to light up eleven boxes.
+    for (const id of neighbours) {
+      const box = nodeElements.get(id)
+      if (box === undefined) continue
       box.classList.add('flg-node-focus')
       litElements.push(box)
     }
+    applyQuieting()
   }
 
   // -- interaction ---------------------------------------------------------
@@ -1839,32 +2573,122 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   let panOrigin = { x: 0, y: 0, camX: 0, camY: 0 }
   let panMoved = false
 
-  /** A marquee in flight: SHIFT held on a primary press on the background. Plain drag on the
-   * background keeps panning -- that gesture is older and more frequent, and taking it for
-   * selection would make the canvas fly nowhere when somebody reaches to move it. The rectangle
-   * is kept in CLIENT pixels while it is drawn and converted to world units once, on release. */
-  let marquee: { pointerId: number; startX: number; startY: number; lastX: number; lastY: number } | null = null
+  /** A marquee in flight. The rectangle is kept in CLIENT pixels while it is drawn and converted
+   * to world units once, on release. `additive` records whether SHIFT was held at the start,
+   * which is the difference between a drag that selects and a plain click that CLEARS. */
+  let marquee: { pointerId: number; startX: number; startY: number; lastX: number; lastY: number; additive: boolean } | null = null
+
+  /** Whether the space bar is currently held, which turns the primary button back into a pan.
+   *
+   * Tracked rather than read off the event because a pointerdown carries no key state for space
+   * (it is not a modifier), and cleared on blur because a window that loses focus with the key
+   * down never delivers the keyup -- which would otherwise leave the canvas stuck in pan mode
+   * with nothing on screen explaining why box-select had stopped working. */
+  let spaceHeld = false
+
+  /** WHICH GESTURE A PRESS ON THE BACKGROUND IS.
+   *
+   * It used to be a pan, and the marquee was on SHIFT. That is backwards for this canvas and was
+   * reported as such: every other node editor in the genre -- and every drawing tool the same
+   * people use all day -- box-selects on a plain left drag, so the muscle memory arriving here
+   * already expects it, and the gesture that was on the modifier is the one people actually reach
+   * for. The pan is not lost, it moves to the two places a pan lives in those same tools: HOLD
+   * SPACE (the drawing-tool idiom), or the MIDDLE BUTTON (which already panned from anywhere,
+   * including over a card, and still does).
+   *
+   * SHIFT+DRAG IS UNCHANGED and still marquees. That is not redundancy -- it is the whole
+   * migration path. Anybody whose hands already know shift+drag keeps being right, and finds out
+   * about the plain drag by accident rather than by being broken. */
+  /** Puts the cursor the gesture in flight is asking for on the overlay, or takes the overlay
+   * away when nothing is asking. Derived from the gesture state rather than set alongside it, so
+   * there is one answer to "what should the pointer look like" and not four places that each
+   * remember to change it. See the overlay's own comment for why it is not a class on the root. */
+  function refreshGestureCursor(): void {
+    const cursor = panPointer !== null || (drag !== null && drag.moved) ? 'grabbing' : spaceHeld ? 'grab' : null
+    if (cursor === null) {
+      gestureCursor.hidden = true
+      gestureCursor.style.cursor = ''
+      return
+    }
+    gestureCursor.style.cursor = cursor
+    gestureCursor.hidden = false
+  }
 
   function onPointerDown(event: PointerEvent): void {
-    // Middle button pans from anywhere (including over a node); primary pans only from the
-    // background, so dragging is never ambiguous with clicking a node.
-    const fromBackground = event.target === root || event.target === world || event.target === edgeLayer || event.target === frameLayer
-    if (event.button === 0 && fromBackground && event.shiftKey) {
-      marquee = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY }
+    // The gesture overlay counts as background: while space is held it is what the pointer is
+    // over, and a press that landed on it is a press on the canvas rather than on nothing.
+    const fromBackground =
+      event.target === root ||
+      event.target === world ||
+      event.target === edgeLayer ||
+      event.target === frameLayer ||
+      event.target === gestureCursor
+    // Middle button pans from anywhere, card included. Space pans from the background, which is
+    // where a hand reaching to move the canvas already is.
+    const isPanButton = event.button === 1 || (event.button === 0 && fromBackground && spaceHeld)
+    if (isPanButton) {
+      takeFocus()
+      panPointer = event.pointerId
+      panMoved = false
+      panOrigin = { x: event.clientX, y: event.clientY, camX: camera.x, camY: camera.y }
       root.setPointerCapture(event.pointerId)
-      root.classList.add('flg-marqueeing')
-      drawMarquee()
+      refreshGestureCursor()
       event.preventDefault()
       return
     }
-    const isPanButton = event.button === 1 || (event.button === 0 && fromBackground)
-    if (!isPanButton) return
-    panPointer = event.pointerId
-    panMoved = false
-    panOrigin = { x: event.clientX, y: event.clientY, camX: camera.x, camY: camera.y }
+    if (event.button !== 0 || !fromBackground) return
+    marquee = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      additive: event.shiftKey,
+    }
+    takeFocus()
     root.setPointerCapture(event.pointerId)
-    root.classList.add('flg-panning')
+    root.classList.add('flg-marqueeing')
+    drawMarquee()
     event.preventDefault()
+  }
+
+  /** Puts keyboard focus on the canvas, because the press that got us here is about to take it
+   * away from the browser.
+   *
+   * THIS IS WHAT MAKES SPACE+DRAG EXIST. Both gestures below call `preventDefault()` on the
+   * pointerdown -- they have to, or the press also starts a text selection and a native drag --
+   * and preventing a pointerdown suppresses the compatibility mouse events with it, including the
+   * mousedown whose default action is "focus what was pressed". So clicking the canvas left
+   * `document.activeElement` on `<body>`, every key went to the body, and onKeyPan -- which
+   * rightly only listens while the CANVAS has focus, because space on a focused card is that
+   * card's activation key -- never once fired. Space+drag was documented, keybound, styled, and
+   * dead: the only thing holding space did was suppress the marquee.
+   *
+   * `preventScroll` because the canvas is taller than its host and focusing it would otherwise
+   * scroll the panel out from under the gesture that is starting. */
+  function takeFocus(): void {
+    if (root.ownerDocument.activeElement !== root) root.focus({ preventScroll: true })
+  }
+
+  function onKeyPan(event: KeyboardEvent): void {
+    if (event.code !== 'Space' && event.key !== ' ') return
+    // Only when the canvas itself has focus. Space on a focused CARD is that card's activation
+    // key (makeSelectable binds it), and stealing it would make a card unselectable from the
+    // keyboard.
+    if (event.target !== root) return
+    const held = event.type === 'keydown'
+    if (spaceHeld === held) return
+    spaceHeld = held
+    refreshGestureCursor()
+    // Space scrolls a document by default; on a canvas whose whole surface is the document that
+    // is a jump to nowhere.
+    event.preventDefault()
+  }
+
+  function onBlurLoseSpace(): void {
+    if (!spaceHeld) return
+    spaceHeld = false
+    refreshGestureCursor()
   }
 
   function drawMarquee(): void {
@@ -1895,8 +2719,12 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     drawMarquee()
     if (!state || !commit) return
     if (Math.abs(state.lastX - state.startX) <= DRAG_THRESHOLD_PX && Math.abs(state.lastY - state.startY) <= DRAG_THRESHOLD_PX) {
-      // A shift+click on the background, which is not a marquee at all. Nothing changes -- a
-      // click that selected nothing would clear the selection somebody was holding shift to add to.
+      // A CLICK on the background, not a marquee. With shift held it changes nothing -- a click
+      // that selected nothing would clear the selection somebody was holding shift to add to.
+      // Without it, clicking empty canvas clears, which is what it has always done and what
+      // every tool does; that behaviour used to belong to the pan path, and it moves here with
+      // the gesture.
+      if (!state.additive && selection !== null) emitSelect(null)
       return
     }
     const a = worldFromClient(Math.min(state.startX, state.lastX), Math.min(state.startY, state.lastY))
@@ -1956,7 +2784,7 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     // Guarded: releasePointerCapture throws NotFoundError for a pointer that is no longer
     // captured, which is exactly the state a pointercancel leaves us in.
     if (root.hasPointerCapture(event.pointerId)) root.releasePointerCapture(event.pointerId)
-    root.classList.remove('flg-panning')
+    refreshGestureCursor()
     // A drag that moved is a pan, not a click on the background -- clearing the selection
     // because someone dragged the canvas would silently lose whatever they had selected.
     if (!panMoved && event.button === 0 && selection !== null) emitSelect(null)
@@ -2074,6 +2902,10 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       visual.line.setAttribute('d', geometry.path)
       visual.arrow.setAttribute('d', geometry.arrow)
       visual.hit.setAttribute('d', geometry.path)
+      // The cull box moves with the geometry, in the same statement that moves it, so an edge
+      // dragged into view cannot be left hidden by a rectangle describing where it used to be.
+      visual.box = edgeBox(geometry, fromRect)
+      if (visual.inDot !== null && port) placeInputPort(visual.inDot, toRect, port.to, port.toRight)
       if (grid === null) grid = new RectGrid(rects.values())
       const at = chipAnchor(geometry, grid)
       visual.chip.style.left = `${round(at.x)}px`
@@ -2246,7 +3078,7 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       state.moved = true
       state.box.classList.add('flg-dragging')
       for (const id of state.nodeIds) nodeElements.get(id)?.classList.add('flg-dragging')
-      root.classList.add('flg-dragging-node')
+      refreshGestureCursor()
     }
     // Coalesced to one frame, for the same reason the camera is: a mouse emits moves faster than
     // the compositor paints, and re-routing per event does the work several times for one
@@ -2299,7 +3131,7 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     if (state.box.hasPointerCapture(state.pointerId)) state.box.releasePointerCapture(state.pointerId)
     state.box.classList.remove('flg-dragging')
     for (const id of state.nodeIds) nodeElements.get(id)?.classList.remove('flg-dragging')
-    root.classList.remove('flg-dragging-node')
+    refreshGestureCursor()
     showGuide(guideVertical, true, null)
     showGuide(guideHorizontal, false, null)
     if (!state.moved) return
@@ -2336,7 +3168,7 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   /** THE GESTURE, AND WHY IT IS A HANDLE RATHER THAN A MODIFIER.
    *
    * This canvas already spends both of its primary-button gestures: a press on a card drags the
-   * CARD, a press on the background pans the CAMERA, and the thing under the pointer is what says
+   * CARD, a press on the background box-selects, and the thing under the pointer is what says
    * which -- no mode, no modifier, nothing to remember. Starting a connection from the card body
    * would have to break that, either by taking a modifier (invisible, undiscoverable, and ALT is
    * already the "no snapping" key) or by inventing a mode (a toolbar state that makes the same
@@ -2748,22 +3580,26 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
         break
       }
       case '+':
-      case '=': {
-        const box = root.getBoundingClientRect()
-        zoomAt(box.left + box.width / 2, box.top + box.height / 2, 1.2)
+      case '=':
+        zoomBy(KEY_ZOOM_STEP)
         event.preventDefault()
         break
-      }
       case '-':
-      case '_': {
-        const box = root.getBoundingClientRect()
-        zoomAt(box.left + box.width / 2, box.top + box.height / 2, 1 / 1.2)
+      case '_':
+        zoomBy(1 / KEY_ZOOM_STEP)
         event.preventDefault()
         break
-      }
       case '0':
         zoomToFit()
         event.preventDefault()
+        break
+      case '?':
+        // The key to the drawing, on the key that asks for one. Only when the canvas itself has
+        // focus, so it cannot eat a '?' somebody is typing into a field the host put over it.
+        if (legend !== null && event.target === root) {
+          toggleLegend()
+          event.preventDefault()
+        }
         break
       case 'Escape':
         if (selection !== null) {
@@ -2783,12 +3619,26 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
   root.addEventListener('wheel', onWheel, { passive: false })
   root.addEventListener('keydown', onKeyDown)
   root.addEventListener('keydown', onLinkKeyCapture, true)
+  // AFTER onLinkKeyCapture, which is the handler for a connection in the hand, and in CAPTURE so
+  // it beats the per-card Enter/Space that makeSelectable installs. See onCanvasKeys.
+  root.addEventListener('keydown', onCanvasKeys, true)
+  root.addEventListener('focusin', onCanvasFocusIn)
+  root.addEventListener('keydown', onKeyPan)
+  root.addEventListener('keyup', onKeyPan)
+  root.addEventListener('blur', onBlurLoseSpace)
 
   /** Wires one selectable element (a node box or an edge chip) to the selection it stands for.
    * Registered under the SAME key setSelection looks up, so host-driven and user-driven
    * selection cannot get out of step. */
   function makeSelectable(element: HTMLElement, key: string, build: () => GraphSelection, activates = true): void {
-    element.tabIndex = 0
+    // -1, NOT 0, AND THIS IS THE WHOLE ROVING TAB STOP IN ONE LINE. See setRoving: exactly one
+    // card on this canvas carries 0 at a time, and every other selectable thing -- the other
+    // fifty-six cards, the fifty-seven connector handles, the twenty-nine edge chips, the group
+    // chevrons and the frame headers -- is focusable without being TABBABLE. An audit counted
+    // 128 Tab presses to cross one screen of the fixture pack, and the eighth of them landed on
+    // a card at world {x:-281, y:-463} with the camera where it started. A canvas is one widget;
+    // a widget is one tab stop.
+    element.tabIndex = -1
     element.setAttribute('role', 'button')
     element.setAttribute('aria-pressed', 'false')
     const existing = selectable.get(key)
@@ -2853,10 +3703,9 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     if (!(event.ctrlKey || event.metaKey)) return next
     const clicked = next?.kind === 'node' ? next.nodeId : next?.kind === 'group' ? groupCardNodeId(next.groupId) : null
     if (clicked === null) return next
-    const held = selection?.kind === 'group' ? groupCardNodeId(selection.groupId) : null
-    const current: string[] = selection?.kind === 'nodes' ? [...selection.nodeIds] : selection?.kind === 'node' ? [selection.nodeId] : held === null ? [] : [held]
-    const without = current.filter((id) => id !== clicked)
-    return selectionOfNodes(without.length === current.length ? [...current, clicked] : without)
+    // ONE copy of the rule, shared with Ctrl+Space -- see toggledSelection. It was written out
+    // here and nowhere else, so the keyboard could only have had a second copy of it.
+    return toggledSelection(clicked)
   }
 
   /** The node id of a collapsed group's card, or null while the group is expanded (a frame is not
@@ -2903,7 +3752,8 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
    * button. */
   function chevron(groupId: string, collapsed: boolean, name: string): HTMLElement {
     const button = el('div', collapsed ? 'flg-group-chevron flg-group-chevron-expand' : 'flg-group-chevron flg-group-chevron-collapse')
-    button.tabIndex = 0
+    // Off the tab sequence, on the card's F2 ring instead -- see cardControls.
+    button.tabIndex = -1
     button.setAttribute('role', 'button')
     button.setAttribute('aria-label', collapsed ? `Expand ${name}` : `Collapse ${name}`)
     button.title = collapsed ? 'Expand: show the members again. Written to their files.' : 'Collapse: fold the members into one card. Written to their files.'
@@ -2932,8 +3782,25 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     const name = el('span', 'flg-frame-name')
     name.textContent = frame.name
     name.title = `${frame.name}\n${String(frame.memberIds.length)} member${frame.memberIds.length === 1 ? '' : 's'}. Drag the header to move them together.`
-    head.append(name, chevron(frame.groupId, false, frame.name))
-    head.setAttribute('aria-label', `Group ${frame.name}, ${String(frame.memberIds.length)} members`)
+    head.append(name)
+    // A WORD, NOT A STYLE. The remnant of a group -- one member left after the others were
+    // deleted or had their directives taken off -- drew as an ordinary group and read as one:
+    // a frame, a name, and "Ores (1)" in the sidebar. The marker is text inside the header, so
+    // a screen reader, a screenshot and a colour-blind reader all get it, which is the same rule
+    // the notice levels follow.
+    if (frame.lone === true) {
+      const lone = el('span', 'flg-frame-lone')
+      lone.textContent = 'on its own'
+      lone.title =
+        'This group is down to one member. A group is a bracket round several features; the others ' +
+        'were deleted, or their directives were removed. Ungroup it, or add features to it.'
+      head.append(lone)
+    }
+    head.append(chevron(frame.groupId, false, frame.name))
+    head.setAttribute(
+      'aria-label',
+      `Group ${frame.name}, ${String(frame.memberIds.length)} member${frame.memberIds.length === 1 ? '' : 's'}${frame.lone === true ? ', on its own' : ''}`,
+    )
     head.setAttribute('aria-keyshortcuts', 'Enter')
     makeSelectable(head, JSON.stringify(['group', frame.groupId]), () => ({ kind: 'group', groupId: frame.groupId }), false)
     const first = frame.memberIds[0]
@@ -2978,6 +3845,18 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     const countLine = el('div', 'flg-node-type flg-node-group-count')
     countLine.textContent = `${String(group.count)} feature${group.count === 1 ? '' : 's'}`
     body.append(countLine)
+    // WHO IS INSIDE, on the card. One line, the bare halves of the first few ids, at the zoom
+    // where a feature card is showing its own meta line and not one pixel further out -- see the
+    // `mid` band rules in graph.css. The count above says how many; this says which, which is the
+    // question a folded box actually raises.
+    const members = group.memberIds ?? []
+    if (members.length > 0) {
+      const line = el('div', 'flg-node-meta flg-node-group-members')
+      const shown = members.slice(0, GROUP_CARD_MEMBERS)
+      const rest = members.length - shown.length
+      line.textContent = shown.map(bareId).join(', ') + (rest > 0 ? ` +${String(rest)}` : '')
+      body.append(line)
+    }
     const badges = el('div', 'flg-node-badges')
     if (isRoot) {
       const badge = el('span', 'flg-badge flg-badge-root')
@@ -2989,9 +3868,17 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     box.append(body)
     box.append(chevron(group.id, true, group.name))
 
-    box.title = `${group.name}\nA group of ${String(group.count)} feature${group.count === 1 ? '' : 's'}, collapsed. Double-click or use the chevron to expand it.`
-    box.setAttribute('aria-label', `Group ${group.name}, collapsed, ${String(group.count)} features${isRoot ? ', root' : ''}`)
-    box.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown ArrowLeft ArrowRight')
+    // The name is on the card and on `.flg-node-id`; see renderNode for why it is not repeated
+    // here. What IS repeated is the membership: the hover is the one place with room for the ids
+    // in full, and it used to add nothing at all to the two lines already on the box.
+    box.title =
+      `A group of ${String(group.count)} feature${group.count === 1 ? '' : 's'}, collapsed. ` +
+      `Double-click or use the chevron to expand it.${memberSentence(members)}`
+    box.setAttribute(
+      'aria-label',
+      `Group ${group.name}, collapsed, ${String(group.count)} features${isRoot ? ', root' : ''}${memberSentence(members)}`,
+    )
+    box.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown ArrowLeft ArrowRight Home End F2 Control+Space Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight')
     makeSelectable(box, JSON.stringify(['group', group.id]), () => ({ kind: 'group', groupId: group.id }), false)
     // Double-click expands rather than "opens": a group has no file of its own to open, and the
     // one thing somebody double-clicking a folded thing wants is to see inside it.
@@ -3009,15 +3896,8 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     box.addEventListener('pointermove', onDragMove)
     box.addEventListener('pointerup', onDragEnd)
     box.addEventListener('pointercancel', onDragCancel)
-    box.addEventListener('keydown', (event) => {
-      const step = event.shiftKey ? NUDGE_STEP_LARGE : NUDGE_STEP
-      const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
-      const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
-      if (dx === 0 && dy === 0) return
-      event.preventDefault()
-      event.stopPropagation()
-      nudgeNode(node.id, dx, dy)
-    })
+    // The arrows are served by onCanvasKeys, exactly as an ordinary card's are: a collapsed
+    // group's card is a card, and having its own copy of the nudge is how the two drifted apart.
     groupCards.set(group.id, box)
     return box
   }
@@ -3036,10 +3916,21 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
    * leaving it share a hue and a chain reads as a chain. The tint is never alone: the same
    * category is stated by the glyph beside the id, by the type name written out in the body, and
    * by the fan-out line naming the edge kind in words. */
-  function renderNode(node: GraphNodeWire, rect: GraphRect, isRoot: boolean, inCycle: boolean, isGhost: boolean, summary: NodeSummary): HTMLElement {
+  function renderNode(
+    node: GraphNodeWire,
+    rect: GraphRect,
+    isRoot: boolean,
+    inCycle: boolean,
+    isGhost: boolean,
+    summary: NodeSummary,
+  ): HTMLElement {
     const box = el('div', 'flg-node')
     box.style.left = `${rect.x}px`
     box.style.top = `${rect.y}px`
+    // The card's own height, which is no longer the layout's reservation. `rect.h` was decided in
+    // render() by cardHeight and is what the ports and the edge router have already been given,
+    // so writing it here is the one place the two agree by construction rather than by luck.
+    box.style.height = `${rect.h}px`
     box.dataset.nodeId = node.id
     box.dataset.coverage = node.coverage ?? (node.external ? 'external' : node.unresolved ? 'unresolved' : 'unknown')
     box.dataset.category = summary.category
@@ -3078,7 +3969,14 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
         'Nothing appears for it in a preview here: this tool does not simulate the features the game itself supplies.'
       typeLine.classList.add('flg-node-type-external')
     } else if (node.unresolved) {
-      typeLine.textContent = isGhost ? 'referenced, not in this graph' : 'not defined in this pack'
+      // THE SAME WORD THE BADGE ABOVE IT USES, and the legend row, and the `is:unresolved`
+      // filter, and the wire field this branch is testing. This line used to read "not defined in
+      // this pack" while the badge on the same card read "unresolved" and the key in the corner
+      // headed the row "Not in this pack" -- three names on one card for one state. The sentence
+      // that explains it is on the title, where it does not have to fit in thirty characters.
+      // (A ghost is a different state: referenced, and absent from THIS drawing rather than from
+      // the pack, so it keeps its own words.)
+      typeLine.textContent = isGhost ? 'referenced, not in this graph' : 'unresolved'
       typeLine.title = `"${node.id}" is delegated to but never defined. The edge into it is drawn dangling on purpose.`
       typeLine.classList.add('flg-node-type-absent')
     } else {
@@ -3108,9 +4006,38 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
         meta.append(out)
       }
       if (fanIn.label) {
-        const into = el('span', 'flg-node-fan flg-node-fan-in')
+        // A CONTROL, NOT A CAPTION. "20 use this" names the one fact about this card that cannot
+        // be read off the canvas -- the twenty lines arriving at it span 66.5 px ten pixels from
+        // the border, the card's own height, and at a readable zoom only seven of the twenty
+        // parents are on screen at all -- and until now the only thing behind it was a `title`.
+        // A dead end exactly where the reader has a question. Pressing it selects this card and
+        // puts the keyboard on the first row of the inspector's "Used by" list, which is the list
+        // of those twenty features, each one a step away.
+        const into = el('button', 'flg-node-fan flg-node-fan-in')
+        into.type = 'button'
+        // A real <button>, so NATIVELY tabbable -- and that made it a tab stop inside every card
+        // that has parents, which on the fixture pack was five more stops between one card and
+        // the next. It comes off the sequence with the handles and the chips and joins the same
+        // F2 ring, which is also where it belongs: "20 use this" is a fact about this card.
+        into.tabIndex = -1
+        into.dataset.fanFor = node.id
         into.textContent = `← ${fanIn.label}`
-        into.title = fanIn.title
+        into.title = `${fanIn.title}\nOpens the list of all ${summary.in}.`
+        // THE ARROW IS A PICTURE AND WAS BEING READ ALOUD. With no aria-label the accessible name
+        // falls back to the text content, which is `← 5 use this` -- the glyph announced as
+        // "leftwards arrow" in front of the fact, on a control that is a keyboard stop in the
+        // card's own F2 ring. The label drops the arrow and says what pressing it does, which the
+        // text alone never did.
+        into.setAttribute('aria-label', `${fanIn.label}: open the list of all ${summary.in}`)
+        into.addEventListener('click', (event) => {
+          // The press must not also read as a plain card click, which would select the card and
+          // stop -- the same dead end with an extra step.
+          event.stopPropagation()
+          emitSelect({ kind: 'node', nodeId: node.id, node })
+          options.onFanIn?.(node.id)
+        })
+        // A press on a card starts a drag; this one must not.
+        into.addEventListener('pointerdown', (event) => event.stopPropagation())
         meta.append(into)
       }
       body.append(meta)
@@ -3150,9 +4077,14 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     // scale it is a smear rather than a word -- still answers "what is this block" on hover.
     // The one line that stands in for the type, per state. A screen reader and a hover at far
     // zoom both read this, so an external node must not be announced as an unresolved one.
-    const standing = node.external ? 'provided by the game' : node.unresolved ? 'not defined in this pack' : node.typeId || 'no type'
+    const standing = node.external ? 'provided by the game' : node.unresolved ? 'unresolved -- this pack does not define it' : node.typeId || 'no type'
+    // WITHOUT THE ID. The card shows it, in bold, at the top -- and `.flg-node-id` carries it as
+    // its own title for the case that matters (a long identifier cut off with an ellipsis). A
+    // hover card that opens over the card and begins by reading its header back is two lines of
+    // the two this tooltip is allowed (see docs/tooltip.ts's TOOLTIP_BODY_LIMIT) spent saying
+    // nothing, and it pushed the standing -- which is the thing worth hovering for -- off the end.
     box.title =
-      `${node.id}\n${standing}` +
+      standing +
       (fanOut.title ? `\n${fanOut.title}` : '') +
       (fanIn.title ? `\n${fanIn.title}` : '') +
       (coverage.label ? `\n${coverage.label}` : '')
@@ -3165,7 +4097,7 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     // sentence about the arrow keys, which on a fifty-seven-card pack is fifty-seven repetitions
     // of one fact. `aria-keyshortcuts` is the attribute for exactly this -- available when asked
     // for, silent when not.
-    box.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown ArrowLeft ArrowRight')
+    box.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown ArrowLeft ArrowRight Home End F2 Control+Space Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight')
     // Whatever the last run said about this node, if anything. Here rather than in `render` so a
     // redraw after an edit keeps the row instead of dropping it until the next preview.
     applyNodeStatsTo(box, node.id)
@@ -3180,34 +4112,9 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     box.addEventListener('pointerup', onDragEnd)
     box.addEventListener('pointercancel', onDragCancel)
 
-    // A node that can only be moved with a mouse cannot be moved by everyone. The arrows already
-    // pan the canvas when the canvas itself has focus (see onKeyDown, which checks its target
-    // for exactly this reason); on a focused CARD they move the card, which is the conventional
-    // division and needs nothing learned.
-    box.addEventListener('keydown', (event) => {
-      const step = event.shiftKey ? NUDGE_STEP_LARGE : NUDGE_STEP
-      let dx = 0
-      let dy = 0
-      switch (event.key) {
-        case 'ArrowLeft':
-          dx = -step
-          break
-        case 'ArrowRight':
-          dx = step
-          break
-        case 'ArrowUp':
-          dy = -step
-          break
-        case 'ArrowDown':
-          dy = step
-          break
-        default:
-          return
-      }
-      event.preventDefault()
-      event.stopPropagation()
-      nudgeNode(node.id, dx, dy)
-    })
+    // Moving and navigating are both on the arrows, told apart by Alt -- see onCanvasKeys, which
+    // serves every card from one capture listener on the root rather than from a closure per
+    // card. Nothing is bound here any more; this comment is the signpost to where it went.
 
     // THE CONNECTOR HANDLE. On the card's right border, where its outgoing edges already attach,
     // and rendered only when a policy exists to answer for it -- see beginLink for why this is a
@@ -3220,10 +4127,15 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     if (policy !== null) {
       const port = el('div', 'flg-node-port')
       port.dataset.portFor = node.id
-      port.tabIndex = 0
+      // NOT a tab stop of its own. Fifty-seven handles were fifty-seven stops, and every one of
+      // them was reached by Tabbing PAST the card it belongs to -- so the tab order alternated
+      // card, handle, card, handle for the length of the pack. It is reached from its own card
+      // with F2 instead (see cardControls), which is both fewer keys and a truer description of
+      // what it is: a part of the card, not a sibling of it.
+      port.tabIndex = -1
       port.setAttribute('role', 'button')
       port.setAttribute('aria-label', `Connect a delegation from ${node.id}`)
-      port.setAttribute('aria-keyshortcuts', 'Enter')
+      port.setAttribute('aria-keyshortcuts', 'Enter Escape')
       // Asked once, at render, so every handle carries its own answer before it is touched --
       // including the refusal, which is the whole tooltip on a type that holds no other feature.
       const start = policy.canStart(node.id)
@@ -3246,7 +4158,41 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       })
       box.append(port)
     }
+
     return box
+  }
+
+  /** ONE INPUT PORT: the mark at the point where one incoming delegation lands on its target.
+   *
+   * There were none at all, which made the card asymmetric in a way that was actively misleading:
+   * outgoing edges left from a visible handle and incoming ones simply ended at the border, so
+   * eleven parents arrived as eleven arrowheads stacked on a bare edge and read as decoration on
+   * the box rather than as eleven separate connections. The count -- which is the one fact the
+   * fan-in line is trying to tell you, and the reason assignPorts fans the arrivals apart at all
+   * -- was not drawn anywhere on the card the arrivals were about.
+   *
+   * Created in the EDGE pass rather than in renderNode, because an input port belongs to an edge:
+   * making it here is what lets rerouteEdges move it with the curve it terminates, in the same
+   * frame and by the same test, instead of leaving a row of dots behind on a dragged card.
+   *
+   * MARKS, NOT CONTROLS. `pointer-events: none` (graph.css), no tab stop, no role, no title:
+   * dropping a connection is a gesture against the CARD (see beginLink), and adding eleven
+   * focusable targets to a shared node would put eleven stops in the tab order that all do the
+   * same nothing. The card's own aria-label already carries the count in words. */
+  function makeInputPort(nodeId: string, at: GraphPoint, right: boolean): HTMLElement | null {
+    const box = nodeElements.get(nodeId)
+    const rect = rects.get(nodeId)
+    if (!box || !rect) return null
+    const dot = el('div', 'flg-node-inport')
+    dot.setAttribute('aria-hidden', 'true')
+    placeInputPort(dot, rect, at, right)
+    box.append(dot)
+    return dot
+  }
+
+  function placeInputPort(dot: HTMLElement, rect: GraphRect, at: GraphPoint, right: boolean): void {
+    dot.classList.toggle('flg-node-inport-right', right)
+    dot.style.top = `${round(at.y - rect.y)}px`
   }
 
   function renderChip(badge: EdgeBadge, at: GraphPoint, edge: GraphEdgeWire, index: number, inCycle: boolean): HTMLElement {
@@ -3257,6 +4203,12 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     chip.style.top = `${round(at.y)}px`
     chip.title = badge.title
     chip.dataset.edgeKind = edge.kind
+    // WHOSE CHIP THIS IS. A chip is not a sibling of the cards -- it belongs to the delegation
+    // leaving one of them -- and that is how the keyboard reaches it now that it is off the tab
+    // sequence: F2 on the card steps through the card's handle and then its outgoing chips.
+    // Written as data rather than derived from `edgeKey`, because a chip lives in a different
+    // layer from its card and there is no ancestor to ask.
+    chip.dataset.chipFrom = edge.from
 
     if (badge.mark) {
       const mark = el('span', 'flg-chip-mark')
@@ -3297,6 +4249,14 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     frameElements.clear()
     groupCards.clear()
     edgeVisuals.length = 0
+    nodeVisuals.length = 0
+    nodeVisualById.clear()
+    // Emptied with the set it is drawn from: a stale entry here is a detached element that would
+    // be counted as on screen for as long as the next cull takes to arrive.
+    drawnVisuals = []
+    nodesInView = 0
+    paintedKeys.clear()
+    culledFor = null
     selfLoopOverhang.clear()
     if (marquee !== null) {
       if (root.hasPointerCapture(marquee.pointerId)) root.releasePointerCapture(marquee.pointerId)
@@ -3341,10 +4301,43 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     }
 
     const summaries = summariseNodes(next)
+
+    // THE CARD HEIGHTS, BEFORE ANYTHING READS A RECT. resolvePositions hands back boxes at the
+    // layout's reserved height; cardHeight decides what each card will actually draw in that
+    // reservation (see its own comment for why it counts rows rather than measuring them). The
+    // rects are MUTATED rather than replaced, because assignPorts, the chip grid, zoomToFit and
+    // the drag path all hold these same objects -- and every one of them has to see the height the
+    // card is really drawn at, or the ports fan across a box that is not there.
+    //
+    // It happens here, before assignPorts, because a port's y is a fraction of the card's height:
+    // computing the ports first and the heights second would put every arrival on a shared child
+    // at the wrong place by exactly the amount the card shrank.
+    for (const node of next.nodes) {
+      const rect = rects.get(node.id)
+      if (!rect || node.group) continue
+      rect.h = cardHeight(node, summaries.get(node.id) ?? EMPTY_SUMMARY, {
+        isRoot: roots.has(node.id),
+        inCycle: cycleNodes.has(node.id),
+      })
+    }
+    // The synthesised stubs too, and in this same pass: a ghost sized after the ports were
+    // assigned would fan its arrivals across a height it does not have.
+    for (const id of resolved.ghosts) {
+      const rect = rects.get(id)
+      if (!rect) continue
+      rect.h = cardHeight({ id, unresolved: true }, EMPTY_SUMMARY, { inCycle: cycleNodes.has(id) })
+    }
+
+    // Where each edge attaches to each of its two nodes. Computed once for the whole graph,
+    // because a port's position depends on how many OTHER edges share that side -- see
+    // assignPorts for why a shared child with eleven parents is unreadable without this. It runs
+    // BEFORE the cards are built, because each card draws a dot at every port arriving on it.
+    const ports = assignPorts(next.edges, rects)
     nodeBoxes.length = 0
     litElements.length = 0
-    const nodesFragment = document.createDocumentFragment()
-    const chipsFragment = document.createDocumentFragment()
+    // Every visual is rebuilt below, born un-quieted; paintIncidence sets this again from the
+    // selection that survives the render.
+    quieting = false
 
     let minX = Infinity
     let minY = Infinity
@@ -3364,10 +4357,17 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       track(rect)
       const box = node.group
         ? renderGroupCard(node, node.group, rect, roots.has(node.id))
-        : renderNode(node, rect, roots.has(node.id), cycleNodes.has(node.id), false, summaries.get(node.id) ?? EMPTY_SUMMARY)
+        : renderNode(
+            node,
+            rect,
+            roots.has(node.id),
+            cycleNodes.has(node.id),
+            false,
+            summaries.get(node.id) ?? EMPTY_SUMMARY,
+          )
       nodeBoxes.push(box)
       nodeElements.set(node.id, box)
-      nodesFragment.append(box)
+      registerNodeVisual(node.id, box, rect)
     }
     for (const id of resolved.ghosts) {
       const rect = rects.get(id)
@@ -3378,10 +4378,11 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       const ghost: GraphNodeWire = { id, unresolved: true }
       nodeById.set(id, ghost)
       track(rect)
-      const box = renderNode(ghost, rect, false, cycleNodes.has(id), true, { ...(summaries.get(id) ?? EMPTY_SUMMARY), category: 'unresolved', mark: CATEGORY_MARK.unresolved })
+      const summary: NodeSummary = { ...(summaries.get(id) ?? EMPTY_SUMMARY), category: 'unresolved', mark: CATEGORY_MARK.unresolved }
+      const box = renderNode(ghost, rect, false, cycleNodes.has(id), true, summary)
       nodeBoxes.push(box)
       nodeElements.set(id, box)
-      nodesFragment.append(box)
+      registerNodeVisual(id, box, rect)
     }
 
     // Parallel edges are fanned apart by their position within the PAIR they join (unordered,
@@ -3394,13 +4395,8 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     }
 
     const siblingIndex = buildSiblingIndex(next.edges)
-    // Where each edge attaches to each of its two nodes. Computed once for the whole graph,
-    // because a port's position depends on how many OTHER edges share that side -- see
-    // assignPorts for why a shared child with eleven parents is unreadable without this.
-    const ports = assignPorts(next.edges, rects)
     // Which boxes a chip must not land on -- see chipAnchor.
     const boxGrid = new RectGrid(rects.values())
-    const edgeParts: SVGElement[] = []
     edgeGroupsByNode.clear()
     const remember = (id: string, element: Element): void => {
       const list = edgeGroupsByNode.get(id)
@@ -3433,7 +4429,12 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
         track({ x: fromRect.x, y: geometry.label.y - 20, w: fromRect.w, h: 20 })
         // Remembered so recomputeBounds can put it back after a move, without re-walking the
         // edges for a number that only a re-render can change.
-        selfLoopOverhang.set(edge.from, Math.max(selfLoopOverhang.get(edge.from) ?? 0, fromRect.y - (geometry.label.y - 20)))
+        const overhang = Math.max(selfLoopOverhang.get(edge.from) ?? 0, fromRect.y - (geometry.label.y - 20))
+        selfLoopOverhang.set(edge.from, overhang)
+        // The culler needs it too: a card whose loop reaches sixty units above it is still partly
+        // visible when the box itself has scrolled off the top.
+        const owner = nodeVisualById.get(edge.from)
+        if (owner) owner.overhang = Math.max(owner.overhang, overhang)
       }
 
       const badge = describeEdge(edge, siblingsFor(siblingIndex, edge))
@@ -3466,16 +4467,16 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       // hunting for the exact pixel. It carries no paint of its own.
       const hit = svg('path', 'flg-edge-hit')
       hit.setAttribute('d', geometry.path)
-      group.append(casing, line, head, hit)
-      edgeParts.push(group)
+      // NOT appended to the group here: the group goes into the document empty and cull() fills
+      // it in if the camera can see it. See the note beside edgeLayer.replaceChildren below.
 
       const chipElement = renderChip(badge, chipAnchor(geometry, boxGrid), edge, index, inCycle)
-      chipsFragment.append(chipElement)
       // Everything a move has to re-write, plus the ports it was drawn with. rerouteEdges reads
       // both; see its own comment for why the cached ports are the cheap half of a drag.
       edgeVisuals.push({
         edge,
         index,
+        group,
         casing,
         line,
         arrow: head,
@@ -3489,6 +4490,12 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
         fromY: port ? port.from.y : fromRect.y,
         toX: port ? port.to.x : 0,
         toY: port ? port.to.y : 0,
+        box: edgeBox(geometry, fromRect),
+        // Everything is built detached and the first cull decides what goes in -- see the note
+        // below on why render() no longer hands the whole graph to the document.
+        drawn: false,
+        quiet: false,
+        inDot: port ? makeInputPort(edge.to, port.to, port.toRight) : null,
       })
       // Both ends, so selecting a node can light up everything that touches it -- see
       // paintSelection. A node with eleven parents is the case this exists for: the eleven lines
@@ -3524,13 +4531,81 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       maxY = 0
     }
     contentBounds = { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) }
+    zoomFloor = Math.min(minZoom, fitZoomFor(contentBounds, 40))
+    // A camera left below the new floor by a previous, larger graph would be looking at nothing.
+    if (camera.zoom < zoomFloor) camera = { ...camera, zoom: zoomFloor }
 
-    edgeLayer.replaceChildren(...edgeParts)
+    // WHAT GOES INTO THE DOCUMENT HERE IS THE SKELETON, NOT THE DRAWING.
+    //
+    // Every card goes in, already wearing `flg-node-culled` so the browser skips its contents on
+    // the way in; every edge's <g> goes in EMPTY. `cull()` at the bottom of this function then
+    // un-culls the cards the camera can see and fills in their edges. On a 3531-node pack that
+    // leaves a few hundred elements being styled and laid out instead of about seventy thousand,
+    // and the difference is not a matter of degree: a class written on the canvas root -- which
+    // is what starting a drag, starting a pan and crossing a zoom band all do -- invalidates
+    // style for everything below it, so the size of this tree is the cost of every gesture.
+    //
+    // What stays behind is deliberate and is a CONTRACT, not an oversight: `.flg-node[data-node-id]`
+    // and `[data-edge-key]` answer "does this exist in the pack", and they have to keep answering
+    // it for something the camera is not pointed at. See cull() for both halves.
+    chipLayer.replaceChildren()
+    edgeLayer.replaceChildren(...edgeVisuals.map((visual) => visual.group))
+    nodeLayer.replaceChildren(...nodeVisuals.map((visual) => visual.box))
     applyEdgeStops()
     sizeLayers(maxX, maxY)
 
-    nodeLayer.replaceChildren(nodesFragment)
-    chipLayer.replaceChildren(chipsFragment)
+    if (minimap) {
+      // WHICH SEPARATE DRAWING EACH CARD IS IN. The map draws components rather than cards once
+      // a pack is big enough for a card to be less than a pixel (minimap.ts's HULL_MIN_NODES),
+      // and "how many separate drawings is this pack" is the question its header says it exists
+      // to answer -- so the answer has to come from the edges, which only this file has. Union by
+      // path-halving over the edge list: one flat pass, no recursion, no second copy of the graph.
+      const parent = new Map<string, string>()
+      const find = (id: string): string => {
+        let root = id
+        let up = parent.get(root)
+        while (up !== undefined && up !== root) {
+          const grand = parent.get(up) ?? up
+          parent.set(root, grand)
+          root = grand
+          up = parent.get(root)
+        }
+        return root
+      }
+      for (const visual of nodeVisuals) parent.set(visual.id, visual.id)
+      for (const edge of next.edges) {
+        if (!parent.has(edge.from) || !parent.has(edge.to)) continue
+        const a = find(edge.from)
+        const b = find(edge.to)
+        if (a !== b) parent.set(a, b)
+      }
+      const dots: MinimapNode[] = []
+      for (const visual of nodeVisuals) {
+        dots.push({
+          id: visual.id,
+          x: visual.rect.x,
+          y: visual.rect.y,
+          w: visual.rect.w,
+          h: visual.rect.h,
+          category: visual.box.dataset['category'] ?? 'leaf',
+          component: find(visual.id),
+        })
+      }
+      // HIDDEN FOR A PACK THERE IS NOTHING TO OVERVIEW. A map exists to answer "what is off
+      // screen"; on a graph of one or two cards the answer is "nothing", and the map is then a
+      // panel of furniture in the corner of an almost empty canvas, drawing a picture of the thing
+      // already in front of the reader. The threshold is deliberately tiny -- three cards is
+      // already a pack that can be scrolled away from.
+      minimap.element.hidden = dots.length < 3
+      minimap.setContent(contentBounds, dots)
+      minimap.setHighlight(highlighted)
+    }
+
+    // A live highlight survives the re-render, on the cards as well as on the map. The boxes above
+    // are NEW elements and carry no classes from the ones they replace, so without this a search
+    // that filtered the canvas -- which re-renders -- put every card back at full strength while
+    // the map went on dimming them, and the two halves of one answer disagreed.
+    if (highlighted !== null) applyHighlightDim()
 
     // The frames, from the member rects just placed. A frame whose members are all absent is
     // hidden by layoutFrames rather than skipped here, so the count of frames stays what the host
@@ -3545,6 +4620,19 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     selection = resolveSelection(selection)
     paintSelection()
     applyCamera()
+
+    // THE TAB STOP, re-decided against what is now drawn. Every card above is a NEW element born
+    // at tabindex -1, so without this a redraw would leave the canvas with no way in at all --
+    // and keeping the old id blindly would leave it on a card that a collapse has just folded
+    // away. The id survives a redraw when its card does, so an edit does not move the reader's
+    // place; otherwise the stop goes back to the middle of the screen.
+    if (rovingId !== null && nodeElements.has(rovingId)) {
+      const kept = rovingId
+      rovingId = null
+      setRoving(kept)
+    } else {
+      chooseRoving()
+    }
   }
 
   /** A selection re-read against what is drawn now: the same subject, or null when it is gone.
@@ -3570,18 +4658,568 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     }
   }
 
-  function zoomToFit(paddingPx = 40): void {
+  /** The raw scale at which `bounds` would fit the viewport, before any clamping at all. */
+  function fitZoomFor(bounds: GraphRect, paddingPx: number): number {
     const box = root.getBoundingClientRect()
     const width = box.width || host.clientWidth
     const height = box.height || host.clientHeight
-    if (contentBounds.w <= 0 || contentBounds.h <= 0 || width <= 0 || height <= 0) return
-    const zoom = clampZoom(Math.min((width - paddingPx * 2) / contentBounds.w, (height - paddingPx * 2) / contentBounds.h))
+    if (bounds.w <= 0 || bounds.h <= 0 || width <= 0 || height <= 0) return minZoom
+    return Math.min((width - paddingPx * 2) / bounds.w, (height - paddingPx * 2) / bounds.h)
+  }
+
+  /** The largest connected component of what is drawn, as a world box, plus how many components
+   * there are.
+   *
+   * One flat pass to build an adjacency map and an iterative flood fill -- NO RECURSION, for the
+   * reason stated at the top of this file: a delegation cycle is legal and a recursive walk over
+   * one does not come back. Computed only when a fit is asked for, which is a button press, not a
+   * frame. */
+  function componentBounds(): { count: number; largest: GraphRect } {
+    const neighbours = new Map<string, string[]>()
+    const join = (a: string, b: string): void => {
+      const list = neighbours.get(a)
+      if (list) list.push(b)
+      else neighbours.set(a, [b])
+    }
+    for (const edge of graph.edges) {
+      if (!rects.has(edge.from) || !rects.has(edge.to)) continue
+      join(edge.from, edge.to)
+      join(edge.to, edge.from)
+    }
+    const seen = new Set<string>()
+    let count = 0
+    let largest: GraphRect = contentBounds
+    let largestArea = -1
+    for (const [id] of rects) {
+      if (seen.has(id)) continue
+      count++
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+      const queue = [id]
+      seen.add(id)
+      let members = 0
+      while (queue.length > 0) {
+        const at = queue.pop() as string
+        const rect = rects.get(at)
+        if (rect) {
+          members++
+          minX = Math.min(minX, rect.x)
+          minY = Math.min(minY, rect.y - (selfLoopOverhang.get(at) ?? 0))
+          maxX = Math.max(maxX, rect.x + rect.w)
+          maxY = Math.max(maxY, rect.y + rect.h)
+        }
+        for (const next of neighbours.get(at) ?? []) {
+          if (seen.has(next)) continue
+          seen.add(next)
+          queue.push(next)
+        }
+      }
+      if (!Number.isFinite(minX)) continue
+      // Ranked by MEMBER COUNT, not by area: the biggest box on a 41-component packing is
+      // routinely a two-card strand that happened to land at the far corner, and "the largest
+      // group" has to mean the one with the most in it or the camera opens on nothing.
+      if (members > largestArea) {
+        largestArea = members
+        largest = { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) }
+      }
+    }
+    return { count: Math.max(1, count), largest }
+  }
+
+  /** What a fit would do, without doing it. */
+  function getFitReport(paddingPx = 40): GraphFitReport {
+    const components = componentBounds()
+    const whole = fitZoomFor(contentBounds, paddingPx)
+    if (whole >= FIT_MIN_ZOOM) {
+      return {
+        zoom: Math.min(whole, FIT_MAX_ZOOM, maxZoom),
+        fitsAll: true,
+        covered: 1,
+        components: components.count,
+        bounds: contentBounds,
+      }
+    }
+    // The content needs a scale at which a card paints less than half a pixel. Framing it there
+    // would be a blank canvas with a caption claiming otherwise -- so the fit falls back to the
+    // largest component and SAYS SO, which is the whole reason this report exists.
+    const bounds = components.largest
+    const zoom = Math.max(FIT_MIN_ZOOM, Math.min(fitZoomFor(bounds, paddingPx), FIT_MAX_ZOOM, maxZoom))
+    const wholeArea = Math.max(1, contentBounds.w * contentBounds.h)
+    return {
+      zoom,
+      fitsAll: false,
+      covered: Math.min(1, (bounds.w * bounds.h) / wholeArea),
+      components: components.count,
+      bounds,
+    }
+  }
+
+  /** Frames the drawing, and reports honestly what it managed to frame.
+   *
+   * NOT clamped to the interaction floor. See FIT_MIN_ZOOM for the blank canvas that clamp
+   * produced, and for why the camera's own floor is lowered to follow the fit down rather than
+   * fighting it on the next scroll. */
+  function zoomToFit(paddingPx = 40): GraphFitReport {
+    const report = getFitReport(paddingPx)
+    const box = root.getBoundingClientRect()
+    const width = box.width || host.clientWidth
+    const height = box.height || host.clientHeight
+    if (contentBounds.w <= 0 || contentBounds.h <= 0 || width <= 0 || height <= 0) return report
+    const zoom = report.zoom
+    zoomFloor = Math.min(zoomFloor, zoom)
     camera = {
       zoom,
-      x: contentBounds.x + contentBounds.w / 2 - width / (2 * zoom),
-      y: contentBounds.y + contentBounds.h / 2 - height / (2 * zoom),
+      x: report.bounds.x + report.bounds.w / 2 - width / (2 * zoom),
+      y: report.bounds.y + report.bounds.h / 2 - height / (2 * zoom),
     }
     scheduleCamera()
+    return report
+  }
+
+  /** How far the snap below is allowed to move the camera, in total, as a fraction of the
+   * viewport. It is the difference between tidying the frame the aim chose and choosing a
+   * different frame.
+   *
+   * HALF A SCREEN, and a quarter was measured to be too little. The layout is a grid of 232-unit
+   * columns and the viewport is whatever width the panel happens to be, so the boundary that
+   * leaves the leading edge clean can be most of a column away -- and on the 57-node synthetic
+   * fixture at 1600x1000 the only clean boundary was 319 units from the aim, with the cap at
+   * 260. The frame stopped one column short and cut four cards down their left edge. Half a
+   * screen still shows the cluster the aim picked: densestScreenful centres a 2x2 block of
+   * half-viewport cells, so half a viewport of slack stays inside the block it chose. */
+  const SNAP_MAX_FRACTION = 0.5
+  /** Breathing room left between the viewport edge and a card pulled fully into view, in world
+   * units. A card flush against the frame reads as cut even when it is whole. */
+  const SNAP_GUTTER = 12
+
+  /** How much worse a card cut by the LEADING edge is than one cut by the trailing edge, when
+   * the two cannot both be satisfied.
+   *
+   * THEY OFTEN CANNOT. The frame is a fixed width -- the zoom decides it -- so moving the left
+   * edge onto a clean boundary moves the right edge by exactly as much, onto whatever happens to
+   * be there. Only a viewport whose width is a whole number of column gaps can have both edges
+   * clean at once, and the layout makes no such promise. So this is a preference, not a rule.
+   *
+   * THE LEADING EDGE WINS, at three to one, because the two cuts lose different things. A card
+   * sliced by the left edge loses the START of its identifier -- `wiki:fancy_…` becomes `…oak` --
+   * and the start is the part that says which feature it is; the same card sliced by the right
+   * edge still reads `wiki:fancy_oak_tr` and is identifiable at a glance. Three rather than a
+   * hard veto so that a candidate can still trade one left-cut for several right-cuts, which on a
+   * dense pack is the difference between a tidy frame and no snap at all.
+   *
+   * IT IS ALSO THE EXCHANGE RATE AGAINST CONTENT, since snapAxis scores a frame as what it slices
+   * less what it holds (see there): three whole boxes on screen are worth one card cut down its
+   * left edge, one is worth a card cut on the right.
+   *
+   * AND THREE IS THE RATE FOR A VIEWPORT THAT CAN HOLD TEN. It is a CEILING now, not a constant --
+   * see SNAP_LEADING_FULL_CAPACITY and leadingWeightFor, and read the paragraph there before
+   * changing this number, because a fixed rate is exactly what the last round of this got wrong. */
+  const SNAP_LEADING_WEIGHT = 3
+
+  /** How many CARDS a frame has to have room for before a leading cut is worth the full
+   * SNAP_LEADING_WEIGHT.
+   *
+   * WHY THE RATE CANNOT BE A CONSTANT. A leading cut costs three whole boxes. On a wide panel that
+   * is a quarter of what is on screen and the trade is honest: give up three of twelve cards to
+   * keep every identifier starting inside the frame. On a small one the SAME three cards are
+   * everything there is, and the rule quietly inverts -- three extra whole cards cannot pay for
+   * one cut (the comparison is strictly-better, so an exact three-for-one is refused), so the
+   * emptiest frame wins again. Measured on a 600-node pack at 900x700: the opening frame held
+   * exactly ONE whole card while a camera 79/-314 away -- well inside the snap's own 314-unit
+   * budget -- held three. At 1100x800 it took 2 where 5 were reachable; at 1440x900, 10 where 17
+   * were. Adding a second viewport to the budget did not make the rule viewport-independent,
+   * because the rule had a viewport baked into its constant.
+   *
+   * So the rate is per-viewport: what a leading cut is worth, in cards, scales with how many cards
+   * this frame has room for. A hundred card-shaped cells is what a maximised editor comes to at
+   * the zoom the aim opens at -- the shape every one of these constants was originally tuned
+   * against -- so that is where the full rate applies. It falls linearly below that, and never
+   * below one, because a cut can never be worth LESS than the single whole card it denies without
+   * the snap preferring to slice things for no gain at all.
+   *
+   * ROOM FOR, not "holds": `extent / card` on each axis, multiplied. It counts cells rather than
+   * cards because the layout's gaps are not this module's to know, and what matters is the RATIO
+   * between one viewport and another, which the gaps cancel out of. It is deliberately not
+   * measured off the spans themselves: those include every edge chip, a chip is a fifth the width
+   * of a card, and a median over them reports a small panel as having room for twenty-five things
+   * -- which is how the first attempt at this fix left the rate pinned at 3 everywhere it
+   * mattered. */
+  const SNAP_LEADING_FULL_CAPACITY = 100
+
+  /** At most one box may be cut by a leading edge -- the rule, rather than a hope about weights.
+   *
+   * The opening budget asserts exactly this (scale.test.ts), and it used to hold only because the
+   * numbers happened to produce it. Now that content is worth more on a small panel, a large
+   * enough pile of whole cards could in principle buy a second leading cut, and "nothing loses the
+   * start of its name" is not a thing to leave to arithmetic. A frame whose aim ALREADY cuts more
+   * than this is not made worse by the snap; it simply may not be made worse still. */
+  const SNAP_MAX_LEADING_CUTS = 1
+
+  /** How much of a card's own length a box has to be before the leading-cut cap treats it as a
+   * card. Half, which separates the two populations cleanly: a card is one unit long by
+   * definition and an edge chip is a label a few characters wide. */
+  const SNAP_CARD_SHARE = 0.5
+
+  /** How little of a box may be left showing before it counts as an unreadable fragment rather
+   * than as something merely cut. A quarter, which is the share the opening budget asserts and
+   * the share at which the reported defect (`x55`, `x19`, `x63` at one glyph each) sits. */
+  const SNAP_SLIVER_SHARE = 0.25
+
+  /** What one such fragment costs, in whole cards. More than a leading cut, because a cut card
+   * still reads and a fragment of a label does not -- and small enough that it is a weighing,
+   * which it should be: on a layout where the only way to save the last chip is to slice a card,
+   * the rule saves the card. */
+  const SNAP_SLIVER_COST = 4
+
+  /** What each leading cut beyond SNAP_MAX_LEADING_CUTS costs. Larger than any frame's content
+   * can be worth -- a frame holds tens of cards, not thousands -- so it is a rule wearing the
+   * shape of a weight rather than a weight that happens to be big. */
+  const SNAP_OVER_CAP_COST = 1000
+
+  /** What one leading cut is worth, in whole boxes, for a frame this big in world units. See
+   * SNAP_LEADING_FULL_CAPACITY. */
+  function leadingWeightFor(view: { w: number; h: number }): number {
+    const cells = (view.w / GRAPH_NODE_WIDTH) * (view.h / GRAPH_NODE_HEIGHT)
+    if (!(cells > 0)) return SNAP_LEADING_WEIGHT
+    const rate = (SNAP_LEADING_WEIGHT * cells) / SNAP_LEADING_FULL_CAPACITY
+    return Math.max(1, Math.min(SNAP_LEADING_WEIGHT, rate))
+  }
+
+  /** How many CARD-SIZED boxes an edge at `at` is cutting through. Shared between the scorer
+   * inside snapAxis and the pass loop outside it, because the loop now has to answer the same
+   * question the scorer does -- see snapCameraToWholeCards on what happens when the passes run
+   * out -- and two spellings of "is this a card" would be two rules. */
+  function cardsCutAt(at: number, spans: ReadonlyArray<{ lo: number; hi: number }>, unit: number): number {
+    let n = 0
+    for (const span of spans) if (span.lo < at && span.hi > at && span.hi - span.lo >= unit * SNAP_CARD_SHARE) n++
+    return n
+  }
+
+  /** One axis of the snap: the new leading edge, given the boxes BOTH edges cut through.
+   *
+   * Every candidate is a REAL boundary -- a box's near side (pull it in, plus a gutter) or its far
+   * side (push it out), aligned against either the leading edge or the trailing one -- so the
+   * result is always a frame that some element actually lines up with, never an arbitrary nudge.
+   * The nearest candidate wins, which means a card two pixels into the frame is dropped and one
+   * two pixels out is pulled in, and both readings are the same decision: do not draw a fragment.
+   *
+   * BOTH EDGES, and that was the hole. This scored the leading edge alone, so it moved the frame
+   * off the cards on the left and onto whatever the right edge landed in -- a constant overhang of
+   * about 159 world units at 1440 wide and 150 at 1100, i.e. most of a card, at EVERY pack size:
+   * measured as 2/6/5/3 cards cut at 57/600/1500/3531 nodes, nearly all of them on the right, with
+   * three sliced mid-identifier in the screenshot. The aim was right and the tidy-up was
+   * one-sided. See SNAP_LEADING_WEIGHT for what happens when the two edges disagree.
+   *
+   * AND THE FRAME IS SCORED ON WHAT IS IN IT, NOT ONLY ON WHAT IT SLICES, which is the second
+   * hole and the more serious one. Counting cuts alone makes EMPTY the perfect score: a frame
+   * parked in the whitespace between two components slices nothing, so it beat every frame that
+   * actually held cards, and the half-screen budget below is easily enough slack to reach one.
+   * Measured, cards on screen after opening, aim -> cuts-only snap:
+   *
+   *     1600x1000   57n 10 -> 6    600n 18 -> 16   1500n 18 -> 18   3531n 11 -> 10
+   *     1440x900    57n 10 -> 6    600n 17 -> 3    1500n 17 -> 1    3531n 10 -> 7
+   *     1100x800    57n  6 -> 1    600n  7 -> 2    1500n 10 -> 4    3531n  7 -> 3
+   *
+   * One card on screen is the defect scale.test.ts's opening budget exists to catch, reintroduced
+   * by the tidy-up -- and invisible, because that budget only ever looked at 1600x1000, where the
+   * same rule merely halved the 57-node view.
+   *
+   * So a frame is worth the content it holds WHOLE minus the boxes it slices: `cost` below. The
+   * snap takes the best score within reach rather than the emptiest frame; it stops pretending
+   * that nothing-on-screen is tidy.
+   *
+   * AND THE THREE THINGS THAT SCORE HAS TO GET RIGHT, each of which was wrong in its own way and
+   * each of which is now stated rather than hoped for:
+   *
+   *   - CONTENT IS COUNTED IN CARDS' WORTH, not in boxes (`held`). `spans` is every card AND
+   *     every edge chip, and a chip is a fifth the width of a card, so counting them alike made
+   *     the content term mostly a count of chips: forty chips beat three cards.
+   *   - A LEADING CUT'S PRICE SCALES WITH THE VIEWPORT (`leadingWeight`, and
+   *     SNAP_LEADING_FULL_CAPACITY). Three cards is a quarter of a wide panel and all of a narrow
+   *     one, so a fixed three made the emptiest frame win again wherever the panel was small.
+   *   - AT MOST ONE CARD MAY BE CUT BY A LEADING EDGE, whatever the content is worth (`overCap`).
+   *     Once content is worth more, cuts are correspondingly cheap, and cheap is not what "the
+   *     start of an identifier" should ever be.
+   *
+   * Measured with all three, cards on screen / of them whole, at the CANVAS sizes these windows
+   * really give the drawing (the inspector column is a fixed 320px):
+   *
+   *     1600x1000   57n 25/24   600n 32/29   1500n 32/30   3531n 28/27
+   *     1100x800    57n 14/ 8   600n 14/12   1500n 20/13   3531n 21/13
+   *      900x700    57n  8/ 8   600n  6/ 6   1500n  7/ 6   3531n 12/12
+   *
+   * -- against 18/17, 30/24, 18/18, 13/13 and 9/5, 12/7, 14/9, 8/8 before, with at most one
+   * leading cut in every one of the twelve and no chip below 29% of itself. */
+  function snapAxis(
+    edge: number,
+    origin: number,
+    extent: number,
+    spans: ReadonlyArray<{ lo: number; hi: number }>,
+    limit: number,
+    leadingWeight: number,
+    unit: number,
+    /** How many leading cuts this axis may have WITHOUT paying, which is the cap less whatever
+     * the other axis is already spending. See SNAP_MAX_LEADING_CUTS: the promise is about the
+     * FRAME -- "at most one card loses the start of its name" -- and a frame has two leading
+     * edges. Given to each axis separately, a cap of one is a cap of two. */
+    allowance: number,
+  ): number {
+    const cut = (at: number): number => {
+      let n = 0
+      for (const span of spans) if (span.lo < at && span.hi > at) n++
+      return n
+    }
+    /** What a frame whose leading edge is `at` holds END TO END, in CARDS' WORTH -- the content
+     * it is worth.
+     *
+     * NOT A COUNT OF BOXES, and that was the second thing wrong with this score. `spans` is every
+     * card AND every edge chip, and a chip is a label -- a fifth the width of a card, and there
+     * are more of them than there are cards on any pack with edges. Counting them alike made the
+     * content term mostly a count of chips: on a 600-node pack a frame holding forty chips whole
+     * beat one holding three more CARDS, which is the opposite of what a reader wants and is how
+     * "the opening frame holds one whole card" survived a rule that was supposed to be scoring
+     * content. A box is worth its share of a card, capped at one, so three cards is three and
+     * forty chips is eight -- and the thing being counted is the thing the budget counts. */
+    const held = (at: number): number => {
+      let n = 0
+      for (const span of spans) if (span.lo >= at && span.hi <= at + extent) n += Math.min(1, (span.hi - span.lo) / unit)
+      return n
+    }
+    /** The one thing no amount of content may buy: a SECOND box cut by the leading edge.
+     *
+     * Everything else here is a weighing -- cuts against content, at a rate that depends on how
+     * much this panel can show -- and a weighing is the right shape for every part of this
+     * problem but one. Once content is worth more on a small canvas (which is the fix, see
+     * SNAP_LEADING_FULL_CAPACITY), a leading cut is correspondingly cheap there, and a big enough
+     * pile of whole cards will happily buy four of them: measured, exactly that, 4 cards sliced
+     * down their left edge on a 600-node pack at 1100x800. "Nothing loses the start of its name"
+     * is not a preference to be outbid, so it is priced out of the auction rather than entered
+     * in it. Anything at or below the cap pays nothing; each one above it costs more than any
+     * frame's entire content can be worth.
+     *
+     * A PENALTY AND NOT A FILTER, because the AIM can already be over the cap -- it is chosen for
+     * density and knows nothing about edges -- and a filter would then reject every candidate
+     * including the improvements. Scored this way, a frame with one leading cut always beats one
+     * with four, and the snap still tidies a frame that starts out worse than the cap allows. */
+    const overCap = (at: number): number => Math.max(0, cutCards(at) - allowance) * SNAP_OVER_CAP_COST
+
+    /** Leading cuts through CARD-SIZED boxes only -- what the cap is about.
+     *
+     * `cut` counts every box alike, cards and edge chips together, and there are several chips
+     * per card on any pack with edges. A cap applied to that number is a far harsher rule than
+     * the one intended ("at most one CARD loses the start of its name"), and it is harsh in the
+     * wrong direction: it drove the frame to wherever the fewest chips straddled an edge, which
+     * on the 600-node pack meant a place that left one chip showing 6% of itself. Chips have
+     * their own rule and it is a weighing, not a cap -- see `slivers`, and the opening budget's
+     * own note on why cards are absolute and chips are not. */
+    const cutCards = (at: number): number => cardsCutAt(at, spans, unit)
+
+    /** What a frame whose leading edge is `at` slices, counting both of its edges. `leadingWeight`
+     * is the rate for THIS frame -- a fixed three is a rate for a panel with room for a hundred
+     * cards, and on one with room for forty it makes the emptiest frame win again. See
+     * SNAP_LEADING_FULL_CAPACITY. */
+    const cuts = (at: number): number => leadingWeight * cut(at) + cut(at + extent)
+    // NOTHING IS SLICED: leave the aim exactly where it is. This is the snap's whole remit -- it
+    // tidies a frame that cuts something and otherwise has no opinion -- and it is also what
+    // makes a second call a no-op, which the renderer's own tests pin.
+    if (cuts(edge) === 0) return edge
+    /** What the frame is worth: what it slices, less what it holds. */
+    /** Boxes the frame leaves an UNREADABLE SLIVER of: on screen, and less than a quarter there.
+     *
+     * A cut is a cut to `cuts` above, and for a card that is the right reading -- a card cut in
+     * half is half a card and still says which feature it is. For a CHIP it is not: a chip is a
+     * label and nothing else, so a chip reduced to its first glyph reads as a word, is not one,
+     * and is worse than a chip that is simply absent. The budget has always asserted this (at
+     * least a quarter of the worst chip still showing); it held because content was counted per
+     * BOX, which made every chip worth as much as a card. Now that content is counted in cards'
+     * worth -- which is what stopped forty chips outvoting three cards -- a chip is worth a
+     * seventh of one, and the snap stopped minding what it did to them: measured, a chip down to
+     * 6% of itself. So the thing the budget actually asserts is scored, rather than being a side
+     * effect of how content happened to be counted. */
+    const slivers = (at: number): number => {
+      let n = 0
+      for (const span of spans) {
+        const length = span.hi - span.lo
+        if (!(length > 0)) continue
+        const visible = Math.min(span.hi, at + extent) - Math.max(span.lo, at)
+        if (visible > 0 && visible / length < SNAP_SLIVER_SHARE) n++
+      }
+      return n
+    }
+    const cost = (at: number): number => overCap(at) + cuts(at) + SNAP_SLIVER_COST * slivers(at) - held(at)
+    const before = cost(edge)
+
+    // EVERY NEARBY BOUNDARY IS A CANDIDATE, AND EVERY CANDIDATE IS SCORED AGAINST EVERYTHING.
+    //
+    // Two earlier versions were narrower and both were wrong in ways this fixture caught. Taking
+    // the nearest boundary of whichever box happened to be cut oscillated: two columns straddling
+    // one edge at different offsets sent the frame off one and onto the other for ever. Scoring
+    // properly but only over the boundaries of the CUT boxes then left a chip sliced to 23% of
+    // itself, because every one of that handful of candidates sliced two cards instead -- while a
+    // boundary forty units further on, belonging to a box the frame was not touching at all, cut
+    // nothing. So the search is over every boundary within reach, nearest first.
+    //
+    // Quadratic in the number of boxes near one edge, which is a few hundred, run twice per axis
+    // on the open path and nowhere else.
+    const candidates: number[] = []
+    for (const span of spans) {
+      // Four per box: the two that put the LEADING edge on one of its sides, and the two that put
+      // the TRAILING edge there. A trailing-edge alignment is just a leading edge one viewport
+      // further back, which is why they can all be scored as the same number.
+      for (const at of [span.lo - SNAP_GUTTER, span.hi, span.lo - extent, span.hi + SNAP_GUTTER - extent]) {
+        // Measured from where the AIM put the camera, not from where this pass starts, so
+        // several passes cannot walk the frame across the drawing a quarter of a screen at a
+        // time. The cap is a promise about the whole snap.
+        if (Math.abs(at - origin) <= limit) candidates.push(at)
+      }
+    }
+    candidates.sort((a, b) => Math.abs(a - edge) - Math.abs(b - edge))
+    let best = edge
+    let bestCost = before
+    for (const candidate of candidates) {
+      const score = cost(candidate)
+      // Strictly better only: the list is already ordered by distance, so the first candidate at
+      // a given cost is the closest one that achieves it, and nothing later can improve on it
+      // without costing less.
+      if (score >= bestCost) continue
+      bestCost = score
+      best = candidate
+      // NO EARLY EXIT AT ZERO. There used to be one, from when the score was a count of cuts and
+      // zero meant a perfect frame. It no longer does -- a score is cuts less content, so zero is
+      // just "one sliced card's worth of cards on screen" and the frame next door may hold five
+      // more. The whole list is a few hundred numbers, scanned once per axis on the open path.
+    }
+    return best
+  }
+
+  /** THE OPENING FRAME MUST NOT CUT ANYTHING IN HALF.
+   *
+   * Aiming the camera at the densest screenful (webview/graph.ts) answers "is there anything
+   * here" and says nothing about where the frame LANDS, so it landed mid-card. Measured on the
+   * 57-node fixture at 1440x900: nineteen cards intersected the canvas and only eleven were
+   * whole; five shared `left = -48`, i.e. a 209-px card with 23% of it -- the start of its
+   * identifier, the only part that tells you which feature it is -- outside the frame. At pack
+   * size the cards survive and the CHIPS do not: thirteen of forty-three cut, three of them
+   * (`x55`, `x19`, `x63`) at `left = -4` with a single glyph showing, which is worse than absent
+   * because a fragment still asks to be read.
+   *
+   * So after the camera is aimed, it is snapped to the nearest real boundary of whatever its
+   * edges were cutting. Both axes, several passes -- moving x can bring a different card under
+   * the top edge -- and never further than half a screen, so this tidies the frame the aim chose
+   * rather than choosing a different one.
+   *
+   * ALL FOUR EDGES, not just the two leading ones. The frame's width is fixed by the zoom, so
+   * moving the left edge onto a clean boundary moves the right edge by the same amount onto
+   * whatever is there -- which is how a snap that only scored `camera.x`/`camera.y` left a
+   * constant ~155-unit overhang on the right at every pack size, cards sliced mid-identifier, in
+   * a frame whose left edge was immaculate. The two cannot always both be clean (see
+   * SNAP_LEADING_WEIGHT for what is preferred when they conflict, and why).
+   *
+   * CHIPS ARE MEASURED, NOT COMPUTED. A chip's width is its text, so the only honest source is
+   * the element, and `offsetWidth` on something inside `world` is already in world units (the
+   * camera is a transform on the ancestor, and layout happens under it). One forced layout, once,
+   * on the open path.
+   *
+   * Call it after the camera has been aimed; it applies the camera itself. */
+  function snapCameraToWholeCards(): void {
+    // The aim is still sitting in a scheduled frame, and this has to measure where things ARE.
+    if (frame !== 0) {
+      cancelAnimationFrame(frame)
+      frame = 0
+    }
+    applyCamera()
+    // FORCED, because culling has hysteresis: the kept band is half a viewport wider than the
+    // viewport, so the small moves this makes never leave it and the drawn set never updates.
+    // A snap that reasoned about the drawn set alone would move the frame off one card and stop,
+    // and the card it uncovered -- still marked culled, still absent from the spans -- would be
+    // the one cut in the screenshot. Measured exactly that: a second call to this function moved
+    // the camera again.
+    cull(true)
+    const first = cameraRect()
+    if (!(first.w > 0) || !(first.h > 0)) return
+    const limit = Math.min(first.w, first.h) * SNAP_MAX_FRACTION
+
+    /** The boxes each edge of `view` could be cutting, one list per axis. Rebuilt every pass
+     * because every move un-culls something: see the loop. */
+    const spansIn = (view: WorldRect): { xs: { lo: number; hi: number }[]; ys: { lo: number; hi: number }[] } => {
+      const xs: { lo: number; hi: number }[] = []
+      const ys: { lo: number; hi: number }[] = []
+      const add = (x: number, y: number, w: number, h: number): void => {
+        // Only things the frame could actually be cutting: a card far above the viewport shares
+        // no row with the left edge and has no opinion about where it should be.
+        if (y < view.y + view.h && y + h > view.y) xs.push({ lo: x, hi: x + w })
+        if (x < view.x + view.w && x + w > view.x) ys.push({ lo: y, hi: y + h })
+      }
+      // EVERY card, not just the drawn ones: a card's rect is known whether or not its subtree is
+      // in the document, and `drawn` is an answer about a band half a screen wider than the frame
+      // rather than about the frame. One flat pass over 3,531 rects, once, on the open path.
+      for (const visual of nodeVisuals) add(visual.rect.x, visual.rect.y, visual.rect.w, visual.rect.h)
+      for (const visual of edgeVisuals) {
+        if (!visual.drawn || visual.chip.parentNode === null) continue
+        const w = visual.chip.offsetWidth
+        const h = visual.chip.offsetHeight
+        if (w === 0 || h === 0) continue
+        // `left`/`top` are the chip's CENTRE -- graph.css translates it by -50%.
+        add(parseFloat(visual.chip.style.left) - w / 2, parseFloat(visual.chip.style.top) - h / 2, w, h)
+      }
+      return { xs, ys }
+    }
+    /** Cards cut by EITHER leading edge of this frame -- the number SNAP_MAX_LEADING_CUTS is
+     * about, and the number the opening budget asserts. */
+    const leadingCards = (view: WorldRect, xs: { lo: number; hi: number }[], ys: { lo: number; hi: number }[]): number =>
+      cardsCutAt(view.x, xs, GRAPH_NODE_WIDTH) + cardsCutAt(view.y, ys, GRAPH_NODE_HEIGHT)
+
+    // Several passes, not one: moving x brings a different card under the top edge, moving y
+    // brings a different one under the left, and each move also un-culls whatever it revealed --
+    // so the set being reasoned about grows as the frame settles. It terminates on its own, by
+    // returning the first time a pass asks for no move; the cap is only there so a pathological
+    // layout cannot spin.
+    //
+    // AND THE CAP IS NOT A HYPOTHETICAL, which is what this loop used to assume. Measured on the
+    // 1500-node fixture at 1000x750 and at 1440x900, the frame was still moving on the eighth
+    // pass -- and the eighth move was applied and never scored, because the scoring happens at the
+    // TOP of a pass and there was no ninth. The reader got whichever frame the loop happened to
+    // stop on: two cards cut down their TOP edge, against a cap of one, in a run where every
+    // frame the search had actually scored cut at most one. That is the whole of the reported
+    // y-axis defect -- the x axis was clean in the same runs only because the x score happened to
+    // settle first. So the best frame any pass MEASURED is remembered, and a loop that runs out
+    // of passes falls back to it rather than to wherever it was standing.
+    let best: { x: number; y: number; cut: number } | null = null
+    for (let pass = 0; pass < 8; pass++) {
+      const view = cameraRect()
+      const { xs, ys } = spansIn(view)
+      const cut = leadingCards(view, xs, ys)
+      if (best === null || cut < best.cut) best = { x: view.x, y: view.y, cut }
+      // One rate for the whole frame, both axes: it is a fact about how much this panel can show,
+      // and the two axes of one panel do not disagree about that.
+      const leadingWeight = leadingWeightFor(view)
+      // THE ALLOWANCE IS PER AXIS AND IS DELIBERATELY NOT SPLIT BETWEEN THEM, which was tried and
+      // measured. SNAP_MAX_LEADING_CUTS is a promise about the FRAME, and a frame has two leading
+      // edges, so a full allowance on each is arithmetically a cap of two -- but scoring x first
+      // and giving y only what x left over bought that arithmetic by slicing edge CHIPS instead:
+      // down to 25% of themselves at 1100x800 and four of them cut at 1600x1000, against a budget
+      // that forbids a chip below a quarter and more than three of them. A leading cut this frame
+      // does not have is not worth a label nobody can read (see SNAP_SLIVER_COST for the same
+      // trade made the other way round). What keeps the TOTAL at one is that each axis is honestly
+      // scored and the loop below no longer leaves an unscored frame behind.
+      const x = snapAxis(view.x, first.x, view.w, xs, limit, leadingWeight, GRAPH_NODE_WIDTH, SNAP_MAX_LEADING_CUTS)
+      const y = snapAxis(view.y, first.y, view.h, ys, limit, leadingWeight, GRAPH_NODE_HEIGHT, SNAP_MAX_LEADING_CUTS)
+      if (x === view.x && y === view.y) return
+      camera = { ...camera, x, y }
+      applyCamera()
+      cull(true)
+    }
+    // THE PASSES RAN OUT. The move that ended the loop was never scored against the spans it
+    // produced, so it is scored now, and the best frame the search actually measured wins.
+    const settled = cameraRect()
+    const { xs, ys } = spansIn(settled)
+    if (best !== null && best.cut < leadingCards(settled, xs, ys)) {
+      camera = { ...camera, x: best.x, y: best.y }
+      applyCamera()
+      cull(true)
+    }
   }
 
   // -- one run's measurements, on the cards -------------------------------
@@ -3601,8 +5239,19 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     wrap.title = stats.summary
 
     const wrote = el('span', 'flg-node-stat flg-node-stat-writes')
-    wrote.textContent = `${formatStatCount(stats.blocksWritten)} blk`
-    wrote.title = 'Blocks this feature wrote in this run while it was the innermost one executing. A sub-feature\u2019s writes are its own, not this one\u2019s.'
+    // "wr", NOT "blk", and the two panels are why.
+    //
+    // This counter and the preview's PLACED tile were both labelled "blocks" while counting two
+    // different things off the same run: 110 here against 79 there, with nothing on either screen
+    // saying they were not the same quantity, and only the attribution readout ("79 block(s), 110
+    // write(s)") reconciling them. They cannot be made to agree, because neither is wrong -- a
+    // feature that writes one cell twice spends two writes on one block. So they are named apart:
+    // this side counts WRITES PERFORMED, the preview counts CELLS ENDED UP WITH A BLOCK IN THEM.
+    // See nodeStats.ts's RunTotals.blocksWritten, which has always said so in the data.
+    wrote.textContent = `${formatStatCount(stats.blocksWritten)} wr`
+    wrote.title =
+      'Writes this feature performed in this run while it was the innermost one executing. A sub-feature\u2019s writes are its own, not this one\u2019s.\n' +
+      'Writes, not cells: a feature that writes the same cell twice counts twice here, which is why this can exceed the preview\u2019s PLACED count.'
     wrap.append(wrote)
 
     const ran = el('span', 'flg-node-stat flg-node-stat-entered')
@@ -3667,23 +5316,387 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
    * edge leaving the node for a stop about the whole node. The mark is a class and an SVG title,
    * so hovering the line says why nothing went down it. */
   function applyEdgeStops(): void {
-    for (const group of edgeLayer.querySelectorAll('.flg-edge-stopped')) {
-      group.classList.remove('flg-edge-stopped')
-      group.querySelector(':scope > title.flg-edge-stop-title')?.remove()
-    }
-    if (nodeStats === null) return
-    for (const edge of graph.edges) {
-      const stops = nodeStats.get(edge.from)?.stops
-      if (stops === undefined || stops.length === 0) continue
-      const applying = stops.filter((stop) => stop.ordinal === undefined || stop.ordinal === edge.ordinal)
-      if (applying.length === 0) continue
-      const group = edgeLayer.querySelector(`[data-edge-key="${CSS.escape(edgeKey(edge))}"]`)
-      if (group === null) continue
-      group.classList.add('flg-edge-stopped')
+    // OVER THE REGISTRY, NOT THE LAYER. The layer holds only the edges the camera can see; an
+    // edge that is culled still has to carry its stop, because the class is what it will be drawn
+    // with when it scrolls back into view. Querying the DOM would have applied a run's findings to
+    // whatever happened to be on screen when the preview finished.
+    for (const visual of edgeVisuals) {
+      const stops = nodeStats?.get(visual.edge.from)?.stops
+      const applying = stops?.filter((stop) => stop.ordinal === undefined || stop.ordinal === visual.edge.ordinal) ?? []
+      const on = applying.length > 0
+      const had = visual.group.classList.contains('flg-edge-stopped')
+      if (!on) {
+        if (had) {
+          visual.group.classList.remove('flg-edge-stopped')
+          visual.group.querySelector(':scope > title.flg-edge-stop-title')?.remove()
+        }
+        continue
+      }
+      if (had) visual.group.querySelector(':scope > title.flg-edge-stop-title')?.remove()
+      visual.group.classList.add('flg-edge-stopped')
       const title = svg('title', 'flg-edge-stop-title')
       title.textContent = applying.map((stop) => stop.title).join('\n')
-      group.prepend(title)
+      visual.group.prepend(title)
     }
+  }
+
+  /** How much one press of `+` or `-` changes the zoom. One number, so the key and whatever a
+   * host wires to the same key cannot drift apart. */
+  const KEY_ZOOM_STEP = 1.2
+
+  function zoomBy(factor: number): void {
+    const box = root.getBoundingClientRect()
+    zoomAt(box.left + box.width / 2, box.top + box.height / 2, factor)
+  }
+
+  function toggleLegend(): void {
+    legend?.toggle()
+  }
+
+  // -------------------------------------------------------------------------
+  // THE ROVING TAB STOP
+  //
+  // WHAT WAS WRONG. Every card, every connector handle and every edge chip carried
+  // `tabindex=0`, which on the fixture pack is 141 tab stops inside one `<div>`: measured, a Tab
+  // out of the toolbar reached the first card on the eighth press and left the canvas on the
+  // 136th. Worse than the count was where it landed -- the cards are in GRAPH order, not in
+  // screen order, so the eighth press focused a card at world {x:-281, y:-463} while the camera
+  // stayed put. Chromium's accessibility tree said "focused"; the screen showed nothing.
+  //
+  // WHAT REPLACES IT, and it is the ordinary composite-widget pattern: the canvas is ONE tab
+  // stop. Exactly one card carries `tabindex=0` at a time -- the "roving" one -- and everything
+  // else on the canvas is `-1`: focusable when something focuses it, never reached by Tab. The
+  // arrows walk the roving stop from card to card in SCREEN geometry, and a card taking focus
+  // brings the camera to it, so the focus ring is never somewhere the reader is not.
+  //
+  // THE ROOT'S OWN `tabindex` MOVES WITH IT. While there is a roving card the root is `-1`, so
+  // the canvas does not offer two stops; with no cards at all (an empty pack) the root takes the
+  // 0 back, because a canvas you cannot Tab to is not better than one you can Tab past. Clicking
+  // the background still focuses the root -- `-1` is focusable -- so the arrows still pan there,
+  // which is the one thing the root's own key handler is for.
+  // -------------------------------------------------------------------------
+
+  /** Which card is the canvas's tab stop, or null when none is (an empty graph). */
+  let rovingId: string | null = null
+
+  function setRoving(nodeId: string | null): void {
+    const next = nodeId === null ? null : (nodeElements.get(nodeId) ?? null)
+    if (rovingId !== null && rovingId !== nodeId) {
+      const previous = nodeElements.get(rovingId)
+      // Guarded: the element may already have been replaced by a render, in which case the new
+      // one is born at -1 anyway and there is nothing to take back.
+      if (previous) previous.tabIndex = -1
+    }
+    rovingId = next === null ? null : nodeId
+    if (next) next.tabIndex = 0
+    root.tabIndex = next === null ? 0 : -1
+  }
+
+  /** The card the tab stop should sit on when nobody has chosen one: whatever is nearest the
+   * middle of what is on screen, so Tabbing into the canvas lands on something the reader is
+   * already looking at rather than on whichever node the engine happened to emit first. */
+  function chooseRoving(): void {
+    const view = cameraRect()
+    const cx = view.x + view.w / 2
+    const cy = view.y + view.h / 2
+    let best: string | null = null
+    let bestScore = Infinity
+    for (const visual of nodeVisuals) {
+      if (!nodeElements.has(visual.id)) continue
+      const dx = visual.rect.x + visual.rect.w / 2 - cx
+      const dy = visual.rect.y + visual.rect.h / 2 - cy
+      const score = dx * dx + dy * dy
+      if (score < bestScore) {
+        bestScore = score
+        best = visual.id
+      }
+    }
+    setRoving(best)
+  }
+
+  /** The camera, applied NOW rather than on the next frame.
+   *
+   * Every keyboard move through the cards reads a box immediately afterwards -- "is the thing I
+   * just focused on screen" is the whole question -- and a camera sitting in a requested frame
+   * answers it about where the camera used to be. Same shape as snapCameraToWholeCards, and for
+   * the same reason. */
+  function applyCameraNow(): void {
+    if (frame !== 0) {
+      cancelAnimationFrame(frame)
+      frame = 0
+    }
+    applyCamera()
+  }
+
+  /** Moves the keyboard to a card: makes it the tab stop, brings the camera if it is not already
+   * on screen, and focuses it. The one path every keyboard move through the cards takes. */
+  function focusCard(nodeId: string): void {
+    const box = nodeElements.get(nodeId)
+    if (!box) return
+    setRoving(nodeId)
+    // `preventScroll`, because the canvas moves its own camera. Letting the browser scroll the
+    // host instead would slide the whole panel under the toolbar and leave the world transform
+    // disagreeing with what is on screen.
+    box.focus({ preventScroll: true })
+  }
+
+  /** Cards in READING ORDER -- rows down the screen, left to right within a row. Home and End
+   * mean the two ends of that, which is the order a reader would give if asked to point at the
+   * first card. Banded by half a card height so a row that is not perfectly aligned still reads
+   * as a row. */
+  function readingOrder(): string[] {
+    const ids: string[] = []
+    for (const visual of nodeVisuals) if (nodeElements.has(visual.id)) ids.push(visual.id)
+    const band = Math.max(1, GRAPH_NODE_HEIGHT / 2)
+    ids.sort((a, b) => {
+      const ra = rects.get(a)
+      const rb = rects.get(b)
+      if (!ra || !rb) return 0
+      const rowA = Math.round(ra.y / band)
+      const rowB = Math.round(rb.y / band)
+      return rowA === rowB ? ra.x - rb.x : rowA - rowB
+    })
+    return ids
+  }
+
+  /** The card an arrow key should move to from `fromId`, or null when there is nothing that way.
+   *
+   * SCREEN GEOMETRY, not graph order. An arrow means a direction on the drawing, so the
+   * candidate has to actually BE in that direction: its centre must be past `fromId`'s along the
+   * pressed axis, and further along it than it is sideways (the 45-degree cone every directional
+   * navigation uses). Among those, the nearest wins, with sideways distance counted double so a
+   * card in the same column beats one that is slightly nearer but a column over. */
+  function cardInDirection(fromId: string, dx: number, dy: number): string | null {
+    const from = rects.get(fromId)
+    if (!from) return null
+    const fx = from.x + from.w / 2
+    const fy = from.y + from.h / 2
+    let best: string | null = null
+    let bestScore = Infinity
+    for (const visual of nodeVisuals) {
+      if (visual.id === fromId || !nodeElements.has(visual.id)) continue
+      const cx = visual.rect.x + visual.rect.w / 2 - fx
+      const cy = visual.rect.y + visual.rect.h / 2 - fy
+      const along = dx !== 0 ? cx * dx : cy * dy
+      const across = dx !== 0 ? Math.abs(cy) : Math.abs(cx)
+      if (along <= 0 || along < across) continue
+      const score = along + across * 2
+      if (score < bestScore) {
+        bestScore = score
+        best = visual.id
+      }
+    }
+    return best
+  }
+
+  // -- stepping INTO a card: the handles and the chips ----------------------
+  //
+  // Taking the connector handles and the edge chips out of the tab sequence would have made them
+  // unreachable, which is a worse failure than the one it fixes. They are reached from the card
+  // they belong to instead, on F2 -- the key WAI-ARIA's own grid pattern uses for "work inside
+  // this cell", and one nothing else on this panel or in VS Code's webview host claims. F2 again
+  // steps to the next control and round to the card; Escape goes straight back to the card.
+  //
+  // The ring is the card's OWN connections, in the order they leave it: the connector handle
+  // first, then every outgoing delegation's chip. A chip therefore belongs to exactly one card
+  // -- its `from` -- so every chip on the canvas is reachable, each from one place, and the
+  // reader gets there through the node the edge is about rather than by Tabbing across the
+  // drawing hoping to meet it.
+
+  /** The controls that belong to one card, in ring order. Only what is actually in the document:
+   * a chip whose edge is culled is not on screen and must not be a stop on the way round. */
+  function cardControls(nodeId: string): HTMLElement[] {
+    const box = nodeElements.get(nodeId)
+    if (!box) return []
+    const out: HTMLElement[] = []
+    for (const control of box.querySelectorAll<HTMLElement>('.flg-node-port, .flg-group-chevron, .flg-node-fan-in')) {
+      // ONLY WHAT IS DRAWN. The zoom bands take the connector handle off the card entirely past
+      // `far` (graph.css) -- at that scale it would be most of the box -- and `display: none` is
+      // not focusable: F2 would step onto nothing and the ring would appear to be broken.
+      if (control.offsetWidth === 0 && control.offsetHeight === 0) continue
+      out.push(control)
+    }
+    for (const visual of edgeVisuals) {
+      if (visual.edge.from !== nodeId) continue
+      if (!visual.drawn || visual.chip.parentNode === null) continue
+      if (visual.chip.offsetWidth === 0 && visual.chip.offsetHeight === 0) continue
+      out.push(visual.chip)
+    }
+    return out
+  }
+
+  /** Which card a control on the canvas belongs to, or null for anything that is not one. */
+  function controlOwner(element: Element): string | null {
+    if (!(element instanceof HTMLElement)) return null
+    const port = element.dataset['portFor']
+    if (port !== undefined) return port
+    const chip = element.dataset['chipFrom']
+    if (chip !== undefined) return chip
+    const fan = element.dataset['fanFor']
+    if (fan !== undefined) return fan
+    if (element.classList.contains('flg-group-chevron')) {
+      const card = element.closest<HTMLElement>('.flg-node')
+      return card?.dataset['nodeId'] ?? null
+    }
+    return null
+  }
+
+  /** F2: the next stop on the focused card's ring, wrapping back to the card itself. */
+  function stepIntoCard(target: Element): boolean {
+    const owner = controlOwner(target)
+    if (owner !== null) {
+      const ring = cardControls(owner)
+      const at = ring.indexOf(target as HTMLElement)
+      const next = at < 0 ? ring[0] : ring[at + 1]
+      if (next === undefined) {
+        focusCard(owner)
+        return true
+      }
+      next.focus({ preventScroll: true })
+      return true
+    }
+    const card = target.closest<HTMLElement>('.flg-node')
+    const id = card?.dataset['nodeId']
+    if (id === undefined) return false
+    const first = cardControls(id)[0]
+    if (first === undefined) return false
+    first.focus({ preventScroll: true })
+    return true
+  }
+
+  /** Ctrl+Space's answer: `nodeId` added to what is selected, or taken out of it if it was
+   * already there. The SAME arithmetic ctrl+click has always used -- see withModifier, which now
+   * calls this rather than carrying a second copy of the rule that could disagree with it. */
+  function toggledSelection(nodeId: string): GraphSelection {
+    const held = selection?.kind === 'group' ? groupCardNodeId(selection.groupId) : null
+    const current: string[] =
+      selection?.kind === 'nodes'
+        ? [...selection.nodeIds]
+        : selection?.kind === 'node'
+          ? [selection.nodeId]
+          : held === null
+            ? []
+            : [held]
+    const without = current.filter((id) => id !== nodeId)
+    return selectionOfNodes(without.length === current.length ? [...current, nodeId] : without)
+  }
+
+  /** Every key the CARDS answer, from one capture listener on the root.
+   *
+   * Capture, and on the root, for two reasons. One: it has to beat the per-card Enter/Space
+   * handler that makeSelectable installs, which would otherwise select on Ctrl+Space as well as
+   * toggle. Two: a listener per card was a closure per card, 3,531 of them on a real pack, all
+   * identical.
+   *
+   * ARROWS NAVIGATE, ALT+ARROWS MOVE. That is the swap this made, and it is the conventional
+   * way round: in every list, tree and grid a reader has used, the arrows go somewhere, and
+   * VS Code itself moves the thing under the cursor on Alt+Up/Down. Nudging a card was on the
+   * bare arrows because nothing else claimed them; navigating fifty-seven cards had nothing at
+   * all, which is why it cost 128 Tabs. Shift still picks the larger step, so Alt+Shift+Arrow
+   * is the old Shift+Arrow. */
+  function onCanvasKeys(event: KeyboardEvent): void {
+    // A connection in the hand owns Enter and Escape -- onLinkKeyCapture, registered before this
+    // one, is the handler for that mode.
+    if (link !== null) return
+    if (event.defaultPrevented) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+
+    // Escape on a handle or a chip steps back out to the card, rather than clearing the
+    // selection: the reader went in with F2 and the way out of a thing you stepped into is
+    // Escape. Escape on the card itself still reaches onKeyDown and still clears the selection.
+    if (event.key === 'Escape') {
+      const owner = controlOwner(target)
+      if (owner === null) return
+      event.preventDefault()
+      event.stopPropagation()
+      focusCard(owner)
+      return
+    }
+
+    if (event.key === 'F2') {
+      if (!stepIntoCard(target)) return
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+
+    const card = target.closest<HTMLElement>('.flg-node')
+    // Which card the keyboard is ON -- the card itself, or one of the controls that belong to it
+    // after an F2 step in. Ctrl+Space answers for either, because "add what I am looking at to
+    // the selection" does not stop being true because the ring moved one stop.
+    const owner = controlOwner(target) ?? card?.dataset['nodeId']
+    if (owner === undefined || owner === null) return
+
+    // CTRL+SPACE: the focused card in or out of the selection.
+    //
+    // WHY THIS CHORD. Space alone already means "select just this" and has since the canvas was
+    // written; ctrl is what every file manager and every drawing tool adds to Space or to a
+    // click to mean "and keep what I had", so it needs nothing learned. Against VS Code's own
+    // bindings it is free inside this panel: ctrl+space is `editor.action.triggerSuggest`, whose
+    // `when` is `editorTextFocus`, and a webview is not an editor -- there is no text editor
+    // focused while this canvas has the keyboard, so the workbench has nothing bound to take.
+    // Shift+click's range and ctrl+click's toggle were the only ways to build a selection, both
+    // of them a mouse; Ctrl+G, naming, collapse, ungroup and the member remove were all reachable
+    // by keyboard and all unreachable in practice, because step one was not.
+    if (event.key === ' ' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      event.stopPropagation()
+      emitSelect(toggledSelection(owner))
+      return
+    }
+
+    // Everything below MOVES the tab stop, so it only answers on the card itself: the arrows
+    // inside a card's ring belong to the ring (see stepIntoCard), and a port that navigated
+    // away from its own card would be a control that cannot be left except by leaving.
+    if (card === null || card !== target) return
+    const id = owner
+
+    if (event.key === 'Home' || event.key === 'End') {
+      const order = readingOrder()
+      const next = event.key === 'Home' ? order[0] : order[order.length - 1]
+      if (next === undefined) return
+      event.preventDefault()
+      event.stopPropagation()
+      focusCard(next)
+      return
+    }
+
+    const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
+    const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0
+    if (dx === 0 && dy === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.altKey) {
+      const step = event.shiftKey ? NUDGE_STEP_LARGE : NUDGE_STEP
+      nudgeNode(id, dx * step, dy * step)
+      return
+    }
+    const next = cardInDirection(id, dx, dy)
+    if (next !== null) focusCard(next)
+  }
+
+  /** A card taking focus BRINGS THE CAMERA WITH IT.
+   *
+   * On focus rather than on the arrow key, so it holds for every way a card can come to have the
+   * keyboard: the arrows, a host calling `.focus()` on a card it found by id, the browser
+   * restoring focus after a re-render. The audit's finding was not "the arrow key does not move
+   * the camera", it was ":focus-visible elements inside the viewport: 0" -- a property of focus,
+   * fixed where focus happens.
+   *
+   * Only when the card is not already on screen, and always synchronously: a card the reader can
+   * already see must not be yanked into the middle on every press, and a camera left in a
+   * requested frame would be a card that is on screen one frame after anything measures it. */
+  function onCanvasFocusIn(event: FocusEvent): void {
+    const target = event.target
+    if (!(target instanceof HTMLElement)) return
+    const card = target.closest<HTMLElement>('.flg-node')
+    const id = card?.dataset['nodeId'] ?? controlOwner(target)
+    if (id === undefined || id === null) return
+    if (rovingId !== id) setRoving(id)
+    if (isOnScreen(id)) return
+    focusNode(id)
+    applyCameraNow()
   }
 
   function focusNode(nodeId: string): void {
@@ -3695,6 +5708,10 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     const c = centerOf(rect)
     camera = { ...camera, x: c.x - width / (2 * camera.zoom), y: c.y - height / (2 * camera.zoom) }
     scheduleCamera()
+    // The card the camera was just put on is the card the canvas's one tab stop should sit on.
+    // A host that centred on a search hit, a newly created node or a delete's casualty has said
+    // which card the reader is looking at; Tab has to agree with that or it goes somewhere else.
+    if (nodeElements.has(nodeId)) setRoving(nodeId)
   }
 
   applyCamera()
@@ -3745,16 +5762,44 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       scheduleCamera()
     },
     zoomToFit,
+    snapCameraToWholeCards,
+    getFitReport,
+    zoomBy,
+    toggleLegend,
+    isLegendOpen: () => legend?.open ?? false,
+    isMinimapCollapsed: () => minimap?.collapsed ?? false,
     focusNode,
+    getRenderStats: () => ({ nodes: nodeVisuals.length, edges: edgeVisuals.length, nodesDrawn, edgesDrawn, nodesInView }),
+    setHighlight(ids: ReadonlySet<string> | null): void {
+      highlighted = ids
+      // A STATE MARKER ONLY, like `flg-has-focus`: no rule in graph.css hangs a descendant off
+      // it, which is what makes writing it on the root free. See applyQuieting.
+      root.classList.toggle('flg-has-highlight', ids !== null)
+      // Over the CARDS and not a query, because a culled card is not in the document and a
+      // query would miss it -- but only over the drawn ones, because a card nobody can see does
+      // not need the class until cull() brings it back, and that is where it gets it.
+      applyHighlightDim()
+      if (minimap) minimap.setHighlight(ids)
+    },
+    setLegendOpen(open: boolean): void {
+      legend?.setOpen(open)
+    },
+    setMinimapCollapsed(collapsed: boolean): void {
+      minimap?.setCollapsed(collapsed)
+    },
     setNodeStats(next: ReadonlyMap<string, NodeCardStats> | null): void {
       nodeStats = next
       // In place, over the cards that are already drawn -- see the interface's own doc comment
       // for why this is not a re-render.
+      // NO CARD CHANGES SIZE. cardHeight reserves the fan line on every card precisely so a run's
+      // row has somewhere to go, and a card that grew here would shift every card below it and
+      // move the canvas under a pointer that had not moved.
       for (const [nodeId, box] of nodeElements) applyNodeStatsTo(box, nodeId)
       applyEdgeStops()
     },
     dispose(): void {
       disposed = true
+      sizeObserver?.disconnect()
       if (frame !== 0) cancelAnimationFrame(frame)
       frame = 0
       if (dragFrame !== 0) cancelAnimationFrame(dragFrame)
@@ -3774,6 +5819,17 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
       nudgeTimer = 0
       nudgeOrigins.clear()
       root.removeEventListener('keydown', onLinkKeyCapture, true)
+      root.removeEventListener('keydown', onKeyPan)
+      root.removeEventListener('keyup', onKeyPan)
+      root.removeEventListener('blur', onBlurLoseSpace)
+      legend?.dispose()
+      minimap?.dispose()
+      nodeVisuals.length = 0
+      nodeVisualById.clear()
+      drawnVisuals = []
+      nodesInView = 0
+      paintedKeys.clear()
+      culledFor = null
       root.removeEventListener('pointerdown', onPointerDown)
       root.removeEventListener('pointermove', onPointerMove)
       root.removeEventListener('pointerup', onPointerUp)

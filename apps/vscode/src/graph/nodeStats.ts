@@ -223,12 +223,17 @@ const STOP_REASONS: Readonly<Record<string, string>> = {
   no_surface: 'No surface to snap to',
   no_selection: 'Nothing to pick',
   sequence_first_failure: 'Stopped at first failure',
-  unresolved_reference: 'Reference not found',
+  // "Unresolved", because that is what the canvas calls this state everywhere else: the
+  // badge, the card, the legend row and the `is:unresolved` filter. A stop reason reading
+  // "Reference not found" was a sixth name for it, on a panel a click away from the other five.
+  unresolved_reference: 'Unresolved reference',
   recursion_guard: 'Recursion guard',
 }
 
 export interface StopDescription {
-  /** Short, for a badge: `stopped: iterations = 0 ×412`. */
+  /** Short, for a badge: `no iterations — iterations = 0 ×412`. The plain reason leads and the
+   * engine's own wording follows it, so the badge says something a reader can act on before they
+   * have to parse an expression. The preview panel phrases the same stop the same way. */
   readonly label: string
   /** Longer, for a tooltip: `No iterations: iterations = 0 (from 0.3). 412 times in this run.` */
   readonly title: string
@@ -242,7 +247,7 @@ export function describeStop(stop: StopStatWire): StopDescription {
   // A lost roll is luck, and the one stop where trying another seed is the right next step.
   const luck = stop.reason === 'chance_failed' ? ' Another seed may pass.' : ''
   return {
-    label: `stopped: ${stop.detail}${n > 1 ? ` ×${formatCount(n)}` : ''}`,
+    label: `${reason.charAt(0).toLowerCase()}${reason.slice(1)} — ${stop.detail}${n > 1 ? ` ×${formatCount(n)}` : ''}`,
     title: `${reason}${entry}: ${stop.detail}. ${formatCount(n)} ${plural(n, 'time')} in this run.${luck}`,
   }
 }
@@ -288,7 +293,11 @@ export function isDominantWriter(stats: NodeRunStats, totals: RunTotals): boolea
 export function describeNodeRun(stats: NodeRunStats, totals: RunTotals, options: NodeStatsOptions = {}): string {
   switch (stats.activity) {
     case 'wrote':
-      return `Wrote ${formatCount(stats.blocksWritten)} ${plural(stats.blocksWritten, 'block')} in this run (${formatShare(stats.writeShare)} of the run's ${formatCount(totals.blocksWritten)}), entered ${formatCount(stats.entered)} ${plural(stats.entered, 'time')}.`
+      // "writes", never "blocks" -- see RunTotals.blocksWritten. This counter and the preview's
+      // PLACED tile were both saying "blocks" about one run while counting two different things
+      // (110 writes against 79 cells), so the inspector and the panel next to it contradicted
+      // each other in plain words. The number is unchanged; only the noun was ever wrong.
+      return `Performed ${formatCount(stats.blocksWritten)} ${plural(stats.blocksWritten, 'write')} in this run (${formatShare(stats.writeShare)} of the run's ${formatCount(totals.blocksWritten)}), entered ${formatCount(stats.entered)} ${plural(stats.entered, 'time')}.`
     case 'stopped': {
       const first = stats.stops[0] as StopStatWire
       const more = stats.stops.length - 1
