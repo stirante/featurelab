@@ -1,0 +1,8 @@
+# Installed on its own (see package.json) -- never part of the root workspace install.
+node_modules/
+# VitePress build output and its Vite cache.
+.vitepress/dist/
+.vitepress/cache/
+# The esbuild bundle extract-catalog.mjs makes of the extension's catalogue modules. Rebuilt on
+# every run; never the source of anything.
+.cache/

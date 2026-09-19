@@ -1,0 +1,5 @@
+{
+  "features/beards_and_shavers": "engine/coverage#deliberate-scope-decisions",
+  "features/rect_layout": "engine/coverage#deliberate-scope-decisions",
+  "features/sculk_patch_feature": "engine/coverage#type-coverage"
+}

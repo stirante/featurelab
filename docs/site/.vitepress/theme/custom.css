@@ -1,0 +1,61 @@
+/* Badges (version pin, coverage) and the generated field reference's facts line. Colours are
+   the default theme's own tokens so both colour schemes work without a second palette. */
+
+.fl-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 20px;
+}
+
+.fl-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  border: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg-soft);
+  cursor: help;
+}
+.fl-badge--game { color: var(--vp-c-brand-1); border-color: var(--vp-c-brand-soft); background: var(--vp-c-brand-soft); }
+.fl-badge--also { color: var(--vp-c-text-2); }
+.fl-badge--recheck { color: var(--vp-c-warning-1); background: var(--vp-c-warning-soft); border-color: var(--vp-c-warning-soft); }
+.fl-badge--bench { color: var(--vp-c-warning-1); background: var(--vp-c-warning-soft); border-color: var(--vp-c-warning-soft); }
+.fl-badge--cov-implemented { color: var(--vp-c-tip-1); background: var(--vp-c-tip-soft); border-color: var(--vp-c-tip-soft); }
+.fl-badge--cov-partial { color: var(--vp-c-warning-1); background: var(--vp-c-warning-soft); border-color: var(--vp-c-warning-soft); }
+.fl-badge--cov-missing,
+.fl-badge--cov-out_of_scope { color: var(--vp-c-danger-1); background: var(--vp-c-danger-soft); border-color: var(--vp-c-danger-soft); }
+
+/* The schema-facts line under each generated field heading. */
+.fl-facts {
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  color: var(--vp-c-text-2);
+  margin: -8px 0 12px !important;
+}
+
+/* The wiki's `::: note` container, styled like the default theme's `info` block. */
+.custom-block.note {
+  border-color: var(--vp-custom-block-info-border);
+  color: var(--vp-custom-block-info-text);
+  background-color: var(--vp-custom-block-info-bg);
+}
+.custom-block.note .custom-block-title { color: var(--vp-custom-block-info-text); }
+
+/* A standalone fence's title= caption, rendered by the fl-fence-title rule in config.mts. */
+.vp-doc .fl-fence-title {
+  margin: 16px 0 0;
+  padding: 6px 16px;
+  border-radius: 8px 8px 0 0;
+  background: var(--vp-code-block-bg);
+  border-bottom: 1px solid var(--vp-c-divider);
+  font-size: 12px;
+  color: var(--vp-c-text-2);
+}
+.vp-doc .fl-fence-title + div[class*='language-'] { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+
+/* Generated field headings are h4: keep them visually a step below the page's own h3s. */
+.vp-doc h4 code { font-size: 0.95em; }
