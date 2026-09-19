@@ -39,6 +39,12 @@ rl.on('line', (line) => {
   switch (req.method) {
     case 'loadPack':
       loadCount++
+      // One progress line ahead of the answer, exactly as the real engine writes once a second
+      // on a load that outlives progressDelay (notify.go). It names the request in "requestId"
+      // and carries no "id" at all, which is what makes it safe to put in front of a response.
+      process.stdout.write(
+        JSON.stringify({ notification: 'progress', requestId: req.id, method: 'loadPack', phase: 'features', files: 8070, elapsedMs: 1755 }) + '\n',
+      )
       process.stdout.write(JSON.stringify({ id: req.id, result: { warnings: [], featureCount: 1, structureCount: 0, ruleCount: 0, biomeCount: 0 } }) + '\n')
       break
     case 'reloadFile':

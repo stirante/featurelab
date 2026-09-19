@@ -264,6 +264,13 @@ export interface Point {
   y: number
 }
 
+/** Where inside a group's header strip clickGroupHeader presses: near its left end, over the
+ * name, which is where a hand reaching for "this group" goes. Deliberately not the middle -- the
+ * collapse chevron sits at the right end and a narrow group's middle is on top of it, and that
+ * button stops the event, so a centred click would silently fold the group instead of selecting
+ * it. FRAME_HEAD in src/graph/render.ts is 24px tall, so 10 is inside it whatever the zoom. */
+const GROUP_HEAD_CLICK: Point = { x: 20, y: 10 }
+
 export interface OpenJourneyOptions {
   /** Runs against the COPIED pack before the panel opens, for a journey that needs the pack to
    * start in a particular state -- a file with a comment in it, say. The fixture pack itself is
@@ -272,6 +279,14 @@ export interface OpenJourneyOptions {
   /** Viewport size. Bigger than a default page so a graph of this size has empty canvas to
    * right-click on. */
   viewport?: { width: number; height: number }
+  /** Waits for the empty-state sentence on the canvas instead of for a drawn node.
+   *
+   * Every other journey starts from a pack with features in it and waits for one to be drawn;
+   * a journey ABOUT an empty pack would wait for a node that is never coming and fail with
+   * "timed out", saying nothing about the thing it was testing. This is the readiness signal for
+   * a pack with nothing in it -- and it is also the assertion: the canvas has to end up with
+   * words on it rather than blank. */
+  emptyCanvas?: boolean
   /** Opens a REAL PreviewPanel, in its own page, the moment the graph asks for one -- which is
    * what the graph's "Preview on select" toggle does. Off by default: a preview costs a WebGL
    * context, a generate against the real engine and a second browser page, and the journeys that
@@ -378,6 +393,10 @@ export interface Journey {
   notifySaved(rel: string): Promise<void>
 
   // -- what the panel is showing -------------------------------------------
+  /** The sentence in the middle of the canvas, or '' while there isn't one. What somebody sees
+   * when the editor has nothing to draw -- and the difference between an empty canvas and a
+   * broken one. */
+  emptyState(): Promise<string>
   status(): Promise<string>
   statusIsError(): Promise<boolean>
   nodeIds(): Promise<string[]>
@@ -423,6 +442,17 @@ export interface Journey {
   dragMenuRowTo(name: string, target: Point): Promise<void>
   /** Clicks a node on the canvas, bringing it into view first. */
   clickNode(id: string): Promise<void>
+  /** Clicks an expanded group's header strip -- the control that selects the group -- bringing
+   * the very point it is about to press into view first.
+   *
+   * NOT `focusNode` on one of the members, which is what this used to be. A frame's header is
+   * drawn along the TOP of the box its members span, so its left end is as far from a member as
+   * that member is from the far side of the group. The layout is free to put two members most of
+   * a screen apart -- it did, the moment component packing changed -- and the header then starts
+   * off the left edge while the member it was centred on sits in the middle: a click at a fixed
+   * offset into it lands outside the window and Playwright waits out its timeout on a control
+   * that is right there in the DOM. So the camera is aimed at the POINT ABOUT TO BE PRESSED. */
+  clickGroupHeader(groupId: string): Promise<void>
   /** Clicks the LINE of one edge, the way somebody tracing a delegation reaches for it: on the
    * fat transparent hit path the renderer draws over the thin visible one. Both ends are brought
    * into view first, because an edge whose nodes are off screen has no on-screen line. */
@@ -591,8 +621,25 @@ export async function openJourney(options: OpenJourneyOptions = {}): Promise<Jou
 
   await page.goto(`${origin}/`)
   // Wait for a drawn node, not for a sentence in the status line: a readiness signal should be
-  // the thing you are waiting FOR, not prose that happens to appear beside it.
-  await page.waitForSelector('.flg-node', { timeout: WAIT_MS })
+  // the thing you are waiting FOR, not prose that happens to appear beside it. For a pack with
+  // nothing in it the thing you are waiting for IS the sentence -- see OpenJourneyOptions
+  // .emptyCanvas.
+  if (options.emptyCanvas === true) {
+    // Not merely "the element is visible": it is visible from the moment the document loads, by
+    // design (it carries the "this panel's script did not load" fallback, and then graph.ts's own
+    // "Loading the pack" line). What this journey is waiting for is the SETTLED message -- the
+    // one written once the host has answered.
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById('flg-empty')
+        return el !== null && !el.hidden && !/^Starting|^Loading/.test((el.textContent ?? '').trim())
+      },
+      undefined,
+      { timeout: WAIT_MS },
+    )
+  } else {
+    await page.waitForSelector('.flg-node', { timeout: WAIT_MS })
+  }
 
   // A graph counter, registered AFTER graph.ts registered its own listener, so it can only
   // increment once the editor has already handled and drawn that graph.
@@ -661,6 +708,13 @@ export async function openJourney(options: OpenJourneyOptions = {}): Promise<Jou
       }
     },
 
+    emptyState: async () => {
+      // Hidden is the ordinary state, and reads as '' rather than as whatever stale text the
+      // element happens to be holding.
+      const hidden = await page.getAttribute('#flg-empty', 'hidden')
+      if (hidden !== null) return ''
+      return (await page.textContent('#flg-empty')) ?? ''
+    },
     status: async () => (await page.textContent('#flg-status')) ?? '',
     statusIsError: async () => ((await page.getAttribute('#flg-status', 'class')) ?? '').includes('flg-status-error'),
     nodeIds: () => page.$$eval('.flg-node', (nodes) => nodes.map((n) => (n as HTMLElement).dataset['nodeId'] ?? '')),
@@ -816,6 +870,57 @@ export async function openJourney(options: OpenJourneyOptions = {}): Promise<Jou
       }, id)
       const node = page.locator(`.flg-node[data-node-id=${JSON.stringify(id)}]`)
       await node.click({ timeout: WAIT_MS })
+    },
+
+    clickGroupHeader: async (groupId) => {
+      const head = page.locator(`.flg-frame[data-group-id=${JSON.stringify(groupId)}] .flg-frame-head`)
+      await head.waitFor({ state: 'visible', timeout: WAIT_MS })
+      await page.evaluate(
+        ({ id, at }: { id: string; at: Point }) => {
+          const view = (
+            window as unknown as {
+              __flgView?: {
+                getCamera(): { x: number; y: number; zoom: number }
+                setCamera(camera: { x: number; y: number; zoom: number }): void
+              }
+            }
+          ).__flgView
+          const frame = document.querySelector(`.flg-frame[data-group-id=${JSON.stringify(id)}]`) as HTMLElement | null
+          const canvas = document.getElementById('flg-canvas')
+          if (view === undefined || frame === null || canvas === null) return
+          const camera = view.getCamera()
+          const box = canvas.getBoundingClientRect()
+          // Off the frame's own GRAPH coordinates rather than off a screen box. A camera move is
+          // applied on an animation frame, so a rect read straight after one -- which a journey
+          // that panned to a node has just made -- is a frame out of date, and aiming at it aims
+          // at where the header used to be.
+          const worldX = parseFloat(frame.style.left) + at.x / camera.zoom
+          const worldY = parseFloat(frame.style.top) + at.y / camera.zoom
+          view.setCamera({
+            zoom: camera.zoom,
+            x: worldX - box.width / (2 * camera.zoom),
+            y: worldY - box.height / (2 * camera.zoom),
+          })
+        },
+        { id: groupId, at: GROUP_HEAD_CLICK },
+      )
+      // On the condition, like every other wait here: that the pixel about to be pressed really
+      // is on the canvas. That is also what absorbs the animation frame the camera move waits for.
+      await page.waitForFunction(
+        ({ id, at }: { id: string; at: Point }) => {
+          const el = document.querySelector(`.flg-frame[data-group-id=${JSON.stringify(id)}] .flg-frame-head`)
+          const canvas = document.getElementById('flg-canvas')
+          if (el === null || canvas === null) return false
+          const box = el.getBoundingClientRect()
+          const view = canvas.getBoundingClientRect()
+          const x = box.left + at.x
+          const y = box.top + at.y
+          return x > view.left && x < view.right && y > view.top && y < view.bottom
+        },
+        { id: groupId, at: GROUP_HEAD_CLICK },
+        { timeout: WAIT_MS },
+      )
+      await head.click({ position: GROUP_HEAD_CLICK, timeout: WAIT_MS })
     },
 
     clickEdge: async (from, jsonPath) => {

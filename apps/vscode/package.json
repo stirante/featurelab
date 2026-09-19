@@ -1,7 +1,7 @@
 {
   "name": "featurelab",
   "displayName": "Feature Lab",
-  "description": "Live preview for Bedrock worldgen feature/rule JSON, driven by the featurelab engine.",
+  "description": "A node editor and live 3D preview for Minecraft Bedrock worldgen packs: browse a pack's features as a graph, edit them in forms, and see what they place.",
   "version": "0.1.1",
   "private": true,
   "publisher": "stirante",
@@ -10,14 +10,41 @@
     "type": "git",
     "url": "https://github.com/stirante/featurelab"
   },
+  "bugs": {
+    "url": "https://github.com/stirante/featurelab/issues"
+  },
+  "homepage": "https://github.com/stirante/featurelab#readme",
+  "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Visualization",
+    "Programming Languages",
     "Other"
   ],
+  "keywords": [
+    "minecraft",
+    "bedrock",
+    "addon",
+    "worldgen",
+    "json",
+    "preview",
+    "behaviour pack",
+    "feature",
+    "feature rule",
+    "node editor"
+  ],
   "activationEvents": [
-    "onLanguage:json"
+    "onLanguage:json",
+    "onLanguage:jsonc",
+    "onLanguage:json5",
+    "workspaceContains:**/features/*.json",
+    "workspaceContains:**/features/*.jsonc",
+    "workspaceContains:**/feature_rules/*.json",
+    "workspaceContains:**/feature_rules/*.jsonc",
+    "onWebviewPanel:featurelab.graph",
+    "onWebviewPanel:featurelab.preview"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -31,25 +58,64 @@
         "command": "featurelab.openGraph",
         "title": "Feature Lab: Open Feature Graph",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "featurelab.showLog",
+        "title": "Feature Lab: Show Log",
+        "icon": "$(output)"
+      },
+      {
+        "command": "featurelab.undo",
+        "title": "Feature Lab: Undo Last Change",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "featurelab.redo",
+        "title": "Feature Lab: Redo Last Change",
+        "icon": "$(redo)"
+      },
+      {
+        "command": "featurelab.retryGraph",
+        "title": "Feature Lab: Retry Loading the Feature Graph",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "featurelab.refreshBlockTextures",
+        "title": "Feature Lab: Refresh Block Textures",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "featurelab.undo",
+          "when": "featurelab.graphOpen"
+        },
+        {
+          "command": "featurelab.redo",
+          "when": "featurelab.graphOpen"
+        },
+        {
+          "command": "featurelab.retryGraph",
+          "when": "featurelab.graphOpen"
+        }
+      ],
       "editor/title": [
         {
           "command": "featurelab.previewFeature",
-          "when": "resourceLangId == json",
+          "when": "resourceLangId =~ /^(json|jsonc|json5)$/",
           "group": "navigation"
         },
         {
           "command": "featurelab.openGraph",
-          "when": "resourceLangId == json",
+          "when": "resourceLangId =~ /^(json|jsonc|json5)$/",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
           "command": "featurelab.previewFeature",
-          "when": "resourceLangId == json",
+          "when": "resourceLangId =~ /^(json|jsonc|json5)$/",
           "group": "navigation"
         }
       ]
@@ -59,7 +125,24 @@
         "command": "featurelab.previewFeature",
         "key": "ctrl+alt+p",
         "mac": "cmd+alt+p",
-        "when": "editorTextFocus && editorLangId == json"
+        "when": "editorTextFocus && editorLangId =~ /^(json|jsonc|json5)$/"
+      },
+      {
+        "command": "featurelab.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeWebviewPanelId == 'featurelab.graph' && !featurelab.graphTyping"
+      },
+      {
+        "command": "featurelab.redo",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "activeWebviewPanelId == 'featurelab.graph' && !featurelab.graphTyping"
+      },
+      {
+        "command": "featurelab.redo",
+        "key": "ctrl+y",
+        "when": "activeWebviewPanelId == 'featurelab.graph' && !isMac && !featurelab.graphTyping"
       }
     ],
     "configuration": {
@@ -78,12 +161,12 @@
         "featurelab.blockTextures": {
           "type": "boolean",
           "default": true,
-          "description": "Draw blocks with real Minecraft textures instead of flat per-block colours. The first preview offers, once, to fetch Mojang's sample resource pack (bedrock-samples, about 150 MB transferred) into your user cache directory; nothing is downloaded without that. Declining, being offline, or turning this off all leave the preview drawing flat block colours, which is what it has always drawn -- textures are an enhancement and nothing here can stop the preview working."
+          "description": "Prepare real Minecraft block textures for the preview. The first preview offers, once, to fetch Mojang's sample resource pack (bedrock-samples, about 150 MB transferred) into your user cache directory; nothing is downloaded without that. Turning this off means nothing is ever fetched, built or asked about, and the preview's own 'Block textures' switch says so instead of sitting inert. Whether textures are actually DRAWN once an atlas exists is that switch, in the preview's sidebar, which remembers what you choose -- declining, being offline or switching either one off all leave the preview drawing flat block colours, which is what it has always drawn."
         },
         "featurelab.requestTimeoutMs": {
           "type": "number",
           "default": 30000,
-          "description": "How long to wait for the engine to respond to a request (loadPack/generate) before treating it as stale. For generate requests this is a floor, not a ceiling: the extension automatically waits longer when the panel's Budget section raises the placement time limit above this value, and shows the raised wait there when it does."
+          "description": "How long the engine may go SILENT before a request is treated as stale -- not how long the request may take. The engine reports progress once a second on anything slow, and every report buys another full wait, so a big pack that needs 45 seconds to load or graph is never cut off while it is visibly working. A request that stops saying anything for this long is. For generate requests this is also a floor: the extension waits longer when the panel's Budget section raises the placement time limit above this value, and shows the raised wait there when it does."
         }
       }
     }
@@ -94,7 +177,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "npm run compile",
     "test": "vitest run",
-    "package": "npm run build:binary && npm run compile && vsce package --no-dependencies --allow-missing-repository -o featurelab.vsix"
+    "package": "npm run build:binary && npm run compile && vsce package --no-dependencies --allow-missing-repository --baseImagesUrl https://raw.githubusercontent.com/stirante/featurelab/HEAD/apps/vscode -o featurelab.vsix"
   },
   "dependencies": {
     "featurelab-frontend": "0.1.0",

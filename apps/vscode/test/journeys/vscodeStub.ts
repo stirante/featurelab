@@ -173,10 +173,29 @@ export class MockTextDocument {
  * degradation was RECORDED rather than merely silent. */
 export const outputLines: string[] = []
 
+/** Every warning notification the host raised, newest last, with the options object's `detail` and
+ * `modal` -- because the graph panel's delete confirmation puts the files it is about to write in
+ * `detail`, and a dialog that names nothing is the thing that confirmation exists to replace. */
+export const shownWarnings: { message: string; detail?: string; modal: boolean; actions: string[] }[] = []
+
+/** What showWarningMessage answers next.
+ *
+ * DEFAULTS TO CONFIRMING, and this is the one place in this file where the stub decides something
+ * rather than carrying it. These journeys are about the CANVAS: a journey about pressing Delete on
+ * a node is not also a journey about a modal dialog, and every one of them predates the dialog
+ * existing. The confirmation ITSELF -- that it is asked every time, that it names the files, that
+ * cancelling writes nothing -- is tested directly against the real GraphPanel in
+ * test/graphHistory.test.ts, where an answer can be chosen per case instead of per file. A journey
+ * that wants the other answer sets this to undefined. */
+export const messageAnswers: { warning?: string } = { warning: 'Delete' }
+
 export function resetStub(): void {
   createdPanels.length = 0
   openedDocuments.length = 0
   outputLines.length = 0
+  statusBarItems.length = 0
+  shownWarnings.length = 0
+  messageAnswers.warning = 'Delete'
 }
 
 export const window = {
@@ -193,21 +212,70 @@ export const window = {
   showErrorMessage(..._args: unknown[]): Promise<undefined> {
     return Promise.resolve(undefined)
   },
-  showWarningMessage(..._args: unknown[]): Promise<undefined> {
-    return Promise.resolve(undefined)
+  showWarningMessage(message: string, ...rest: unknown[]): Promise<string | undefined> {
+    const options = rest.find((r): r is { detail?: string; modal?: boolean } => typeof r === 'object' && r !== null)
+    shownWarnings.push({
+      message,
+      detail: options?.detail,
+      modal: options?.modal === true,
+      actions: rest.filter((r): r is string => typeof r === 'string'),
+    })
+    return Promise.resolve(messageAnswers.warning)
   },
   showInformationMessage(..._args: unknown[]): Promise<undefined> {
     return Promise.resolve(undefined)
   },
-  createOutputChannel(_name: string): { appendLine(line: string): void; dispose(): void } {
-    return { appendLine: (line: string) => outputLines.push(line), dispose: () => {} }
+  createOutputChannel(_name: string): { appendLine(line: string): void; show(preserveFocus?: boolean): void; dispose(): void } {
+    return { appendLine: (line: string) => outputLines.push(line), show: () => {}, dispose: () => {} }
   },
-  /** Runs the task immediately and reports progress nowhere. Nothing in these journeys reaches
-   * it -- the texture flow is stubbed out at `status` -- but leaving it absent would turn a
-   * future journey that DOES into an undefined-is-not-a-function forty lines deep. */
-  withProgress<T>(_options: unknown, task: (progress: { report(value: unknown): void }) => Promise<T>): Promise<T> {
-    return task({ report: () => {} })
+  /** Runs the task immediately and reports progress nowhere. The token never fires: nothing in
+   * these journeys cancels, and a stub that cancelled would be testing the stub. */
+  withProgress<T>(
+    _options: unknown,
+    task: (progress: { report(value: unknown): void }, token: MockCancellationToken) => Promise<T>,
+  ): Promise<T> {
+    return task({ report: () => {} }, new MockCancellationToken())
   },
+  /** The status-bar spinner src/progress.ts shows while any engine request is in flight.
+   * Recorded rather than faked: a journey can ask whether the editor ever said it was busy. */
+  createStatusBarItem(_alignment?: number, _priority?: number): MockStatusBarItem {
+    const item = new MockStatusBarItem()
+    statusBarItems.push(item)
+    return item
+  },
+}
+
+export const StatusBarAlignment = { Left: 1, Right: 2 }
+
+export class MockCancellationToken {
+  isCancellationRequested = false
+  onCancellationRequested(_listener: () => void): { dispose(): void } {
+    return { dispose: () => {} }
+  }
+}
+
+/** Every status-bar item created during a test. The spinner is the only thing on screen while a
+ * background regenerate runs, so "did the editor say it was working" is decidable here. */
+export const statusBarItems: MockStatusBarItem[] = []
+
+export class MockStatusBarItem {
+  text = ''
+  tooltip = ''
+  command = ''
+  visible = false
+  /** Every text this item ever showed, so a test can assert it was busy at some point even
+   * though the run has since finished and hidden it. */
+  readonly shown: string[] = []
+  show(): void {
+    this.visible = true
+    this.shown.push(this.tooltip === '' ? this.text : this.tooltip)
+  }
+  hide(): void {
+    this.visible = false
+  }
+  dispose(): void {
+    this.visible = false
+  }
 }
 
 export const workspace = {

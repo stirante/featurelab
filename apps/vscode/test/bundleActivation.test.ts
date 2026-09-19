@@ -53,6 +53,10 @@ function makeVscodeStub() {
         activeTextEditor: undefined,
         onDidChangeActiveTextEditor: () => disposable,
         showErrorMessage() {},
+        // activate() opens the "Feature Lab" output channel up front, so that a command which
+        // fails before it can open anything still has somewhere to write, and so that
+        // "Feature Lab: Show Log" always has something to show.
+        createOutputChannel: () => ({ appendLine() {}, append() {}, show() {}, dispose() {} }),
       },
     },
   }
