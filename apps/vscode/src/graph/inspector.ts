@@ -75,6 +75,7 @@ import {
 } from './forms.js'
 import { typeSpec, type ExclusiveGroup, type FieldKind } from './typeCatalog.js'
 import { lookupFieldDoc, lookupValueDoc, type DocEntry } from './docs/catalog.js'
+import { docsUrl } from './docs/url.js'
 import { createMolangField, type MolangField } from './molangField.js'
 // A value, not only a type: this panel now BUILDS an editor for every `molangOrNumber` key in
 // the form it draws -- see molangRow.
@@ -1672,6 +1673,20 @@ label.flg-ins-key { cursor: pointer; }
 }
 .flg-ins-docs-back:hover { background: var(--fli-hover); }
 .flg-ins-docs-back:focus-visible { outline: 1px solid var(--fli-focus); outline-offset: 1px; }
+/* The link out to the published page. Pushed to the far end of the bar so it never sits where
+   ✕ or ‹ Back was a moment ago, and never moves when one of them appears. */
+.flg-ins-docs-page {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.92em;
+  color: var(--fli-accent);
+  text-decoration: none;
+  padding: 2px 4px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.flg-ins-docs-page:hover { background: var(--fli-hover); text-decoration: underline; }
+.flg-ins-docs-page:focus-visible { outline: 1px solid var(--fli-focus); outline-offset: 1px; }
 .flg-ins-docs-title { margin: 6px 14px 0; font-size: 1.5em; font-weight: 600; overflow-wrap: anywhere; flex: 0 0 auto; }
 .flg-ins-docs-sub { margin: 0 14px; color: var(--fli-fg-muted); font-size: 0.92em; overflow-wrap: anywhere; flex: 0 0 auto; }
 .flg-ins-docs-body {
@@ -3338,6 +3353,25 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     return [...entries.slice(0, at), ...extra, ...entries.slice(at)]
   }
 
+  /** The way out of the panel and onto the published page, which is the long end of the same
+   * documentation: this panel answers "what is this key", the page answers "what does the engine
+   * do with it, and how was that measured".
+   *
+   * The href is built from the type id and, for a group section, that group's own JSON path --
+   * no table, because the site's routes and heading ids ARE those two things (docs/url.ts).
+   * docs/site's check-product-links.mjs reads this file and fails the docs build if the page or
+   * the anchor a link here names does not exist, so this cannot rot quietly. */
+  function docsPageLink(section: InspectorSection | undefined): HTMLAnchorElement {
+    const path = section !== undefined && section.kind === 'group' && section.row !== undefined ? docPathOf(section.row.path) : undefined
+    const href = docsUrl(form.typeId, path)
+    const link = el('a', 'flg-ins-docs-page', 'Read the full page')
+    link.href = href
+    link.rel = 'noreferrer'
+    link.title = href
+    link.setAttribute('aria-label', `Read the full documentation page for ${shortTypeName()}`)
+    return link
+  }
+
   function renderDocs(): void {
     if (docsEl === null || docsView === null) return
     const scrollTop = docsEl.querySelector('.flg-ins-docs-body')?.scrollTop ?? 0
@@ -3348,6 +3382,7 @@ export function createNodeInspector(initial: NodeForm, options: NodeInspectorOpt
     const close = button('✕', 'Close the documentation', () => closeDocs(true), 'flg-ins-docs-close')
     bar.append(close)
     if (section !== undefined) bar.append(button('‹ Back to overview', 'Back to the overview of every section', () => openDocs(null), 'flg-ins-docs-back'))
+    bar.append(docsPageLink(section))
     docsEl.append(bar)
 
     const body = el('div', 'flg-ins-docs-body')

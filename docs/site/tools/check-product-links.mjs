@@ -10,10 +10,10 @@
 // read) for three kinds of reference, and fails on any that does not resolve:
 //
 //   1. https://github.com/stirante/featurelab/blob/<ref>/<path>[#anchor]
-//        The path exists in the tree. If it is a docs/wiki page: the anchor slugs to one of its
-//        headings under GITHUB's rule (that is where the link lands), and the page has not
-//        migrated to the site (redirects.json still points its route at GitHub) -- once it has,
-//        the product must link the site page instead.
+//        The path exists in the tree, and it is not a docs/wiki markdown page. Those 33 pages
+//        are the documentation's old home; every one of them migrated to docs/site and was
+//        deleted at the cut-over, so a blob link to one is a link the product ships broken. It
+//        was a warning while they still existed and is an ERROR now.
 //   2. https://stirante.github.io/featurelab/<route>[#anchor]
 //        The route is a page under docs/site (or an entry in redirects.json), and the anchor is
 //        one the page defines under VITEPRESS's rule, includes expanded.
@@ -24,7 +24,7 @@
 //
 //   4. Every feature type the engine registers (generated/coverage.json, i.e. `featurelab types
 //      --json`) has a site route: docs/site/features/<typeId minus "minecraft:">.md exists, or
-//      redirects.json maps that route somewhere that exists. This is what lets the editor's `?`
+//      redirects.json maps that route to another SITE route that exists. This is what lets the editor's `?`
 //      pane and the engine's diagnostics build a link from a type id alone and be sure it lands.
 //      The route for a rule file is features/feature_rules (its root key), the one alias.
 //
@@ -46,11 +46,6 @@ const SITE_URL = /https:\/\/stirante\.github\.io\/featurelab\/([^\s"'`)#]*)(?:#(
 const REL_DOC = /\]\(((?:\.\.\/)+docs\/(?:wiki|site)\/[^)\s#]+\.md)(?:#([^)\s]*))?\)/g
 
 const redirects = JSON.parse(fs.readFileSync(path.join(siteDir, 'redirects.json'), 'utf-8'))
-const unmigrated = new Set()
-for (const target of Object.values(redirects)) {
-  const m = /blob\/[^/]+\/(docs\/wiki\/[^#]+)/.exec(target)
-  if (m) unmigrated.add(m[1])
-}
 
 function routeToFile(route) {
   // A redirect target may carry a fragment (`engine/coverage#type-coverage`): the stub keeps it,
@@ -69,7 +64,6 @@ const files = execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding:
   .filter((f) => f && !f.startsWith('docs/') && !f.startsWith('research/') && /\.(ts|js|mjs|go|md|json|yml|yaml|vue|html)$/.test(f))
 
 const problems = []
-const warnings = []
 let refs = 0
 
 function checkAnchorOnSitePage(file, anchor, where, url) {
@@ -89,7 +83,7 @@ for (const rel of files) {
 
   for (const m of text.matchAll(REPO_BLOB)) {
     refs++
-    const [url, repoPath, anchor] = m
+    const [url, repoPath] = m
     const where = `${rel}:${lineOf(m.index)}`
     const onDisk = path.join(repoRoot, repoPath)
     if (!fs.existsSync(onDisk)) {
@@ -97,15 +91,13 @@ for (const rel of files) {
       continue
     }
     if (repoPath.startsWith('docs/wiki/') && repoPath.endsWith('.md')) {
-      if (!unmigrated.has(repoPath)) {
-        // A warning while the wiki page still exists (the link works today), an error the day
-        // it is deleted at cut-over (the existence check above fails then). The product's
-        // READMEs are updated in the cut-over wave, not one page at a time.
-        warnings.push(`${where}  ${url}  -- that wiki page has a site page now; retarget to ${SITE_ORIGIN}... before docs/wiki is removed`)
-      }
-      if (anchor && !anchorsOf(fs.readFileSync(onDisk, 'utf-8'), 'github').has(anchor)) {
-        problems.push(`${where}  ${url}  -- no heading in ${repoPath} slugs to "${anchor}" on GitHub`)
-      }
+      // An ERROR since the cut-over. It was a warning for as long as the wiki page still existed
+      // -- the link worked, and retargeting the READMEs one page at a time would have churned
+      // them thirty-three times -- but every page has moved and been deleted, so a blob link to
+      // one is a 404 the moment it ships. The existence check above catches a link to a page
+      // that is gone; this catches one to a path somebody restored or spelled speculatively, and
+      // says what to write instead.
+      problems.push(`${where}  ${url}  -- docs/wiki carries no pages; link ${SITE_ORIGIN}features/<type id minus minecraft:> instead`)
     }
   }
 
@@ -157,19 +149,22 @@ for (const typeId of typeIds) {
     problems.push(`type contract: ${typeId} -- no page at docs/site/${route}.md and no redirects.json entry for "${route}"`)
     continue
   }
-  const blob = /blob\/[^/]+\/([^#]+)/.exec(target)
-  if (blob && !fs.existsSync(path.join(repoRoot, blob[1]))) {
-    problems.push(`type contract: ${typeId} -- redirects.json sends "${route}" to ${target}, which is not in this repository`)
+  // Every redirect target is a SITE route now. While the migration was running, a route could
+  // redirect to the page's GitHub blob URL instead -- that is what "has not migrated yet" meant,
+  // and what told both link checkers to leave a product blob link alone. The cut-over deleted
+  // the last of those pages, so an off-site target is a redirect to nothing and is rejected here
+  // rather than discovered by a reader.
+  if (/^https?:\/\//.test(target)) {
+    problems.push(`type contract: ${typeId} -- redirects.json sends "${route}" off-site, to ${target}; a redirect target is a site route`)
     continue
   }
-  if (!blob && !routeToFile(target)) {
+  if (!routeToFile(target)) {
     problems.push(`type contract: ${typeId} -- redirects.json sends "${route}" to "${target}", which is not a site page`)
     continue
   }
   contractOk++
 }
 
-for (const w of warnings) console.warn('  warning: ' + w)
 if (problems.length > 0) {
   console.error(`product -> docs: ${problems.length} problem(s) across ${refs} reference(s):\n`)
   for (const p of problems) console.error('  ' + p)

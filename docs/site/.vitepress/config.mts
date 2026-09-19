@@ -1,12 +1,12 @@
 // VitePress configuration for the Feature Lab documentation site.
 //
-// Provisional: the site lives under docs/site/ beside the 33 pages that still live under
-// docs/wiki/. Nothing here reads docs/wiki/*.md -- pages are migrated by hand, one wave at a
-// time (see authoring.md), and until a page has moved the old GitHub blob URL is the canonical link
-// to it. What this config does read from outside its own directory is docs/wiki/images/ (the
-// image pipeline's output directory, referenced by relative path from each page so the pipeline
-// stays untouched) and the extension's catalogue modules (through tools/extract-catalog.mjs,
-// which runs before the build, never during it).
+// This is the documentation. The 33 pages that used to live under docs/wiki/ were migrated here
+// one wave at a time (see authoring.md) and deleted at the cut-over; what remains under
+// docs/wiki/ is the image pipeline (tools/), its fixture pack (tools/fixtures/) and its
+// committed renders (images/). The only things this config reads from outside its own directory
+// are docs/wiki/images/ -- referenced by relative path from each page, so the pipeline stays
+// untouched -- and the extension's catalogue modules, through tools/extract-catalog.mjs, which
+// runs before the build and never during it.
 import { defineConfig } from 'vitepress'
 import container from 'markdown-it-container'
 import fs from 'node:fs'
@@ -230,8 +230,3 @@ export default defineConfig({
     }
   },
 })
-
-/** A sidebar entry for a page that still lives in docs/wiki. */
-function wiki(text: string, page: string) {
-  return { text: `${text} ↗`, link: `https://github.com/stirante/featurelab/blob/main/docs/wiki/${page}.md` }
-}

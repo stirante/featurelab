@@ -80,7 +80,7 @@ function checkFixturePack() {
 function generateFeature(entry) {
   // An entry names EITHER a feature or a rule. A rule goes through the CLI's own --rule mode,
   // which runs it once per chunk the bench covers from that chunk's corner (see
-  // docs/wiki/feature-rules.md) rather than once at an origin -- so a rule entry usually wants a
+  // docs/site/features/feature_rules.md) rather than once at an origin -- so a rule entry usually wants a
   // --size spanning more than one chunk, and its `minY` matters more than a feature's does.
   const subject = entry.rule ? ['--rule', entry.rule] : ['--feature', entry.feature]
   const args = ['generate', '--pack', fixturesPack, ...subject, '--env', entry.env, '--seed', String(entry.seed)]

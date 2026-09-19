@@ -6359,7 +6359,7 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 	// gates its column on may_replace alone, because the game's spawn preparation -- the step
 	// that uses both lists -- is approximated in this port rather than reproduced exactly (see
 	// this file's header). Resolving the field and then ignoring it silently
-	// is the specific thing docs/wiki/tree-feature.md promises does not happen: "a file that
+	// is the specific thing the site's tree_feature page promises does not happen: "a file that
 	// loads without warnings is one whose fields were all applied". Keeping that promise honest
 	// costs one diagnostic; breaking it costs somebody a day wondering why their tree stops at a
 	// block the field named.

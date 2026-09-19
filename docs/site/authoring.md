@@ -49,6 +49,17 @@ failure — every type id in `generated/coverage.json` must resolve to a page or
 entry, and every product-side site URL is checked page *and* anchor. When the engine registers a
 new type, it gets a page named after its id or a `redirects.json` entry the same day.
 
+The product's half of the contract is
+[`apps/vscode/src/graph/docs/url.ts`](https://github.com/stirante/featurelab/blob/main/apps/vscode/src/graph/docs/url.ts)
+— `docsUrl(typeId, jsonPath?)`, twenty lines because the contract does the work. The `?` pane's
+"Read the full page" link and every typed diagnostic's Problems-panel link are built with it.
+Nothing else in the product may hand-write a documentation URL: `check-product-links.mjs` cannot
+see a URL built at run time, so `apps/vscode/test/docsUrl.test.ts` holds the helper against this
+site's own committed files — the base URL against `.vitepress/config.mts`, every anchor against
+`generated/fields/*.json`. **A redirect target is a site route.** The blob URLs that stood in for
+un-migrated pages during the migration are gone, and a blob link to a `docs/wiki` page is now an
+error in both checkers rather than a warning.
+
 ## Files you must never hand-edit
 
 | Path | Source | Regenerate with |
@@ -129,21 +140,15 @@ All from `docs/site`.
 | Command | What it is for |
 |---|---|
 | `npm run generate` | Refresh `generated/`. Run it before anything else; CI fails if the committed copy differs. |
-| `npm run check` | `check-template.mjs` (section order, a Fields row per key, internals below the Advanced line), `check-links.mjs` (every link and anchor, includes expanded, blob links to pages that have migrated), `check-product-links.mjs` (product → docs, and every type id has a route). |
+| `npm run check` | `check-template.mjs` (section order, a Fields row per key, internals below the Advanced line), `check-links.mjs` (every link and anchor, includes expanded, and no blob link to a `docs/wiki` page), `check-product-links.mjs` (product → docs, and every type id has a route). |
 | `npm run build` | VitePress. A dead link *to a page* fails the build; anchors are not checked here. |
 | `node tools/check-links.mjs --verify-dist` | After a build: every anchor this site computed must be an id VitePress actually wrote. This is the proof that `lib/anchors.mjs`'s port of the slugifier is exact — without it, a drifted port reports links resolving that do not. |
-| `node tools/audit-migration.mjs <wiki page> <site path>` | Every number and code span of a wiki page that is not on the site page. **A list, not a gate**: an item may be a spelling variant or a deliberate cut. It is there so a dropped measurement is a decision rather than an accident. |
+| `node tools/audit-migration.mjs <wiki page> <site path>` | Every number and code span of a wiki page that is not on the site page. **A list, not a gate**: an item may be a spelling variant or a deliberate cut. It is there so a dropped measurement is a decision rather than an accident. Kept with `migrate-page.mjs` for re-running an old wave out of git history; neither has an input in the working tree any more. |
 
 Two things no check makes: whether a restructured page still *reads*, and whether a figure
 demonstrates what its caption claims.
 
 ## Deliberately still open
-
-**The cut-over.** Not done, on purpose — everything the checkers warn about becomes an error at
-once, in one change: delete `docs/wiki/*.md` (keep `tools/`, `images/`, `fixtures/`); retarget the
-READMEs' links; remove the wiki checker step from `ci.yml`; drop the blob targets from
-`redirects.json`; add a `docsUrl(typeId, path?)` helper and the `?` pane's "Read the full page"
-link. All of it touches product files, which is why it is one change and not a trickle.
 
 **Two figures recommended and not built**, each because it needs a fixture that does not exist
 yet: scatter against scan surface (the same delegate placed by a spread and by a surface scan),

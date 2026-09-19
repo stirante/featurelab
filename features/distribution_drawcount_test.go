@@ -8,8 +8,8 @@ import (
 )
 
 // TestDistributionDrawCounts pins the number of draws each distribution kind spends, including
-// the degenerate extents where the count collapses. It exists because docs/wiki/scatter-feature.md
-// prints this exact table and got three of its rows wrong -- "gaussian: always two draws,
+// the degenerate extents where the count collapses. It exists because the site's scatter_feature
+// page prints this exact table and got three of its rows wrong -- "gaussian: always two draws,
 // regardless of range" (it spends none when the half is zero), "inverse_gaussian: 2 (rarely 3)"
 // (it spends one when the half is zero), and a no-draw catalogue that omitted both.
 //
