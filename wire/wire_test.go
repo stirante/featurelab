@@ -667,3 +667,71 @@ func TestRunGenerate_OmitCatalogsDropsOnlyTheCatalogues(t *testing.T) {
 		t.Error("the block array differs between the two responses -- the flag must not change the run")
 	}
 }
+
+// TestRunGenerate_StopsAreTopLevelWithoutProfiling pins the `stops` half of this package's doc
+// comment: an ordinary generate -- profile NOT requested -- explains why it placed nothing, as a
+// TOP-LEVEL array rather than something only a profiled run's nested profile.features[] carries.
+func TestRunGenerate_StopsAreTopLevelWithoutProfiling(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "features", "leaf.json"), singleBlockFeatureJSON("test:leaf", "minecraft:diamond_block"))
+	writeTestFile(t, filepath.Join(root, "features", "scatter.json"),
+		`{"format_version":"1.21.110","minecraft:scatter_feature":{"description":{"identifier":"test:scatter"},`+
+			`"places_feature":"test:leaf","distribution":{"iterations":0,"x":0,"y":0,"z":0}}}`)
+
+	loaded, err := pack.Load(pack.Options{Dir: root})
+	if err != nil {
+		t.Fatalf("pack.Load: %v", err)
+	}
+	out, err := RunGenerate(loaded, GenerateParams{Feature: "test:scatter", Env: "void"})
+	if err != nil {
+		t.Fatalf("RunGenerate: %v", err)
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(encoded, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if m["profile"] != nil {
+		t.Fatalf("profile = %v, want null -- this run did not ask for one", m["profile"])
+	}
+	stops, ok := m["stops"].([]any)
+	if !ok || len(stops) != 1 {
+		t.Fatalf("stops = %v, want one top-level row", m["stops"])
+	}
+	row, ok := stops[0].(map[string]any)
+	if !ok {
+		t.Fatalf("stops[0] = %v, want an object", stops[0])
+	}
+	if row["identifier"] != "test:scatter" || row["reason"] != "iterations_zero" {
+		t.Errorf("stops[0] = %v, want test:scatter / iterations_zero", row)
+	}
+	if detail, _ := row["detail"].(string); !strings.Contains(detail, "iterations = 0") {
+		t.Errorf("detail = %v, want the evaluated value", row["detail"])
+	}
+	if count, _ := row["count"].(float64); count < 1 {
+		t.Errorf("count = %v, want at least 1", row["count"])
+	}
+	if _, present := row["ordinal"]; present {
+		t.Errorf("ordinal = %v, want omitted for a whole-feature gate", row["ordinal"])
+	}
+
+	// A healthy feature carries no rows at all, and the field is absent rather than null.
+	healthy, err := RunGenerate(loaded, GenerateParams{Feature: "test:leaf", Env: "void"})
+	if err != nil {
+		t.Fatalf("RunGenerate: %v", err)
+	}
+	encoded, err = json.Marshal(healthy)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	m = map[string]any{}
+	if err := json.Unmarshal(encoded, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, present := m["stops"]; present {
+		t.Errorf("stops = %v on a healthy run, want the key omitted entirely", m["stops"])
+	}
+}

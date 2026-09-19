@@ -9,6 +9,7 @@
 package session
 
 import (
+	"context"
 	"hash/fnv"
 
 	"github.com/stirante/featurelab/biomes"
@@ -22,8 +23,10 @@ import (
 // block.Palette for one loaded pack, so repeated Generate calls reuse them
 // instead of re-parsing every source file on every call. Not safe for
 // concurrent use -- cmd/featurelab/serve.go's runServe, the intended
-// caller, processes one request line at a time, never concurrently, so a
-// mutex would only cost cycles no caller needs.
+// caller, dispatches every request on ONE worker goroutine, never two at
+// once, so a mutex would only cost cycles no caller needs. (That server
+// reads its input on a second goroutine, so a "cancel" can arrive while a
+// generate runs; the reader never touches a Workspace.)
 //
 // # Correctness contract
 //
@@ -103,6 +106,15 @@ type Workspace struct {
 	// featureLib.Diagnostics/structureLib.Diagnostics/ruleLib.Diagnostics/
 	// biomeLib.Diagnostics) can reach it via BlockDiagnostics.
 	blockDiagnostics []block.Diagnostic
+
+	// pathsCache/pathsDir/pathsBuilt memoise the per-kind "SourceFile id ->
+	// pack-relative path" index a generate's diagnostics are respelled
+	// through -- see packpaths.go. Keyed by pack root, and dropped by Update
+	// because the file lists it is built from are exactly what Update
+	// replaces.
+	pathsCache packPaths
+	pathsDir   string
+	pathsBuilt bool
 }
 
 // BlockDiagnostics returns the diagnostics from this Workspace's most
@@ -112,6 +124,124 @@ type Workspace struct {
 // features.ResolveMatchSet), which surfaces through featureLib.Diagnostics
 // like every other feature-build diagnostic instead.
 func (w *Workspace) BlockDiagnostics() []block.Diagnostic { return w.blockDiagnostics }
+
+// LoadCounts is what a pack actually loaded, per asset kind, with the two
+// numbers that used to be conflated kept apart: Files is how many source
+// files of that kind were read off disk, Loaded is how many of them the
+// library could actually make an entry out of.
+//
+// They differ by exactly the files that could not be parsed. Reporting only
+// Files (which is what "featureCount" used to be) means a pack with a
+// truncated feature file reports the same count as the same pack with that
+// file intact -- the number goes on looking healthy while the feature is
+// gone. Reporting only Loaded loses the fact that there is a file there at
+// all. Both, side by side, is the only pair that cannot mislead.
+type LoadCounts struct {
+	Files  int `json:"files"`
+	Loaded int `json:"loaded"`
+}
+
+// PackCounts is LoadCounts for every asset kind this Workspace holds. Same
+// shape for all four so a client has one rule to follow rather than four,
+// and Files >= Loaded always: a kind whose two numbers differ has that many
+// files it could not read, each of which has a diagnostic of its own in
+// PackDiagnostics naming it.
+type PackCounts struct {
+	Features   LoadCounts `json:"features"`
+	Structures LoadCounts `json:"structures"`
+	Rules      LoadCounts `json:"rules"`
+	Biomes     LoadCounts `json:"biomes"`
+}
+
+// Counts reports what the currently-built libraries actually contain -- see
+// LoadCounts for why every kind carries two numbers rather than one.
+func (w *Workspace) Counts() PackCounts {
+	var c PackCounts
+	if w.featureLib != nil {
+		c.Features = LoadCounts{Files: len(w.featureLib.Entries) + len(w.featureLib.Failed), Loaded: len(w.featureLib.Entries)}
+	}
+	if w.structureLib != nil {
+		c.Structures = LoadCounts{Files: len(w.structureFiles), Loaded: w.structureLib.Loaded}
+	}
+	if w.ruleLib != nil {
+		c.Rules = LoadCounts{Files: len(w.ruleLib.Entries) + len(w.ruleLib.Failed), Loaded: len(w.ruleLib.Entries)}
+	}
+	if w.biomeLib != nil {
+		c.Biomes = LoadCounts{Files: len(w.biomeFiles), Loaded: len(w.biomeLib.Entries)}
+	}
+	return c
+}
+
+// PackDiagnostics is every ScopePack diagnostic the currently-built
+// libraries hold: what is wrong with the pack ON DISK, available without
+// running a placement.
+//
+// This is what closes the silent-broken-file hole at the `loadPack` level.
+// Every one of these diagnostics has existed all along and was produced
+// during this Workspace's own library builds -- but the only way to see one
+// was to run a `generate`, which then mixed them in with that run's own
+// diagnostics. A pack with a file that does not parse could therefore be
+// loaded, reported on, and counted, with nothing anywhere saying a file had
+// been dropped.
+//
+// The list matches -- same order, same contents -- the ScopePack half of
+// what a Generate against this Workspace returns, because both are built
+// from the same libraries by the same converters.
+func (w *Workspace) PackDiagnostics() []Diagnostic {
+	byKind := w.PackDiagnosticsByKind()
+	var out []Diagnostic
+	out = append(out, byKind.Blocks...)
+	out = append(out, byKind.Structures...)
+	out = append(out, byKind.Features...)
+	out = append(out, byKind.Rules...)
+	out = append(out, byKind.Biomes...)
+	return out
+}
+
+// PackDiagnosticsByKind is PackDiagnostics split by which asset kind raised
+// each diagnostic, for the one caller that needs to know: a Diagnostic's
+// FileID is a SourceFile id, and a SourceFile id is unique only WITHIN its
+// kind (the loader derives it relative to that kind's own directory), so a
+// pack holding both features/thing.json and feature_rules/thing.json has two
+// files whose id is "thing.json". Anything turning these ids back into
+// openable paths has to know which directory each came from, and this is
+// where that is known -- recovering it from the id afterwards cannot be
+// done, and guessing is right often enough that the bug would survive.
+type PackDiagnosticKinds struct {
+	Blocks     []Diagnostic
+	Structures []Diagnostic
+	Features   []Diagnostic
+	Rules      []Diagnostic
+	Biomes     []Diagnostic
+}
+
+// PackDiagnosticsByKind returns this Workspace's pack-scoped diagnostics
+// grouped by asset kind -- see PackDiagnosticKinds for why the grouping
+// exists at all.
+func (w *Workspace) PackDiagnosticsByKind() PackDiagnosticKinds {
+	// Every fileId here is the loader's own kind-relative SourceFile id, NOT
+	// the pack-relative path a generate's diagnostics now carry -- the caller
+	// is asking for these BY KIND precisely so it can respell them itself, and
+	// respelling them here as well would leave it doing it twice.
+	var out PackDiagnosticKinds
+	out.Blocks = convertBlockDiagnostics(w.blockDiagnostics, keepFileID)
+	if w.structureLib != nil {
+		out.Structures = convertStructureDiagnostics(w.structureLib.Diagnostics, keepFileID)
+	}
+	if w.featureLib != nil {
+		out.Features = convertFeatureDiagnostics(w.featureLib.Diagnostics, keepFileID)
+	}
+	if w.ruleLib != nil {
+		out.Rules = convertFeatureDiagnostics(w.ruleLib.Diagnostics, keepFileID)
+	}
+	if w.biomeLib != nil {
+		out.Biomes = convertBiomeDiagnostics(w.biomeLib.Diagnostics, keepFileID)
+	}
+	return out
+}
+
+// keepFileID is the converters' "respell nothing" spelling function.
+func keepFileID(fileID string) string { return fileID }
 
 // NewWorkspace builds every library fresh, against a new palette -- the
 // expensive path (re-parsing every .mcstructure/.json file), paid once
@@ -168,6 +298,9 @@ func (w *Workspace) Update(featureFiles []features.SourceFile, structureFiles []
 	w.ruleFiles = ruleFiles
 	w.biomeFiles = biomeFiles
 	w.blockFiles = blockFiles
+	// The file lists the path index is built from have just been replaced, so
+	// whatever it holds is about the previous ones -- see pathsFor.
+	w.pathsBuilt = false
 
 	if blocksChanged {
 		// LoadBlockTags fully replaces the palette's tag index each call
@@ -216,7 +349,21 @@ func (w *Workspace) Generate(config Config) (*Result, error) {
 	// never needs to be mutated or rebuilt just because config.Profiling is true. A profiled
 	// "generate" call through a long-lived Workspace (the "serve" reuse path) now costs exactly
 	// what a non-profiled one does, rather than paying a throwaway feature-library rebuild.
-	result, err := generate(config, w.palette, w.featureLib, w.structureLib, w.ruleLib, w.biomeLib)
+	return w.GenerateContext(context.Background(), config)
+}
+
+// GenerateContext is Generate with a cancellation signal -- cancelling ctx abandons the
+// placement and returns ctx.Err() rather than a partial Result. See GenerateContext (session.go)
+// for why no partial result comes back.
+//
+// It covers the PLACEMENT only, never a library build. On this method there is nothing to cover:
+// the libraries are already built and this call reuses them. On the package-level
+// GenerateContext, which builds a throwaway Workspace first, that build is genuinely
+// uncancellable -- and is left so deliberately, because a half-built library is not a state any
+// caller can be handed, and the one-shot path it belongs to has no long-lived process to keep
+// responsive anyway.
+func (w *Workspace) GenerateContext(ctx context.Context, config Config) (*Result, error) {
+	result, err := generate(ctx, config, w.palette, w.featureLib, w.structureLib, w.ruleLib, w.biomeLib, w.pathsFor(config.PackDir))
 	if err != nil {
 		return nil, err
 	}

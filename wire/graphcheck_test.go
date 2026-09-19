@@ -730,3 +730,87 @@ func TestGraphCheckNamesListsEveryCheckThatCanBeEmitted(t *testing.T) {
 		}
 	}
 }
+
+// TestDelegationCycleDiagnostics_IsWhatCheckGetsAndWhatItSays is the exported
+// form: the one CheckGraph finding besides unresolved-target that has a
+// production caller. Same finding, same suppression, and the FILE rather than
+// the node id, because a host prints a row a person clicks.
+func TestDelegationCycleDiagnostics_IsWhatCheckGetsAndWhatItSays(t *testing.T) {
+	g := &Graph{
+		Nodes: []GraphNode{
+			gcNode("test:a", "minecraft:scatter_feature"),
+			gcNode("test:b", "minecraft:scatter_feature"),
+		},
+		Edges: []GraphEdge{
+			{From: "test:a", To: "test:b", Kind: EdgeScatter, JSONPath: "$.places_feature"},
+			{From: "test:b", To: "test:a", Kind: EdgeScatter, JSONPath: "$.places_feature"},
+		},
+		Roots:  []string{"test:a"},
+		Cycles: [][]string{{"test:a", "test:b"}},
+	}
+	diags := DelegationCycleDiagnostics(g)
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %+v, want exactly one", diags)
+	}
+	d := diags[0]
+	if d.Level != "warning" {
+		t.Errorf("level = %q, want warning -- the pack loads and generates, so this must never fail a build", d.Level)
+	}
+	if d.Scope != session.ScopePack {
+		t.Errorf("scope = %q, want pack -- a cycle is a fact about the files, true of every run", d.Scope)
+	}
+	if d.FileID != "features/test:a.json" {
+		t.Errorf("FileID = %q, want the rooting node's file -- a host prints a path someone opens", d.FileID)
+	}
+	if !strings.Contains(d.Message, "test:a -> test:b -> test:a") {
+		t.Errorf("the message should close the loop so it reads as one: %q", d.Message)
+	}
+	if !strings.Contains(d.Message, "@featurelab:ignore cycle") {
+		t.Errorf("the message must carry the directive that silences it: %q", d.Message)
+	}
+}
+
+// TestDelegationCycleDiagnostics_SelfDelegationIsTheSameFinding: the editor
+// refuses A -> A on the canvas, but a file on disk can still say it, and it is
+// the one-node spelling of exactly the same defect.
+func TestDelegationCycleDiagnostics_SelfDelegationIsTheSameFinding(t *testing.T) {
+	g := &Graph{
+		Nodes:  []GraphNode{gcNode("test:a", "minecraft:scatter_feature")},
+		Edges:  []GraphEdge{{From: "test:a", To: "test:a", Kind: EdgeScatter, JSONPath: "$.places_feature"}},
+		Roots:  []string{"test:a"},
+		Cycles: [][]string{{"test:a"}},
+	}
+	if diags := DelegationCycleDiagnostics(g); len(diags) != 1 {
+		t.Fatalf("diagnostics = %+v, want one", diags)
+	}
+}
+
+// TestDelegationCycleDiagnostics_HonoursTheAnnotationOnAnyNodeAroundTheLoop:
+// the author who wrote it was looking at one node, and asking for the same
+// sentence on every node in the loop is asking for four copies of it.
+func TestDelegationCycleDiagnostics_HonoursTheAnnotationOnAnyNodeAroundTheLoop(t *testing.T) {
+	b := gcNode("test:b", "minecraft:scatter_feature")
+	b.Annotations = []Annotation{{Name: "ignore", Args: []string{"cycle"}}}
+	g := &Graph{
+		Nodes: []GraphNode{gcNode("test:a", "minecraft:scatter_feature"), b},
+		Edges: []GraphEdge{
+			{From: "test:a", To: "test:b", Kind: EdgeScatter},
+			{From: "test:b", To: "test:a", Kind: EdgeScatter},
+		},
+		Roots:  []string{"test:a"},
+		Cycles: [][]string{{"test:a", "test:b"}},
+	}
+	if diags := DelegationCycleDiagnostics(g); len(diags) != 0 {
+		t.Errorf("diagnostics = %+v, want none -- the annotation is about the pack, not about one tool", diags)
+	}
+}
+
+func TestDelegationCycleDiagnostics_NilAndAcyclicGraphsSayNothing(t *testing.T) {
+	if diags := DelegationCycleDiagnostics(nil); diags != nil {
+		t.Errorf("a nil graph produced %+v", diags)
+	}
+	g := &Graph{Nodes: []GraphNode{gcNode("test:a", "minecraft:scatter_feature")}}
+	if diags := DelegationCycleDiagnostics(g); diags != nil {
+		t.Errorf("an acyclic graph produced %+v", diags)
+	}
+}

@@ -48,10 +48,13 @@
 package wire
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/stirante/featurelab/internal/nearest"
+	"github.com/stirante/featurelab/pack"
 	"github.com/stirante/featurelab/session"
 
 	molang "github.com/stirante/molang-go"
@@ -198,6 +201,74 @@ var checkListDelegation = map[string]struct {
 // Errors are things the pack will not load with or that cannot mean anything;
 // warnings are things that load and are probably not what the author meant.
 // Cycles are always warnings -- see checkCycles.
+//
+// # CheckGraph HAS NO PRODUCTION CALLER, AND THAT IS ON PURPOSE
+//
+// Everything below is tested and nothing but tests calls it. Exactly one of
+// its findings ships: unresolved-target, lifted out into UnresolvedTargets /
+// UnresolvedTargetDiagnostics, because a delegation naming something nothing
+// defines is a pack that places nothing -- a defect nobody disputes, on a
+// pack that was already broken, so reporting it took nothing away from
+// anyone.
+//
+// The other ten are a MEASURED PRODUCT CHANGE, not a bug fix, and that is why
+// they are still here rather than wired into `check`. Every one of them would
+// appear on packs that pass today; the error-level ones would flip a green CI
+// job to red on a pack whose author changed nothing. That call belongs to
+// whoever owns the release, with numbers from real packs in front of them,
+// and "the code was already written" is not the argument that should make it.
+//
+// What is here, who wants it, and what has to be decided first:
+//
+//   - required-edge, edge-arity, edge-weight, edge-iterations (error). A
+//     delegation the type cannot load without, a count or kind of delegation
+//     it cannot accept, a weighted entry that can never win, a scatter with
+//     no iterations. Wanted by `check` and by a CI job: these are load
+//     failures in game, which is the strongest case in the set. DECIDE: run
+//     the four over a corpus of packs that pass `check` today and count the
+//     findings. If the count is near zero, they are free; if it is not, the
+//     tables they are keyed on (checkSingleDelegation, checkListDelegation)
+//     are guessing about types nobody confirmed, and the fix is to narrow the
+//     tables before shipping the checks.
+//
+//   - molang-parse (error), molang-query, molang-side-effect (warning). An
+//     expression that is not Molang, a query nothing answers during world
+//     generation, an assignment inside a condition. Wanted by a graph editor
+//     first -- they point at a character in a string, which is what an editor
+//     can show and a terminal row cannot. DECIDE: whether checkWorldGenQueries
+//     is the whole world-gen Molang surface. It is short because the surface
+//     is short, but anything missing from it becomes a wrong error on a
+//     correct pack, which is the failure mode this package spent thirteen
+//     wrong errors learning to avoid (see GraphNode.External).
+//
+//   - molang-unset-read (warning). A read of a variable./temp. slot nothing
+//     in the graph writes. The most useful thing here and the most likely to
+//     be wrong: the write set is graph-wide rather than per-ancestor (see
+//     checkExpr), so it under-reports by design. DECIDE: nothing, if it stays
+//     a warning; it must never become an error while the write set is
+//     approximate.
+//
+//   - game-provided-target (info). An edge into one of the game's own
+//     features: correct pack, and only the preview cannot draw it. Wanted by
+//     an editor, to explain a node that renders as a stub. DECIDE: whether
+//     `check` should carry info rows about correctness at all -- it now has
+//     an info level, and this is the first finding that would use it for
+//     something other than a missing directory.
+//
+//   - cycle (warning). A delegation cycle, which is legal -- the engine
+//     guards recursion at run time -- so this can only ever be a warning, and
+//     a pack that means it needs a way to say so. DECIDE: nothing beyond
+//     accepting that @featurelab:ignore cycle is the answer for a pack that
+//     is doing it deliberately.
+//
+// The mechanism for shipping any of them is already complete: every finding
+// names its check, and @featurelab:ignore <check> suppresses it per node. So
+// the work left is not code. It is picking the levels, running the corpus,
+// and deciding what a release is willing to turn red.
+//
+// See also this file's header for the check deliberately NOT in here (dead
+// branches), which is a different question: that one is wrong in principle,
+// not merely unshipped.
 func CheckGraph(g *Graph) []session.Diagnostic {
 	if g == nil {
 		return nil
@@ -224,6 +295,11 @@ type graphChecker struct {
 	// exprs is every parsed condition/iterations, keyed by edge index, so the
 	// write-collecting pass and the reporting pass share one parse.
 	exprs map[int][]*graphExpr
+
+	// defined memoises DefinedNodeIDs(c.g) -- see there for what is in it and
+	// what is deliberately not. Built lazily, because the overwhelmingly common
+	// graph has no dangling edge at all and never asks for it.
+	defined []string
 
 	out []session.Diagnostic
 }
@@ -458,9 +534,7 @@ func (c *graphChecker) checkEdges() {
 				"delegates to %q, which the game provides rather than this pack. It resolves in game; this tool does not simulate the game's own features, so nothing appears for it in a preview.",
 				e.To))
 		case target.Unresolved:
-			c.edgeDiag("error", CheckUnresolvedTarget, e, fmt.Sprintf(
-				"delegates to %q, which no loaded file defines. Nothing resolves this reference at run time, so this branch places nothing -- check the namespace and the spelling, or add the file.",
-				e.To))
+			c.edgeDiag("error", CheckUnresolvedTarget, e, unresolvedTargetMessage(e.To, c.definedIDs()))
 		}
 
 		c.checkEdgeData(e)
@@ -469,6 +543,231 @@ func (c *graphChecker) checkEdges() {
 			c.checkExpr(e, x)
 		}
 	}
+}
+
+// definedIDs is every node id the pack defines, built on first use. The
+// namespace half of the near-match is what earns this: a reference written
+// without its namespace is the commonest dangling edge in a real pack, and it
+// is the one case where naming the intended target is a near-certainty rather
+// than a guess.
+func (c *graphChecker) definedIDs() []string {
+	if c.defined != nil {
+		return c.defined
+	}
+	c.defined = DefinedNodeIDs(c.g)
+	return c.defined
+}
+
+// DefinedNodeIDs is every id g actually DEFINES -- the candidate list a
+// dangling reference's "did you mean" is drawn from.
+//
+// Deliberately not every node: an unresolved node is itself a reference
+// nothing defines, and suggesting one broken name in place of another would be
+// worse than saying nothing.
+//
+// Non-nil even when the graph defines nothing, so a caller memoising it runs
+// the walk once rather than once per dangling edge.
+func DefinedNodeIDs(g *Graph) []string {
+	if g == nil {
+		return []string{}
+	}
+	out := make([]string, 0, len(g.Nodes))
+	for i := range g.Nodes {
+		if !g.Nodes[i].Unresolved {
+			out = append(out, g.Nodes[i].ID)
+		}
+	}
+	return out
+}
+
+// unresolvedTargetMessage is the one sentence a dangling delegation gets,
+// wherever it is reported.
+//
+// It is a function rather than two copies of a string because it now has two
+// callers with two very different presentations -- CheckGraph, which wraps it
+// with the edge's JSON path and the ignore directive for an editor, and
+// cmd/featurelab's checkPack, which prefixes the delegating node for a
+// terminal -- and the thing a reader has to recognise across the two is the
+// part in the middle: what is wrong, why it matters, and what it might have
+// been meant to say.
+func unresolvedTargetMessage(to string, defined []string) string {
+	return fmt.Sprintf(
+		"delegates to %q, which no loaded file defines. Nothing resolves this reference at run time, so this branch places nothing -- check the namespace and the spelling, or add the file.%s",
+		to, nearest.Phrase(to, defined))
+}
+
+// UnresolvedTarget is one delegation whose target no loaded file defines and
+// the game does not provide: a branch of the pack that cannot place anything,
+// in game or here.
+type UnresolvedTarget struct {
+	// From is the node that delegates, To is the reference it wrote.
+	From string
+	To   string
+	// File is From's pack-relative path -- what a client opens to fix this.
+	// Empty when From is not a node of this graph.
+	File string
+	// JSONPath is where inside File the reference is written, in
+	// jsonc.FormatPath's dialect (see GraphEdge.JSONPath). Empty for an edge
+	// carrying none.
+	JSONPath string
+	// Message is the sentence to show, shared verbatim with CheckGraph's own
+	// unresolved-target finding -- see unresolvedTargetMessage.
+	Message string
+}
+
+// UnresolvedTargets returns every dangling delegation in g, in g.Edges order.
+//
+// This exists because the finding it reports was, in practice, unreachable.
+// It has always been part of CheckGraph -- with the "did you mean" and
+// everything -- and CheckGraph had no production caller at all, so a pack
+// whose `"places_feature"` was one letter off loaded clean, checked clean,
+// graphed clean, and generated nothing. This is the piece of CheckGraph that
+// belongs to `check` rather than to a live editor: it needs no Molang parse,
+// no cycle walk and no per-node structural rules, only the edges and which
+// nodes resolved, so it is cheap enough to run on every `check` and every
+// graph request.
+//
+// It honours the same `@featurelab:ignore unresolved-target` annotation
+// CheckGraph honours, and reports the same sentence, because an author who
+// suppressed this finding in the editor has said what they meant about the
+// pack, not about one tool that reads it.
+//
+// External (game-provided `minecraft:*`) targets are NOT here, keeping their
+// own non-error treatment: the pack is correct, the reference resolves in
+// game, and only the preview cannot show it. See GraphNode.External for the
+// 13-wrong-errors-on-a-working-pack history behind that.
+//
+// An edge whose To names no node at all is also skipped. Every reference in a
+// built graph becomes a node -- that is what GraphNode.Unresolved is for -- so
+// this can only be a hand-assembled Graph, and it is CheckGraph's business to
+// complain about one, not a pack checker's.
+func UnresolvedTargets(g *Graph) []UnresolvedTarget {
+	if g == nil {
+		return nil
+	}
+	// Built here rather than via newGraphChecker, which parses every Molang
+	// expression in the graph on construction -- an outlay this answer has no
+	// use for, on a path that runs for every `check` of every pack.
+	nodes := make(map[string]*GraphNode, len(g.Nodes))
+	for i := range g.Nodes {
+		nodes[g.Nodes[i].ID] = &g.Nodes[i]
+	}
+	var defined []string
+	var out []UnresolvedTarget
+	for i := range g.Edges {
+		e := &g.Edges[i]
+		target, known := nodes[e.To]
+		if e.To == "" || !known || !target.Unresolved || target.External {
+			continue
+		}
+		from := nodes[e.From]
+		if suppressedByIgnore(from, CheckUnresolvedTarget) {
+			continue
+		}
+		if defined == nil {
+			defined = DefinedNodeIDs(g)
+		}
+		file := ""
+		if from != nil {
+			file = from.File
+		}
+		out = append(out, UnresolvedTarget{
+			From: e.From, To: e.To, File: file, JSONPath: e.JSONPath,
+			Message: unresolvedTargetMessage(e.To, defined),
+		})
+	}
+	return out
+}
+
+// Diagnostic is one UnresolvedTarget as the row every host already knows how to render: the
+// same shape CheckGraph emits and the same shape a pack load or a placement answers with.
+//
+// It is a method rather than a line of formatting at each call site because the SENTENCE is the
+// thing that must not fork. It was already one function (unresolvedTargetMessage) shared by
+// CheckGraph and `check`; the prefix in front of it -- the delegating node, then where inside
+// its file the reference is written -- was `check`'s alone, and the next host to report this
+// would have written a second one. Two wordings of one problem is how a reader ends up
+// believing they have two problems.
+//
+// Level is "error", like any other reference to something that does not exist: the branch
+// cannot place anything, in this tool or in game, and there is no origin or seed at which it
+// starts working.
+//
+// Scope is pack, not run: it is a fact about the files on disk, true of every run of every
+// feature in the pack.
+//
+// FileID is the DELEGATING node's file -- the one that can be opened and edited. The target has
+// no file; that is what is wrong with it. It falls back to the delegating identifier when the
+// graph knows no path for it, because a row naming nothing at all is worse than a row naming
+// the feature.
+func (t UnresolvedTarget) Diagnostic() session.Diagnostic {
+	where := t.JSONPath
+	if where == "" {
+		where = "places_feature"
+	}
+	file := t.File
+	if file == "" {
+		file = t.From
+	}
+	return session.Diagnostic{
+		Level: "error", FileID: file, Scope: session.ScopePack,
+		Message: t.From + ": " + where + ": " + t.Message,
+	}
+}
+
+// UnresolvedTargetDiagnostics is every dangling delegation in a loaded pack, as diagnostics.
+//
+// THIS IS THE HOLE EVERY HOST HAD, and the reason it is here rather than in whichever host
+// noticed it first. Every individual file in such a pack is perfectly well-formed -- a
+// `"places_feature"` is a string and that string is spelled fine -- so the loaders have nothing
+// to complain about, and a pack with one letter wrong in one delegation loads clean and
+// generates nothing but "No features could be placed". The mistake is not visible in any one
+// file; it is visible only BETWEEN two of them, which is exactly what the graph is, and the
+// graph is this package's.
+//
+// It was written in cmd/featurelab, so `check`, `graph` and the VS Code extension (which drives
+// both over `serve`) reported it and apps/desktop -- which links this engine in-process and
+// never goes through that package at all -- did not. The natural-looking home, session, is not
+// available and should not be made available: this package already imports session for
+// Diagnostic, so session importing Graph would be an import cycle, and the honest reason behind
+// that cycle is that session is about running a placement while this is a statement about the
+// files, derived without an origin, a seed or a world. So it lives beside the graph it reads,
+// and every host calls it.
+//
+// g is the caller's already-built graph, or nil to build one here. The parameter exists because
+// a graph costs a JSON re-parse of every source file in the pack, and a `graph` request that
+// built one and then made this build a second identical one would have doubled the cost of the
+// slowest request this engine serves.
+//
+// ok is false ONLY when ctx was cancelled, in which case the diagnostics returned are a prefix
+// of the real set and must not be shown to anybody. A graph that could not be BUILT is a
+// different thing: it says nothing about delegations either way, and the per-file diagnostics
+// this is appended to are complete without it, so it answers with nothing and no error. Adding
+// a finding is this function's job; failing for a reason unrelated to the pack's contents is
+// not.
+func UnresolvedTargetDiagnostics(ctx context.Context, loaded *pack.Pack, g *Graph) ([]session.Diagnostic, bool) {
+	if g == nil {
+		var err error
+		g, err = BuildGraphContext(ctx, loaded)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, false
+			}
+			return nil, true
+		}
+	}
+	if ctx.Err() != nil {
+		return nil, false
+	}
+	targets := UnresolvedTargets(g)
+	if len(targets) == 0 {
+		return nil, true
+	}
+	out := make([]session.Diagnostic, 0, len(targets))
+	for _, t := range targets {
+		out = append(out, t.Diagnostic())
+	}
+	return out, true
 }
 
 // checkEdgeData reports the per-kind payload an edge must carry.
@@ -624,26 +923,97 @@ func expressionOutcome(what string) string {
 // if it were a tree -- so the useful thing is to hand over the path and let the
 // author decide, not to refuse the pack.
 func (c *graphChecker) checkCycles() {
-	for _, cycle := range c.g.Cycles {
+	for _, d := range DelegationCycleDiagnostics(c.g) {
+		// FileID back to Chain[0]. CheckGraph's rows all carry the ROOT NODE ID
+		// there (see nodeDiag/edgeDiag, which spell it c.pathTo(id)[0]), and
+		// this package's header documents that FileID matches Chain[0] for
+		// everything it emits. The exported form is for hosts that print a row
+		// a person clicks, and fills in the node's real file instead -- the
+		// same split UnresolvedTarget already makes between CheckGraph's row
+		// and Diagnostic()'s.
+		if len(d.Chain) > 0 {
+			d.FileID = d.Chain[0]
+		}
+		c.append(d)
+	}
+}
+
+// DelegationCycleDiagnostics is every delegation cycle in g, as diagnostics --
+// the second finding of CheckGraph's eleven to be lifted out for a production
+// caller, and the reason it is this one rather than any of the other nine is
+// worth stating.
+//
+// It is the only one in the set whose level was never in question. See
+// CheckGraph's own comment: every other unshipped check either is, or could
+// become, an ERROR, and turning one on flips a green CI run red on a pack whose
+// author changed nothing -- a release decision, taken with corpus numbers in
+// hand, not a bug fix. A cycle can only ever be a warning, because the pack
+// really does load and really does generate. `check`'s exit code is decided by
+// the error count and by nothing else (see cmdCheck), so wiring this one adds a
+// row and cannot fail a pack that passes today.
+//
+// And the finding is real rather than stylistic. A -> B -> A means one of the
+// two delegations places nothing: the recursion guard refuses the re-entry, so
+// the inner branch is dropped at run time, silently, with no diagnostic
+// anywhere and no seed at which it behaves differently. That is the same class
+// of defect as a dangling places_feature -- a branch of the pack that cannot
+// do anything -- and the editor already refuses the one-node spelling of it
+// when someone draws A -> A on the canvas. An author who means it says so with
+// `@featurelab:ignore cycle`, which this honours, for the same reason
+// UnresolvedTargets honours its own annotation: the note is about the pack, not
+// about whichever tool happens to be reading it.
+//
+// FileID is the file of the node the cycle is rooted at, so a host can open it,
+// falling back to the node id when the graph knows no path for it (a
+// hand-assembled graph, or an unresolved node, which has no file -- that being
+// what is wrong with it). Identifier/TypeID name the node the path ENDS on,
+// which is Chain's last entry, exactly as session.Diagnostic documents.
+func DelegationCycleDiagnostics(g *Graph) []session.Diagnostic {
+	if g == nil || len(g.Cycles) == 0 {
+		return nil
+	}
+	nodes := make(map[string]*GraphNode, len(g.Nodes))
+	for i := range g.Nodes {
+		nodes[g.Nodes[i].ID] = &g.Nodes[i]
+	}
+	var out []session.Diagnostic
+	for _, cycle := range g.Cycles {
 		if len(cycle) == 0 {
 			continue
 		}
-		if c.suppressedByAny(cycle, CheckCycle) {
+		suppressed := false
+		for _, id := range cycle {
+			if suppressedByIgnore(nodes[id], CheckCycle) {
+				suppressed = true
+				break
+			}
+		}
+		if suppressed {
 			continue
 		}
 		last := cycle[len(cycle)-1]
-		c.append(session.Diagnostic{
+		file := cycle[0]
+		if n := nodes[cycle[0]]; n != nil && n.File != "" {
+			file = n.File
+		}
+		typeID := ""
+		if n := nodes[last]; n != nil {
+			typeID = n.TypeID
+		}
+		out = append(out, session.Diagnostic{
 			Level:      "warning",
-			FileID:     cycle[0],
+			FileID:     file,
+			Scope:      session.ScopePack,
 			Identifier: last,
-			TypeID:     c.typeOf(last),
+			TypeID:     typeID,
 			Chain:      append([]string(nil), cycle...),
 			Count:      1,
 			Message: graphCheckMessage(CheckCycle, fmt.Sprintf(
-				"delegation cycle: %s. This is legal -- the recursion guard stops it at run time -- but the chain has no end, and anything walking or laying out this graph has to be ready for that.",
+				"delegation cycle: %s. The pack loads and generates -- the engine's recursion guard stops the loop at run time -- but that guard works by DROPPING the re-entry, so one of these delegations places nothing, at every origin and under every seed, and reports nothing when it does. The chain also has no end, so anything walking or laying out this graph has to be ready for that.",
 				strings.Join(append(append([]string(nil), cycle...), cycle[0]), " -> "))),
 		})
 	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -741,7 +1111,15 @@ func (c *graphChecker) edgeDiag(level, check string, e *GraphEdge, msg string) {
 	})
 }
 
-func (c *graphChecker) append(d session.Diagnostic) { c.out = append(c.out, d) }
+// append is the one funnel every finding in this file goes through, which is also where the
+// scope is stamped. Every check here is static analysis of the pack's own graph -- a dead
+// delegation, a cycle, a reference to a feature nothing declares -- and is therefore true of
+// the pack regardless of what anyone previews: session.ScopePack, never ScopeRun. Nothing in
+// this file runs during a placement, so there is no second case to decide between.
+func (c *graphChecker) append(d session.Diagnostic) {
+	d.Scope = session.ScopePack
+	c.out = append(c.out, d)
+}
 
 func (c *graphChecker) typeOf(id string) string {
 	if n, ok := c.nodes[id]; ok {

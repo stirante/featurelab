@@ -178,6 +178,18 @@ func TestBuild_UnresolvedTexturesAreListedWithDistinctReasons(t *testing.T) {
 		t.Errorf("north reason = %q, want it to say the key is not declared", north.Reason)
 	}
 
+	// And the same two failures as machine-readable tokens. A host that GROUPS these ("4 of 24
+	// blocks have no texture") has to tell them apart without matching on the prose above.
+	if up.Code != CodeImageMissing {
+		t.Errorf("up code = %q, want %q", up.Code, CodeImageMissing)
+	}
+	if north.Code != CodeKeyNotDeclared {
+		t.Errorf("north code = %q, want %q", north.Code, CodeKeyNotDeclared)
+	}
+	if up.Code == north.Code {
+		t.Error("the two failures share a code, which would fold two different fixes into one bucket")
+	}
+
 	broken := table.Blocks["myaddon:broken_textures"]
 	if _, textured := broken.Faces["down"]; !textured {
 		t.Error("the down face resolved and must still be in the table -- one bad key does not lose the good ones")

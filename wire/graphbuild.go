@@ -15,14 +15,16 @@
 package wire
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/stirante/featurelab/features"
+	"github.com/stirante/featurelab/internal/nearest"
+	"github.com/stirante/featurelab/internal/packpath"
 	"github.com/stirante/featurelab/jsonc"
 	"github.com/stirante/featurelab/pack"
 	"github.com/stirante/featurelab/rules"
@@ -55,14 +57,33 @@ const graphRuleBodyKey = "minecraft:feature_rules"
 // the pack that is broken, so failing on any of that would take the tool
 // away exactly when it is needed.
 func BuildGraph(loaded *pack.Pack) (*Graph, error) {
+	return BuildGraphContext(context.Background(), loaded)
+}
+
+// BuildGraphContext is BuildGraph with a cancellation signal: cancelling ctx abandons the build
+// and returns ctx.Err() instead of a Graph.
+//
+// PER FILE, not per node or per edge. Parsing one feature file is the unit of work here -- the
+// cost of a graph is one JSON parse plus one annotation scan per file, several thousand times
+// over on a large pack -- so a check between two files bounds the overshoot at one file's parse
+// while costing one comparison per file against work measured in microseconds. The link/cycle
+// pass below (b.build) is not checked at all: it walks data already in memory and is a small
+// fraction of the whole.
+func BuildGraphContext(ctx context.Context, loaded *pack.Pack) (*Graph, error) {
 	if loaded == nil {
 		return nil, fmt.Errorf("wire: BuildGraph needs a loaded pack")
 	}
 	b := &graphBuilder{byKey: make(map[string]int)}
 	for _, f := range loaded.Features {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		b.register(withPackPath(parseGraphFeatureFile(f), loaded.Dir, f.AbsPath))
 	}
 	for _, f := range loaded.Rules {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		b.register(withPackPath(parseGraphRuleFile(f), loaded.Dir, f.AbsPath))
 	}
 	return b.build(), nil
@@ -124,8 +145,27 @@ func (b *graphBuilder) build() *Graph {
 	for _, doc := range b.docs {
 		nodes = append(nodes, b.node(doc))
 	}
+	// defined is every id the pack DOES define -- the candidate list each
+	// dangling node's Suggestions is drawn from. Built once here, and only
+	// when there is a dangling node to spend it on: the overwhelmingly common
+	// pack has none.
+	var defined []string
 	for _, id := range b.unresolvedIDs {
-		nodes = append(nodes, GraphNode{ID: id, Unresolved: true, External: isGameProvided(id)})
+		n := GraphNode{ID: id, Unresolved: true, External: isGameProvided(id)}
+		if !n.External {
+			if defined == nil {
+				defined = make([]string, 0, len(b.docs))
+				for _, doc := range b.docs {
+					defined = append(defined, doc.id)
+				}
+			}
+			// A game-provided id is deliberately left alone: the pack is
+			// right, and offering it one of the pack's own features as a
+			// "correction" is the wrong-error-on-a-working-pack problem
+			// GraphNode.External exists to have fixed.
+			n.Suggestions = nearest.Names(id, defined)
+		}
+		nodes = append(nodes, n)
 	}
 	// Not sorted here: nodes come out in pack order (the loader hands its
 	// files over sorted by path) with the dangling ones after them, which is
@@ -709,15 +749,14 @@ func withPackPath(doc *graphDoc, packDir, absPath string) *graphDoc {
 // the embedded vanilla block catalogue, whose "path" is inside a build-time
 // FS and names nothing on disk. A caller keeps the id it already had: no more
 // wrong than it was, and better than a path to nowhere.
+//
+// The body lives in internal/packpath because a THIRD caller cannot reach this
+// one: session (whose Result.Diagnostics the preview renders) is imported BY
+// this package, so it cannot import back, and it used to answer with the
+// loader's kind-relative id for a file these two spelled pack-relative. See
+// that package.
 func PackRelativePath(packDir, absPath string) string {
-	if packDir == "" || absPath == "" {
-		return ""
-	}
-	rel, err := filepath.Rel(packDir, absPath)
-	if err != nil {
-		return ""
-	}
-	return filepath.ToSlash(rel)
+	return packpath.Relative(packDir, absPath)
 }
 
 // parseGraphFeatureFile reads one features/*.json far enough to place it in

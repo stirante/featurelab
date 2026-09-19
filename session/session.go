@@ -28,6 +28,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -37,6 +38,7 @@ import (
 	"github.com/stirante/featurelab/block"
 	"github.com/stirante/featurelab/env"
 	"github.com/stirante/featurelab/features"
+	"github.com/stirante/featurelab/internal/nearest"
 	"github.com/stirante/featurelab/profiler"
 	"github.com/stirante/featurelab/random"
 	"github.com/stirante/featurelab/rules"
@@ -150,6 +152,25 @@ type Config struct {
 	// is nil and neither Generate nor anything it calls ever reads or
 	// writes profiler package state.
 	Profiling bool `json:"profiling"`
+
+	// PackDir is the pack root every FileID in this run's Diagnostics is
+	// spelled relative to -- the one thing this package cannot work out for
+	// itself, since a SourceFile carries its own absolute path but nothing
+	// says which directory is "the pack".
+	//
+	// It is not a placement input: nothing about what gets placed depends on
+	// it, and a run with it empty places exactly what the same run with it set
+	// does. What changes is the spelling of a diagnostic's fileId -- from the
+	// loader's kind-relative id ("broken.json") to the pack-relative path
+	// every other client-facing shape in this repo uses ("features/broken.
+	// json"), which is what lets one client render a preview diagnostic and a
+	// canvas node as the same file. See packpaths.go.
+	//
+	// Set by wire (RunGenerate from the loaded pack, the workspace paths from
+	// the host that owns it); deliberately NOT reachable from wire.
+	// GenerateParams's JSON, because a client naming a directory this engine
+	// would then quote back at it is not a thing a client should be able to do.
+	PackDir string `json:"-"`
 }
 
 // DefaultConfig returns the default Config for a preset. ok is false when
@@ -193,6 +214,53 @@ type Diagnostic struct {
 	Level  string `json:"level"` // "error" | "warning"
 	FileID string `json:"fileId"`
 
+	// Scope separates the two completely different questions a reader of
+	// this list is trying to answer: "is something wrong with this pack?"
+	// (ScopePack) and "what happened in the run I just asked for?"
+	// (ScopeRun). Always one of the two, never empty.
+	//
+	// Every preview of every feature in a pack carries that pack's whole
+	// build-diagnostic set -- a handful of unrelated files' warnings, each
+	// several hundred characters long -- which buried the one or two
+	// diagnostics that actually explained the run being looked at. Scope is
+	// what lets a client put the pack's standing problems somewhere durable
+	// (a problems list, refreshed on load) and show only the run-scoped ones
+	// beside the preview itself, without having to guess from the message
+	// text which is which.
+	//
+	// The line is drawn at where a diagnostic COMES FROM, not at whether it
+	// happens to be interesting right now:
+	//
+	//   - ScopePack: raised while BUILDING a library from the pack's source
+	//     files (features/structures/rules/biomes/blocks), or by the shared
+	//     block palette those builds interned into. Identical for every run
+	//     against the same files; nothing about the requested environment,
+	//     seed, origin or selected feature can change it.
+	//   - ScopeRun: raised by, or about, THIS call -- the environment build
+	//     and its material slots, a selected identifier that did not
+	//     resolve, a gate that refused during placement, a budget that ran
+	//     out, writes that landed outside the previewed volume.
+	//
+	// One case is genuinely both: a build diagnostic about the very file the
+	// run selected (the feature you asked to preview is the one that failed
+	// to build). It stays ScopePack, because that is what it is -- the file
+	// is broken whether or not anyone previews it -- and the run's side of
+	// the story is carried by a separate ScopeRun diagnostic naming the file
+	// and pointing at it (see unresolved.go). A client that wants "the pack
+	// problems in the file I am looking at" can filter the pack-scoped set
+	// by FileID; a client that wants "why did THIS run do that" reads the
+	// run-scoped set and needs nothing else.
+	Scope string `json:"scope"`
+
+	// Line and Column are the 1-based place in FileID this diagnostic is
+	// about, omitted when there is no single place to point at (which is
+	// most of them -- a placement refusal is about a feature, not a
+	// character). Carried through from the loader that knew it (see
+	// jsonc.ErrorPosition), so an editor can mark the offending comma
+	// rather than only the file.
+	Line   int `json:"line,omitempty"`
+	Column int `json:"column,omitempty"`
+
 	// Identifier/TypeID name the feature that ACTUALLY raised this diagnostic -- the deepest
 	// (currently-executing) entry of Chain below, i.e. Chain[len(Chain)-1].Identifier/TypeID when
 	// Chain is non-empty. Empty for a diagnostic that never ran inside a placement (a structure/
@@ -227,6 +295,15 @@ type Diagnostic struct {
 
 	Message string `json:"message"`
 }
+
+// ScopePack and ScopeRun are the only two values Diagnostic.Scope ever takes
+// -- see that field's own doc comment for where the line is drawn and why.
+// They are constants rather than bare strings so a producer cannot invent a
+// third spelling that a client would silently drop into neither bucket.
+const (
+	ScopePack = "pack"
+	ScopeRun  = "run"
+)
 
 // Placement is one placement attempt (one per Config.RepeatCount
 // iteration).
@@ -367,6 +444,22 @@ type Result struct {
 	// caller never has to special-case "profiling was off" vs "profiling
 	// was on but nothing ran" beyond a single nil check.
 	Profile *profiler.ProfileResult `json:"profile"`
+
+	// Stops is why this run placed what it placed -- every gate that ended a feature's work
+	// early (an iterations expression that rounded to 0, a condition that evaluated false, a
+	// biome filter that rejected), credited to the feature that holds the gate and merged by
+	// (identifier, reason, ordinal) with summed counts, heaviest first.
+	//
+	// Populated on EVERY run, not just a profiled one: "placed nothing" is only actionable once
+	// something names the gate that said no, and arming the full profiler to find that out is a
+	// cost an ordinary preview should not pay. See profiler.BeginStops/EndStops for the cheap
+	// tier this comes from, and profiler.MaxStopRows for the cap that keeps a pathological pack
+	// from filling a response with them (the rows dropped are always the least-hit ones).
+	//
+	// nil when nothing stopped -- a healthy run carries no rows at all. The profiling-only
+	// per-feature view of the same events (Profile.Features[].Stops) is unchanged and still
+	// present only when Config.Profiling was true.
+	Stops []profiler.StopRow `json:"stops,omitempty"`
 }
 
 // Generate builds a brand-new Workspace from files/structureFiles/ruleFiles
@@ -385,11 +478,26 @@ type Result struct {
 // previous placement) keeps every run reproducible from (config, files,
 // structureFiles) alone.
 func Generate(config Config, files []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile) (*Result, error) {
+	return GenerateContext(context.Background(), config, files, structureFiles, ruleFiles, biomeFiles, blockFiles)
+}
+
+// GenerateContext is Generate with a cancellation signal: cancelling ctx abandons the placement
+// at the next checkpoint and returns ctx.Err() (context.Canceled) INSTEAD of a Result.
+//
+// A cancelled run returns no partial result on purpose. This package already has three ways to
+// hand back a truncated volume with a diagnostic explaining it (the write budget, the delegation
+// budget, the wall-clock deadline), and all three exist because the truncation says something
+// about the PACK that the author needs to see. Cancellation says something about the person, who
+// has by definition stopped looking; a half-placed volume delivered as though it were a result
+// would be the stale preview this whole tool is built to avoid.
+//
+// Library building (NewWorkspace, below) is NOT covered -- see Workspace.GenerateContext.
+func GenerateContext(ctx context.Context, config Config, files []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile) (*Result, error) {
 	buildStarted := time.Now()
 	ws := NewWorkspace(files, structureFiles, ruleFiles, biomeFiles, blockFiles)
 	buildDurationMs := float64(time.Since(buildStarted)) / float64(time.Millisecond)
 
-	result, err := ws.Generate(config)
+	result, err := ws.GenerateContext(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -416,8 +524,20 @@ func Generate(config Config, files []features.SourceFile, structureFiles []struc
 // different places, and previewing them anywhere but the origin is
 // impossible while the volume stays put -- every write would land outside
 // and be silently dropped.
-func generate(config Config, palette *block.Palette, lib *features.Library, structureLib *structures.Library, ruleLib *rules.FeatureRuleLibrary, biomeLib *biomes.Library) (*Result, error) {
+//
+// Cancellation checkpoints in this function are at the boundaries between PHASES (environment
+// build, placement, diff-and-summarise) and at the top of every repeat/chunk iteration. They are
+// deliberately not pushed any further down: everything below this level is already covered, from
+// inside, by features.SetPlacementCancel -- whose checks ride the existing TickDeadline countdown
+// and delegation cadence and therefore cost nothing per iteration. Adding a ctx.Err() call to a
+// per-cell loop here would buy responsiveness that is already there and pay for it in the one
+// place this project measures.
+func generate(ctx context.Context, config Config, palette *block.Palette, lib *features.Library, structureLib *structures.Library, ruleLib *rules.FeatureRuleLibrary, biomeLib *biomes.Library, paths packPaths) (*Result, error) {
 	started := time.Now()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	preset, ok := env.GetEnvironment(config.Environment)
 	if !ok {
@@ -444,8 +564,10 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 		environmentBiome = biomeLib.Resolve(config.EnvironmentBiomeID)
 		if environmentBiome == nil {
 			materialWarnings = append(materialWarnings, Diagnostic{
-				Level: "error", FileID: "(environment)", Count: 1,
-				Message: fmt.Sprintf("biome id %q is not defined by any loaded biome file -- materials/tags fall back to the %q preset's own defaults", config.EnvironmentBiomeID, config.Environment),
+				Level: "error", FileID: "(environment)", Scope: ScopeRun, Count: 1,
+				Message: fmt.Sprintf("biome id %q is not defined by any loaded biome file (%d biome(s) loaded) -- materials/tags fall back to the %q preset's own defaults",
+					config.EnvironmentBiomeID, len(biomeLib.Entries), config.Environment) +
+					nearest.Phrase(config.EnvironmentBiomeID, biomeEntryIdentifiers(biomeLib.Entries)),
 			})
 		}
 	}
@@ -467,10 +589,19 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	}
 	effectiveSlots := env.MergeMaterialSlots(baseMaterialSlots, config.MaterialOverride)
 	materials := env.InternMaterialSlots(palette, effectiveSlots, func(message string) {
-		materialWarnings = append(materialWarnings, Diagnostic{Level: "warning", FileID: "(environment)", Count: 1, Message: message})
+		materialWarnings = append(materialWarnings, Diagnostic{Level: "warning", FileID: "(environment)", Scope: ScopeRun, Count: 1, Message: message})
 	})
 
 	preset.Build(vol, config.EnvironmentSeed, materials)
+
+	// The environment build is the one substantial piece of work that runs before any feature
+	// does -- a 64x64x64 ocean preset fills every cell of the volume -- and it is a closed loop
+	// inside env, with no checkpoint of its own. Checked on the way out rather than threaded
+	// into it: a preset build is bounded by the volume, which is bounded by the request, so the
+	// worst case is one build and not an open-ended one.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Two "you set something and nothing happened" checks, both about the
 	// environment layer rather than the feature under test. A defect down here
@@ -484,7 +615,7 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	// author an answer when they do nothing.
 	if inert := preset.InertSeaSlotOverrides(config.MaterialOverride); len(inert) > 0 {
 		materialWarnings = append(materialWarnings, Diagnostic{
-			Level: "warning", FileID: "(environment)", Count: 1,
+			Level: "warning", FileID: "(environment)", Scope: ScopeRun, Count: 1,
 			Message: fmt.Sprintf("%s set, but the %q environment builds no sea, so it changes nothing in this preview. "+
 				"Only the %q preset models one -- its water column, its seabed, and the sea_floor_depth band beneath it. "+
 				"Switch environments to see these take effect, or leave them unset.",
@@ -498,7 +629,7 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	// feature that placed nothing.
 	if message := preset.CheckLandform(vol); message != "" {
 		materialWarnings = append(materialWarnings, Diagnostic{
-			Level: "error", FileID: "(environment)", Count: 1, Message: message,
+			Level: "error", FileID: "(environment)", Scope: ScopeRun, Count: 1, Message: message,
 		})
 	}
 	// The environment builder writes into the same volume the feature will, so its own spill
@@ -549,6 +680,9 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	// Populated below, only when config.Profiling is true AND a feature/rule
 	// was actually selected -- see Result.Profile's doc comment.
 	var profileResult *profiler.ProfileResult
+	// Populated below on every run that selected something to place, profiled or not -- see
+	// Result.Stops.
+	var stopRows []profiler.StopRow
 
 	var feature wgen.IFeature
 	if config.Mode == ModeFeature && config.FeatureIdentifier != nil && *config.FeatureIdentifier != "" {
@@ -565,10 +699,10 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	// (config.FeatureIdentifier/RuleIdentifier non-empty, feature/activeRule both nil, so every
 	// diagnostic below -- gated on `feature != nil || activeRule != nil` -- used to never run).
 	if config.Mode == ModeFeature && config.FeatureIdentifier != nil && *config.FeatureIdentifier != "" && feature == nil {
-		placementFailures = append(placementFailures, unresolvedFeatureDiagnostic(*config.FeatureIdentifier, lib))
+		placementFailures = append(placementFailures, unresolvedFeatureDiagnostic(*config.FeatureIdentifier, lib, paths.feature))
 	}
 	if config.Mode == ModeRule && config.RuleIdentifier != nil && *config.RuleIdentifier != "" && activeRule == nil {
-		placementFailures = append(placementFailures, unresolvedRuleDiagnostic(*config.RuleIdentifier, ruleLib))
+		placementFailures = append(placementFailures, unresolvedRuleDiagnostic(*config.RuleIdentifier, ruleLib, paths.rule))
 	}
 
 	if feature != nil || activeRule != nil {
@@ -647,7 +781,7 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 			}
 			failureIndex[string(failureKeyBuf)] = len(placementFailures)
 			placementFailures = append(placementFailures, Diagnostic{
-				Level: level, FileID: id, Identifier: identifier, TypeID: typeID,
+				Level: level, FileID: id, Scope: ScopeRun, Identifier: identifier, TypeID: typeID,
 				Chain: chainIDs, Position: posCopy, Count: 1, Message: message,
 			})
 		}
@@ -676,6 +810,9 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 		delegationBudget := config.DelegationBudget
 		timeLimitMs := config.PlacementTimeLimitMs
 		features.SetDelegationBudgetMs(&delegationBudget, &timeLimitMs)
+		// AFTER SetDelegationBudgetMs, never before: both arm the same countdown, and the one
+		// called second is the one that wins (see features.SetPlacementCancel).
+		features.SetPlacementCancel(ctx.Done())
 
 		// Profiler setup (profiler.go) -- only the full accounting (per-feature stats, per-cell
 		// touch counts) is gated on config.Profiling; the delegation-chain frame stack every
@@ -683,12 +820,25 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 		// chain" doc comment) so LogFailure/budget-exceeded diagnostics are equally detailed with
 		// profiling off. Skipped entirely when config.Profiling is false, so a plain run allocates
 		// none of BeginProfiling's touchCounts/stats-map state and never reads/writes it.
+		//
+		// The stop tier (profiler.BeginStops) is armed for EVERY run regardless: it allocates
+		// nothing up front and adds no per-write or per-delegation work -- only the gates that
+		// actually refuse touch it -- which is what lets an ordinary preview answer "placed
+		// nothing, and here is what said no" without the profiler's volume-sized bookkeeping.
+		// Armed BEFORE BeginProfiling so the matching EndStops runs after EndProfiling (defers
+		// below unwind in reverse), which is the order profiler.StopsActive's save/restore
+		// expects.
+		profiler.BeginStops()
 		if config.Profiling {
 			profiler.BeginProfiling(len(vol.Data()))
 		}
 
 		func() {
+			defer features.SetPlacementCancel(nil)
 			defer features.SetDelegationBudgetMs(nil, nil)
+			// Registered first so it runs LAST -- after the recover defer below and after
+			// EndProfiling, for the reasons on both of those.
+			defer func() { stopRows = profiler.EndStops() }()
 			// Registered before the recover defer below so it still runs
 			// AFTER recover has handled (or re-panicked) whatever happened --
 			// Go continues running remaining deferred calls even when one of
@@ -739,6 +889,12 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 					addPlacementFailure("error", fmt.Sprintf(
 						"%s; %d repeat placement(s) completed before stopping -- the blocks shown are a partial result, and re-running with the SAME seed may stop at a different point",
 						e.Error(), completed), e.Chain, wgen.BlockPos{}, false)
+				case *features.PlacementCancelled:
+					// Swallowed WITHOUT a diagnostic and without setting partial: this run is
+					// about to be thrown away whole by the ctx.Err() check below, so there is
+					// nobody left to read a message and nothing worth calling a partial result.
+					// Recovered here at all only so it does not reach the default arm and
+					// re-panic as an unexplained stack trace.
 				case *features.MalformedRangeRefusal:
 					// NOT a budget: this placement was declined on purpose, by a feature that will
 					// not invent behaviour the game does not define (see that type's own doc
@@ -763,9 +919,15 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 			}
 
 			if feature != nil {
-				ctx := &wgen.PlacementContext{API: vol, Origin: origin, Random: rnd, MolangScope: molangScope, Biome: biome, LogFailure: logFailure, LogWarning: logWarning}
+				placeCtx := &wgen.PlacementContext{API: vol, Origin: origin, Random: rnd, MolangScope: molangScope, Biome: biome, LogFailure: logFailure, LogWarning: logWarning}
 				for i := 0; i < repeat; i++ {
-					returned := feature.Place(ctx)
+					// Per repeat, on top of the checks inside the placement itself: RepeatCount
+					// is a user-set multiplier over a whole placement, so one iteration is the
+					// coarsest unit that can still be abandoned between.
+					if ctx.Err() != nil {
+						return
+					}
+					returned := feature.Place(placeCtx)
 					placements = append(placements, Placement{Origin: origin, Returned: returned})
 				}
 				return
@@ -821,12 +983,22 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 				entryName = *config.RuleIdentifier
 			}
 			for _, chunkOrigin := range ruleChunkOrigins(vol, origin) {
+				// Per chunk. A rule bench runs the whole rule once for every 16x16 chunk it
+				// covers, so this is the outer loop a long rule run actually spends its time
+				// in, and the natural place to stop between two units of work that are
+				// independent by construction (each chunk reseeds from scratch).
+				if ctx.Err() != nil {
+					return
+				}
 				chunkSeed := random.ChunkDecorationSeed(masterSeed, int32(chunkOrigin.X>>4), int32(chunkOrigin.Z>>4))
 				entrySeed := random.DecorationEntrySeed(chunkSeed, random.HashedStringHash32(entryName))
 				ruleCtx := baseCtx
 				ruleCtx.Random = random.New(entrySeed)
 				ruleCtx.PlaceRandom = random.New(entrySeed)
 				for i := 0; i < repeat; i++ {
+					if ctx.Err() != nil {
+						return
+					}
 					profiler.PushFeatureFrame(ruleFrameID, "minecraft:feature_rules")
 					result := func() rules.RulePlacementResult {
 						defer profiler.PopFeatureFrame()
@@ -859,6 +1031,16 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 		}()
 	}
 
+	// The one check that makes cancellation MEAN something on the wire. Everything above can
+	// stop early -- a recovered *features.PlacementCancelled, a loop that saw ctx.Err() and
+	// returned -- and every one of those paths lands here holding a volume that is missing most
+	// of what was asked for. Answering with it would put a stale, wrong-looking success on the
+	// stream under the cancelled request's own id. Answering with ctx.Err() is what lets a
+	// caller tell "you stopped this" from "this is what your feature does".
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	diff := vol.Diff(baseline)
 
 	// A feature can report success and still write nothing -- every
@@ -878,7 +1060,7 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 		if succeeded {
 			message = "placed successfully but wrote no blocks — every candidate position was rejected, or a nested feature placed nothing"
 		}
-		placementFailures = append(placementFailures, Diagnostic{Level: "warning", FileID: diagID(), Count: 1, Message: message})
+		placementFailures = append(placementFailures, Diagnostic{Level: "warning", FileID: diagID(), Scope: ScopeRun, Count: 1, Message: message})
 	}
 
 	// Writing outside the previewed region is normal, not an error: in the
@@ -888,7 +1070,7 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	// where the edges are, not that the feature did something wrong.
 	if vol.WritesOutOfBounds > 0 && diff.ChangedCount == 0 {
 		placementFailures = append(placementFailures, Diagnostic{
-			Level: "warning", FileID: diagID(), Count: 1,
+			Level: "warning", FileID: diagID(), Scope: ScopeRun, Count: 1,
 			Message: fmt.Sprintf(
 				"all %d writes landed outside the previewed volume (x %d..%d, y %d..%d, z %d..%d), so nothing is shown. "+
 					"That is expected for a feature that works on neighbouring chunks; otherwise grow the volume or move the origin",
@@ -897,10 +1079,10 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	}
 
 	var diagnostics []Diagnostic
-	diagnostics = append(diagnostics, convertStructureDiagnostics(structureLib.Diagnostics)...)
-	diagnostics = append(diagnostics, convertFeatureDiagnostics(lib.Diagnostics)...)
-	diagnostics = append(diagnostics, convertFeatureDiagnostics(ruleLib.Diagnostics)...)
-	diagnostics = append(diagnostics, convertBiomeDiagnostics(biomeLib.Diagnostics)...)
+	diagnostics = append(diagnostics, convertStructureDiagnostics(structureLib.Diagnostics, paths.structure)...)
+	diagnostics = append(diagnostics, convertFeatureDiagnostics(lib.Diagnostics, paths.feature)...)
+	diagnostics = append(diagnostics, convertFeatureDiagnostics(ruleLib.Diagnostics, paths.rule)...)
+	diagnostics = append(diagnostics, convertBiomeDiagnostics(biomeLib.Diagnostics, paths.biome)...)
 	diagnostics = append(diagnostics, materialWarnings...)
 	diagnostics = append(diagnostics, placementFailures...)
 
@@ -923,7 +1105,7 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 	// gets someone unstuck, and it is the same shape as the unresolved-tag reporting beside it.
 	for _, alias := range palette.UnresolvedAliasList() {
 		diagnostics = append(diagnostics, Diagnostic{
-			Level: "warning", FileID: "(blocks)", Count: 1,
+			Level: "warning", FileID: "(blocks)", Scope: ScopePack, Count: 1,
 			Message: fmt.Sprintf("%s is a legacy alias whose modern block depends on a state this "+
 				"descriptor does not set, so it was kept as written rather than guessed at. Nothing "+
 				"in this bench places a block by that name, so any list containing it matches "+
@@ -958,6 +1140,7 @@ func generate(config Config, palette *block.Palette, lib *features.Library, stru
 		EnvironmentBiome:    environmentBiome,
 		MolangScope:         molangScope,
 		Profile:             profileResult,
+		Stops:               stopRows,
 	}, nil
 }
 
@@ -977,26 +1160,49 @@ func biomeMaterialSlots(b *biomes.MaterialSlots) env.MaterialSlots {
 	}
 }
 
-func convertFeatureDiagnostics(in []features.Diagnostic) []Diagnostic {
+// convertFeatureDiagnostics/convertStructureDiagnostics/convertBiomeDiagnostics/
+// convertBlockDiagnostics promote one loader's build diagnostics into the wire shape.
+//
+// All four stamp ScopePack, and that is not a shortcut: every one of those packages produces
+// diagnostics ONLY while building a library out of source files. None of them runs during a
+// placement at all -- a feature that refuses at place-time reports through the
+// wgen.PlacementContext callbacks (LogFailure/LogWarning), which land in placementFailures
+// above with ScopeRun, never in a library's Diagnostics list. So "came from a library build"
+// and "is a property of the pack rather than of this run" are the same set, and stamping the
+// scope at the one boundary they all cross keeps it that way rather than leaving four
+// packages' worth of call sites free to disagree.
+func convertFeatureDiagnostics(in []features.Diagnostic, spell func(string) string) []Diagnostic {
 	out := make([]Diagnostic, len(in))
 	for i, d := range in {
-		out[i] = Diagnostic{Level: d.Level, FileID: d.FileID, Count: 1, Message: d.Message}
+		out[i] = Diagnostic{Level: d.Level, FileID: spell(d.FileID), Scope: ScopePack,
+			Line: d.Line, Column: d.Column, Count: 1, Message: d.Message}
 	}
 	return out
 }
 
-func convertStructureDiagnostics(in []structures.Diagnostic) []Diagnostic {
+func convertStructureDiagnostics(in []structures.Diagnostic, spell func(string) string) []Diagnostic {
 	out := make([]Diagnostic, len(in))
 	for i, d := range in {
-		out[i] = Diagnostic{Level: d.Level, FileID: d.FileID, Count: 1, Message: d.Message}
+		// No Line/Column: a .mcstructure is NBT, a binary format with no lines to point at.
+		out[i] = Diagnostic{Level: d.Level, FileID: spell(d.FileID), Scope: ScopePack, Count: 1, Message: d.Message}
 	}
 	return out
 }
 
-func convertBiomeDiagnostics(in []biomes.Diagnostic) []Diagnostic {
+func convertBiomeDiagnostics(in []biomes.Diagnostic, spell func(string) string) []Diagnostic {
 	out := make([]Diagnostic, len(in))
 	for i, d := range in {
-		out[i] = Diagnostic{Level: d.Level, FileID: d.FileID, Count: 1, Message: d.Message}
+		out[i] = Diagnostic{Level: d.Level, FileID: spell(d.FileID), Scope: ScopePack,
+			Line: d.Line, Column: d.Column, Count: 1, Message: d.Message}
+	}
+	return out
+}
+
+func convertBlockDiagnostics(in []block.Diagnostic, spell func(string) string) []Diagnostic {
+	out := make([]Diagnostic, len(in))
+	for i, d := range in {
+		out[i] = Diagnostic{Level: d.Level, FileID: spell(d.FileID), Scope: ScopePack,
+			Line: d.Line, Column: d.Column, Count: 1, Message: d.Message}
 	}
 	return out
 }

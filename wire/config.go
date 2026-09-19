@@ -29,6 +29,10 @@ func BuildConfig(p GenerateParams) (session.Config, error) {
 		return session.Config{}, fmt.Errorf("unknown environment %q", envID)
 	}
 
+	// Not a placement input -- see session.Config.PackDir. Copied straight through so the
+	// one-shot and the long-lived path spell a diagnostic's fileId identically.
+	cfg.PackDir = p.PackDir
+
 	if p.Feature != "" {
 		cfg.Mode = session.ModeFeature
 		id := p.Feature
