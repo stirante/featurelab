@@ -37,6 +37,13 @@ func runLines(t *testing.T, lines ...string) []Response {
 	// a scanner limitation in the test harness instead.
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	for scanner.Scan() {
+		// The rule notify.go documents for every client: a line with no "id" member is not an
+		// answer to anything. This harness implements it rather than special-casing the
+		// readiness line, so it is asserting the CONTRACT a real client follows -- see
+		// notify_test.go, which is where the notifications themselves are checked.
+		if isNotificationLine(scanner.Bytes()) {
+			continue
+		}
 		var r Response
 		if err := json.Unmarshal(scanner.Bytes(), &r); err != nil {
 			t.Fatalf("response line is not valid JSON: %s: %v", scanner.Text(), err)
@@ -749,5 +756,31 @@ func TestServe_AtlasMethodWithNoAtlasIsAnOrdinaryError(t *testing.T) {
 	}
 	if !strings.Contains(resps[0].Error.Message, "flat block colours") {
 		t.Errorf("error = %q, want it to say what happens instead", resps[0].Error.Message)
+	}
+}
+
+// TestServe_LoadPackOnAPackRootThatIsNotThereIsAnError is the long-lived
+// server's share of the bug the CLI commands cover in check_test.go: nothing
+// stat'd the pack root, so "loadPack" on a directory that does not exist
+// answered with a perfectly ordinary result carrying zero of everything. The
+// extension then drew an empty graph and an empty palette for a pack whose
+// path was simply wrong, with nothing anywhere saying so -- and, worse, kept
+// serving that empty pack for the rest of the session.
+//
+// It has to be an ERROR response rather than a result with zero counts,
+// because a client cannot tell that result from a real pack whose files are
+// all somewhere else, and the error is the only thing that makes it say which
+// path it tried.
+func TestServe_LoadPackOnAPackRootThatIsNotThereIsAnError(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "no_such_pack")
+	resps := runLines(t, fmt.Sprintf(`{"id":1,"method":"loadPack","params":{"dir":%q}}`, missing))
+	if len(resps) != 1 {
+		t.Fatalf("got %d responses, want 1", len(resps))
+	}
+	if resps[0].Error == nil {
+		t.Fatalf("loadPack on a missing pack root answered with a result (%+v), not an error", resps[0].Result)
+	}
+	if !strings.Contains(resps[0].Error.Message, missing) {
+		t.Errorf("error = %q, want it to name the path %q", resps[0].Error.Message, missing)
 	}
 }

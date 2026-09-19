@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,10 +23,15 @@ import (
 
 // stubGraphBuilder swaps in a builder for the duration of one test and
 // restores the real one afterwards.
+//
+// The stub takes no context: what these tests pin is the plumbing AROUND the builder, and the
+// context the real builder honours is the builder's own business (wire.BuildGraphContext, which
+// wire's tests cover). The adapter is here rather than at every call site so a stub stays one
+// line to write.
 func stubGraphBuilder(t *testing.T, fn func(*pack.Pack) (*wire.Graph, error)) {
 	t.Helper()
 	prev := buildGraph
-	buildGraph = fn
+	buildGraph = func(_ context.Context, loaded *pack.Pack) (*wire.Graph, error) { return fn(loaded) }
 	t.Cleanup(func() { buildGraph = prev })
 }
 
@@ -470,7 +476,7 @@ func TestCmdGraph_CleanPackCarriesNoDiagnostics(t *testing.T) {
 func TestCmdGraph_DiagnosticsAreCheckSOwn(t *testing.T) {
 	root := packWithRefusedRule(t)
 
-	checkOut := captureStdout(t, func() { run([]string{"check", "--pack", root}) })
+	checkOut := captureStdout(t, func() { run([]string{"check", "--pack", root, "--json"}) })
 	var fromCheck []Diagnostic
 	if err := json.Unmarshal(checkOut, &fromCheck); err != nil {
 		t.Fatalf("check output is not valid JSON: %v; output: %s", err, checkOut)
@@ -480,7 +486,13 @@ func TestCmdGraph_DiagnosticsAreCheckSOwn(t *testing.T) {
 		if d.FileID == packDiagnosticFileID {
 			continue
 		}
-		want = append(want, wire.GraphDiagnostic{Level: d.Level, FileID: d.FileID, Message: d.Message})
+		// Line/Column travel too. They used to be left out of this comparison because both
+		// commands reported 0 for everything; now that a loader positions what it can, leaving
+		// them out would let the two commands disagree about WHERE a problem is while still
+		// passing a test whose whole subject is that they agree about it.
+		want = append(want, wire.GraphDiagnostic{
+			Level: d.Level, FileID: d.FileID, Line: d.Line, Column: d.Column, Message: d.Message,
+		})
 	}
 	if len(want) == 0 {
 		t.Fatal("check reported no file-level diagnostics for a pack with a refused file -- the fixture stopped being broken")
@@ -680,7 +692,7 @@ func TestCmdCheck_PackLevelDiagnosticKeepsItsNonPathID(t *testing.T) {
 	// features/ only: no structures/, feature_rules/, biomes/ or blocks/.
 	root := graphPack(t)
 
-	out := captureStdout(t, func() { run([]string{"check", "--pack", root}) })
+	out := captureStdout(t, func() { run([]string{"check", "--pack", root, "--json"}) })
 	var diags []Diagnostic
 	if err := json.Unmarshal(out, &diags); err != nil {
 		t.Fatalf("check output is not valid JSON: %v; output: %s", err, out)
@@ -695,4 +707,65 @@ func TestCmdCheck_PackLevelDiagnosticKeepsItsNonPathID(t *testing.T) {
 		t.Fatalf("no diagnostic carries %q any more -- a pack-level warning has been rewritten into a path, or stopped being reported: %+v",
 			packDiagnosticFileID, diags)
 	}
+}
+
+// TestMethodGraph_OmitCoverageNotesIsOptIn covers the one thing "graph" params do: they select
+// nothing about the graph, only how much of each node comes back. See wire.OmitCoverageNotes for
+// the measurement -- on a 3,126-node pack the note was 22.1% of the dump and one distinct string.
+func TestMethodGraph_OmitCoverageNotesIsOptIn(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "features", "a.json"),
+		singleBlockFeatureJSON("wiki:a", "minecraft:stone"))
+
+	state := &serverState{}
+	raw, err := json.Marshal(loadPackParams{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := methodLoadPack(state, raw, nil); err != nil {
+		t.Fatalf("methodLoadPack: %v", err)
+	}
+
+	full := graphFrom(t, state, nil)
+	if !anyCoverageNote(full) {
+		t.Skip("this fixture's feature type carries no coverage note, so there is nothing to omit")
+	}
+
+	trimmed := graphFrom(t, state, json.RawMessage(`{"omitCoverageNotes":true}`))
+	if anyCoverageNote(trimmed) {
+		t.Errorf("coverageNote survived omitCoverageNotes")
+	}
+	// Coverage itself is the half an editor acts on and must stay.
+	for _, n := range trimmed.Nodes {
+		if n.TypeID != "" && n.Coverage == "" {
+			t.Errorf("node %s lost its coverage as well as its note", n.ID)
+		}
+	}
+	// Nothing else moved: the node set is the same graph either way.
+	if len(trimmed.Nodes) != len(full.Nodes) || len(trimmed.Edges) != len(full.Edges) {
+		t.Errorf("the graph itself changed: %d/%d nodes, %d/%d edges",
+			len(trimmed.Nodes), len(full.Nodes), len(trimmed.Edges), len(full.Edges))
+	}
+}
+
+func graphFrom(t *testing.T, state *serverState, params json.RawMessage) *wire.Graph {
+	t.Helper()
+	out, err := methodGraph(context.Background(), state, params, nil)
+	if err != nil {
+		t.Fatalf("methodGraph: %v", err)
+	}
+	g, ok := out.(*wire.Graph)
+	if !ok {
+		t.Fatalf("methodGraph returned %T, want *wire.Graph", out)
+	}
+	return g
+}
+
+func anyCoverageNote(g *wire.Graph) bool {
+	for _, n := range g.Nodes {
+		if n.CoverageNote != "" {
+			return true
+		}
+	}
+	return false
 }

@@ -11,6 +11,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -33,8 +35,8 @@ var buildGraph = buildGraphFromPack
 // files -- each node's own JSON body, its file path, its format version,
 // and the comments the annotations are parsed out of -- none of which
 // survives into the built libraries.
-func buildGraphFromPack(loaded *pack.Pack) (*wire.Graph, error) {
-	return wire.BuildGraph(loaded)
+func buildGraphFromPack(ctx context.Context, loaded *pack.Pack) (*wire.Graph, error) {
+	return wire.BuildGraphContext(ctx, loaded)
 }
 
 // normalizeGraph puts every list in a graph into a fixed order, in place.
@@ -96,6 +98,10 @@ func normalizeGraph(g *wire.Graph) {
 // graphDiagnostics is what a graph carries about the files that are NOT in
 // it -- see wire.Graph.Diagnostics.
 //
+// It is handed the graph this request already built, and passes it down, so
+// the dangling-delegation check `check` grew (see danglingDelegationDiagnostics)
+// reads THIS graph instead of building a second one.
+//
 // It calls checkPack, the same function the `check` subcommand runs, rather
 // than collecting diagnostics of its own. That is the whole point: an author
 // who runs `check` and an author who opens the graph editor have to be told
@@ -125,15 +131,19 @@ func normalizeGraph(g *wire.Graph) {
 // kind (see packRelativeIDs). Rewriting them here instead would put the join
 // back where it was -- one spelling produced at the boundary, another inside
 // it, each with its own tests.
-func graphDiagnostics(loaded *pack.Pack) []wire.GraphDiagnostic {
+func graphDiagnostics(ctx context.Context, loaded *pack.Pack, g *wire.Graph) ([]wire.GraphDiagnostic, bool) {
+	diags, ok := checkPackGraphContext(ctx, loaded, g)
+	if !ok {
+		return nil, false
+	}
 	out := []wire.GraphDiagnostic{}
-	for _, d := range checkPack(loaded) {
+	for _, d := range diags {
 		if d.FileID == packDiagnosticFileID && d.Level != "error" {
 			continue
 		}
-		out = append(out, wire.GraphDiagnostic{Level: d.Level, FileID: d.FileID, Message: d.Message})
+		out = append(out, wire.GraphDiagnostic{Level: d.Level, FileID: d.FileID, Line: d.Line, Column: d.Column, Message: d.Message})
 	}
-	return out
+	return out, true
 }
 
 // lessEdge orders edges by their source first, so a file's delegations stay
@@ -181,6 +191,8 @@ func lessStrings(a, b []string) bool {
 func cmdGraph(args []string) int {
 	fs := flag.NewFlagSet("graph", flag.ContinueOnError)
 	var pf packFlags
+	omitCoverageNotes := fs.Bool("omit-coverage-notes", false,
+		"leave each node's coverageNote out of the dump (it is a per-type constant; `types` has the table)")
 	pf.register(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -191,22 +203,27 @@ func cmdGraph(args []string) int {
 		fmt.Fprintln(os.Stderr, "featurelab: "+err.Error())
 		return 1
 	}
-	// Pack-level warnings go to stderr, as `generate` does it: stdout is a
+	// Pack-level notices go to stderr, as `generate` does it: stdout is a
 	// JSON document a caller pipes somewhere, and these are exactly the
 	// diagnostics graphDiagnostics keeps OUT of the graph's own Diagnostics
 	// list (see there for why). Stderr is still the right place for them --
 	// dropped entirely, a mistyped --features path would look like a pack
-	// with no features.
-	for _, w := range loaded.Warnings {
-		fmt.Fprintln(os.Stderr, "featurelab: warning: "+w)
-	}
+	// with no features. Levelled by `check`'s own rule rather than all called
+	// warnings; see printPackNotices.
+	printPackNotices(os.Stderr, loaded)
 
-	g, err := buildGraph(loaded)
+	g, err := buildGraph(context.Background(), loaded)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "featurelab: "+err.Error())
 		return 1
 	}
-	g.Diagnostics = graphDiagnostics(loaded)
+	// The ok flag is discarded, and this is the one call site where that is safe: a background
+	// context cannot be cancelled, so it is always true. Only serve's "graph" method has anything
+	// that could make it false, and it acts on it (see methodGraph).
+	g.Diagnostics, _ = graphDiagnostics(context.Background(), loaded, g)
+	if *omitCoverageNotes {
+		wire.OmitCoverageNotes(g)
+	}
 	normalizeGraph(g)
 	if err := writeJSON(os.Stdout, g); err != nil {
 		fmt.Fprintln(os.Stderr, "featurelab: encoding JSON: "+err.Error())
@@ -215,12 +232,22 @@ func cmdGraph(args []string) int {
 	return 0
 }
 
+// graphParams is "graph"'s request shape. It had none until this field, and an absent params
+// object stays exactly as valid as it always was.
+type graphParams struct {
+	// OmitCoverageNotes drops GraphNode.CoverageNote from every node -- see wire.
+	// OmitCoverageNotes for what it is and the measurement behind it. Off by default; a client
+	// that sets it reads the same notes once from the "types" method.
+	OmitCoverageNotes bool `json:"omitCoverageNotes,omitempty"`
+}
+
 // methodGraph implements serve's "graph" method -- the same graph as the
 // subcommand, over the pack this session already has open, so an editor asks
 // for it without re-reading the pack from disk.
 //
-// It takes no params: the graph is everything reachable in the loaded pack,
-// and there is nothing to select. Like every other pack-dependent method it
+// Its params SELECT NOTHING about the graph itself: it is everything reachable
+// in the loaded pack, and there is nothing to choose. The one field is about
+// how much of each node comes back. Like every other pack-dependent method it
 // answers errNoPackLoaded before the first "loadPack", with that exact
 // shared sentence rather than a fourth wording of it.
 //
@@ -228,19 +255,45 @@ func cmdGraph(args []string) int {
 // built libraries) because that is what a graph is built from. The two are
 // set together and never independently -- see serverState -- so checking
 // both is checking the one invariant, the same way methodReloadFile does.
-func methodGraph(state *serverState) (any, error) {
+// reporter may be nil -- see progressReporter. The two phases it names are the
+// two halves this method visibly spends its time in, and naming them is the
+// whole progress signal a graph gets: unlike a pack load there is no file
+// being read to count, because the source files are already in memory and the
+// work is parsing them. A host showing "graph" for 40s and then "diagnostics"
+// knows the engine is alive and roughly where it is, which is what the
+// requirement is for.
+func methodGraph(ctx context.Context, state *serverState, raw json.RawMessage, reporter *progressReporter) (any, error) {
 	if state.workspace == nil || state.loaded == nil {
 		return nil, errNoPackLoaded
 	}
-	g, err := buildGraph(state.loaded)
+	var p graphParams
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, fmt.Errorf("malformed params: %v", err)
+		}
+	}
+	reporter.SetPhase("graph")
+	g, err := buildGraph(ctx, state.loaded)
 	if err != nil {
 		return nil, err
 	}
+	reporter.SetPhase("diagnostics")
 	// Attached here as well as in cmdGraph, from the same pack and the same
 	// collector, because the editor talks to this method and never runs the
 	// subcommand -- a graph that carried its diagnostics on the command line
 	// only would leave the one caller that needs them without them.
-	g.Diagnostics = graphDiagnostics(state.loaded)
+	diagnostics, ok := graphDiagnostics(ctx, state.loaded, g)
+	if !ok {
+		// Cancelled part-way through the library builds. The graph itself is complete but its
+		// diagnostics are a prefix of the real set, and a graph that under-reports refused files
+		// is worse than no graph: it is the blank-node bug wire.Graph.Diagnostics exists to
+		// close, wearing a successful response. Answer with the cancellation instead.
+		return nil, ctx.Err()
+	}
+	g.Diagnostics = diagnostics
+	if p.OmitCoverageNotes {
+		wire.OmitCoverageNotes(g)
+	}
 	normalizeGraph(g)
 	return g, nil
 }

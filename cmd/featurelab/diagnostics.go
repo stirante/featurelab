@@ -8,8 +8,19 @@ package main
 // level up, before a session even runs, since check's whole job is "did the
 // pack load cleanly", not "did one generate succeed").
 type Diagnostic struct {
-	Level   string `json:"level"`
-	FileID  string `json:"fileId"`
+	Level  string `json:"level"`
+	FileID string `json:"fileId"`
+	// Scope is session.ScopePack or session.ScopeRun -- see
+	// session.Diagnostic.Scope for what the two mean and where the line is
+	// drawn. Every diagnostic this type carries is pack-scoped in practice
+	// (checkPack and loadPack both describe a pack, never a placement), but
+	// it is on the wire rather than implied so a client has ONE rule for
+	// reading a diagnostic, whichever method answered it.
+	Scope string `json:"scope"`
+	// Line and Column are the 1-based place in FileID, omitted when the
+	// loader did not know one -- same contract as session.Diagnostic's pair.
+	Line    int    `json:"line,omitempty"`
+	Column  int    `json:"column,omitempty"`
 	Message string `json:"message"`
 }
 
