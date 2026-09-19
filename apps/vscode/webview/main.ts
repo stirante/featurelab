@@ -8,10 +8,10 @@ import { VoxelViewer, createPanel, createSplitter, decodeAtlas, decodeGenerateRe
 import type { AtlasWire, EnvironmentOptionWire, GenerateParamsWire, Mode } from 'featurelab-frontend'
 import 'featurelab-frontend/panel.css'
 
-declare function acquireVsCodeApi(): { postMessage(message: unknown): void }
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void; setState(state: unknown): void; getState(): unknown }
 
 interface HostMessage {
-  type: 'result' | 'error' | 'stale' | 'init' | 'environments' | 'timeoutInfo' | 'busy' | 'atlas' | 'attribution' | 'attributionCell'
+  type: 'result' | 'error' | 'stale' | 'init' | 'environments' | 'timeoutInfo' | 'busy' | 'atlas' | 'textureStatus' | 'attribution' | 'attributionCell' | 'restoreState'
   result?: unknown
   message?: string
   stale?: boolean
@@ -42,8 +42,14 @@ interface HostMessage {
   effectiveMs?: number
   /** 'atlas' only -- the block-texture atlas (table + base64 PNG), fetched by the host over the
    * engine's own JSON-RPC channel because the atlas lives in the user's cache directory, which
-   * this webview's localResourceRoots cannot reach. Sent at most once per panel, and only when
-   * featurelab.blockTextures is on (see previewPanel.ts's tryPostAtlas). */
+   * this webview's localResourceRoots cannot reach. Sent at most once per panel, as soon as
+   * there is one to send -- it does NOT mean "draw textures", which is the panel's own switch
+   * and the preference behind it (see previewPanel.ts's ensureTextures).
+   *
+   * 'textureStatus' is its counterpart in words: `available` plus, when there is no atlas, the
+   * host's own honest `reason` for that -- nothing built here yet, a build that failed, a
+   * download declined, the setting switched off. The panel can already tell WHETHER it can draw
+   * textures; only a host can say why not (PanelHandle.setTextureStatus). */
   atlas?: AtlasWire
   /** 'attribution' -- the cells ONE graph node wrote in the run currently on screen, resolved
    * host-side against graph/attribution.ts's AttributionIndex (see previewPanel.ts's own header
@@ -63,10 +69,24 @@ interface HostMessage {
   cellCount?: number
   shown?: number
   writes?: number
+  /** 'attribution' -- EVERY feature that wrote in the run on screen, one entry per writer, in
+   * the order their colours should be assigned (the selected node first, then by size; see
+   * previewPanel.ts's attributionGroupsFor). `cells` above is the selected node's share of this
+   * same list and stays on the wire as the single-writer shim: a frontend build that predates
+   * VoxelViewer.setAttributionGroups still paints the node somebody selected rather than
+   * nothing at all. */
+  groups?: { id: string; label: string; cells: number[] }[]
   /** 'attributionCell' -- what the block the user just clicked turned out to belong to. EVERY
    * feature that wrote the cell, never narrowed to one; see graph/attribution.ts's header on why
    * no single writer can honestly be called the placer. */
   cell?: number
+  /** 'restoreState' only -- which DOCUMENT this panel is previewing, plus whatever blob this
+   * webview last handed the host. The key has to be written into this webview's own
+   * setState(): on a window reload VS Code hands the HOST the webview's saved state and
+   * nothing else, so it is the only thing that can say which document a revived tab was for
+   * (see previewPanel.ts's postRestoreState and extension.ts's serializer). */
+  key?: string
+  state?: unknown
   position?: { x: number; y: number; z: number } | null
   writers?: { nodeId: string | null; writes: number }[]
 }
@@ -80,6 +100,13 @@ const sidebar = document.getElementById('fl-sidebar') as HTMLElement | null
 if (!root || !canvas || !sidebar) {
   throw new Error('featurelab webview: expected #fl-root, #fl-canvas and #fl-sidebar in the document')
 }
+
+// The shell ships a visible "if this stays here, this script did not load" sentence over the
+// canvas (previewPanel.ts's PREVIEW_DID_NOT_START). Taking it down is this script's first act, so
+// that the sentence being on screen is itself the diagnosis -- and it is done HERE, before the
+// viewer is built, because a failure after this point has a panel that can report it in words
+// while a failure before it has nothing at all.
+document.getElementById('fl-boot')?.remove()
 
 // Owns the sidebar's width (drag-resizable, collapsible, persisted) from here on -- created
 // before the viewer so the canvas already has its real, restored size for the very first
@@ -120,6 +147,19 @@ const panel = createPanel(sidebar, {
     panel.setBusy(true)
     vscodeApi.postMessage({ type: 'growRegenerate', params })
   },
+  // SEAM -- see CANCEL_MESSAGE_TYPE below. Deliberately NOT conditional: the message is posted,
+  // and a host that has no case for it ignores it, exactly as this webview ignores host messages
+  // it has no case for. The busy state is not cleared here on purpose: cancelling is a REQUEST to
+  // the host, and only the host's own reply ('result', 'error', or 'stale') ends a request --
+  // clearing it optimistically would show a finished-looking panel over a run still in flight.
+  //
+  // The CLICK is acknowledged regardless, by the pill itself: it reads "Cancelling…", stops
+  // counting and stops offering to ask again the moment this fires (see viewportOverlay.ts), so a
+  // host that has not yet grown a case for this message produces a request that visibly went
+  // somewhere rather than a button that visibly did nothing.
+  onCancel: () => {
+    vscodeApi.postMessage({ type: CANCEL_MESSAGE_TYPE })
+  },
 })
 
 const resizeObserver = new ResizeObserver(() => viewer.resize())
@@ -136,13 +176,17 @@ window.addEventListener('resize', () => viewer.resize())
  * reads it. */
 ;(window as unknown as { __flViewer?: VoxelViewer }).__flViewer = viewer
 
-/** True once the first result has been shown -- frameContent() (reset the camera to look at
- * what's actually occupied, see that method's own doc comment) only happens automatically on
- * THIS first result. Every subsequent result (a save-triggered regenerate) leaves the camera
- * exactly where the user left it -- this is the "without losing camera position" requirement,
- * enforced here rather than in viewer.ts itself (setVolume never touches the camera at all,
- * see that file). */
-let framedOnce = false
+/** The message this webview posts when the user clicks Cancel on the viewport's busy pill.
+ *
+ * A SEAM, named once so it is greppable from both sides. The engine's own `serve` protocol has
+ * had request cancellation since cmd/featurelab/serve.go gained its `cancel` method
+ * ({"method":"cancel","params":{"id":N}} -> {"cancelled":true|false}); what sits between that and
+ * this line is the extension host, which owns the one live engine process and therefore the one
+ * request id worth cancelling. Until previewPanel.ts has a case for this type, clicking Cancel
+ * posts a message nobody listens to, which is inert rather than wrong -- and the moment that case
+ * exists, this needs no change. If the host lands on a different name, change the constant here
+ * and nothing else. */
+const CANCEL_MESSAGE_TYPE = 'cancelGenerate'
 
 // --- write attribution ------------------------------------------------------------------
 //
@@ -154,6 +198,20 @@ let framedOnce = false
 /** The shell's readout (see renderShellHtml in previewPanel.ts). Hidden, and empty, for every
  * preview nobody has asked this question of -- which is every preview until the graph does. */
 const attributionReadout = document.getElementById('fl-attribution')
+
+// INTO THE OVERLAY'S OWN COLUMN, not floating in the corner it already occupies. The shell
+// styles this readout as `position: absolute; top: 8px; left: 8px; z-index: 5` -- which is the
+// same corner as `.fl-vp-controls` (the Frame/Environment/Grid/Camera/Textures toolbar), one
+// z-index above it. Whenever the readout was showing it covered the whole toolbar: 152x25px of
+// overlap, the toolbar's full width and most of its height, two legible things making each other
+// illegible. The buttons still took their clicks, which is exactly why it read as a rendering
+// fault rather than as a layout bug.
+//
+// The overlay already stacks the busy pill, the one-line notice and the legend in a flex column
+// that cannot overlap itself, so the readout joins it -- see ViewportOverlayHandle.adoptStatus.
+// The element, its id, its role=status and its aria-live stay the shell's; only where it sits
+// changes.
+if (attributionReadout !== null) viewer.adoptOverlayStatus(attributionReadout)
 
 /** True once the host has posted an attribution answer it could actually resolve. The ONLY
  * thing that arms click-to-pick: without it a left click in the 3D view does what it has always
@@ -169,6 +227,20 @@ function showAttribution(text: string | null): void {
   }
   attributionReadout.textContent = text
   attributionReadout.hidden = false
+}
+
+/** Back to the preview this was before anybody asked the attribution question: no overlay, no
+ * readout, no armed click.
+ *
+ * The picked-block marker is cleared only if THIS feature is what put one there. highlightCell
+ * is also the Diagnostics section's "show me where" (panel.ts), and taking somebody's diagnostic
+ * marker away would be this feature reaching outside itself. */
+function clearAttribution(): void {
+  showAttribution(null)
+  if (!attributionActive) return
+  attributionActive = false
+  viewer.clearHighlight()
+  viewer.setAttributionCells(null)
 }
 
 function describeWriters(msg: HostMessage): string {
@@ -187,31 +259,28 @@ function describeWriters(msg: HostMessage): string {
   return writers.length === 1 ? `Placed${at} by ${named}.` : `Placed${at} by ${String(writers.length)} features: ${named}.`
 }
 
-// The gesture. The left button is also how OrbitControls orbits, so a press that MOVED the
-// camera must not also pick -- otherwise every rotation ends by selecting whatever happened to
-// be under the pointer when the hand stopped. So a pick is a press and a release within a few
-// pixels of each other, which is what "a click" means to a hand, and what no single DOM event
-// can tell you on its own (a `click` fires after a drag too).
-const PICK_SLOP_PX = 4
-let pressedAt: { x: number; y: number } | null = null
-
-canvas.addEventListener('pointerdown', (event: PointerEvent) => {
-  pressedAt = event.button === 0 ? { x: event.clientX, y: event.clientY } : null
-})
-canvas.addEventListener('pointerup', (event: PointerEvent) => {
-  const down = pressedAt
-  pressedAt = null
-  if (!attributionActive || down === null || event.button !== 0) return
-  if (Math.abs(event.clientX - down.x) > PICK_SLOP_PX || Math.abs(event.clientY - down.y) > PICK_SLOP_PX) return
-  const cell = viewer.pickCell(event.clientX, event.clientY)
-  if (cell === null) return
-  // Marked WITHOUT framing: the block is under the user's pointer, so it is already on screen,
-  // and moving the camera onto it would throw away the view they chose in order to show them
-  // what they were already looking at.
-  viewer.highlightCell(cell.x, cell.y, cell.z, { frame: false })
+// THE GESTURE LIVES IN THE VIEWER NOW (VoxelViewer.onPick), and this is what used to be a second
+// copy of it. Both were live at once: the viewer's own pointerdown/pointerup pair -- which is
+// also what drives the panel's "what did I just click on" readout, always armed since clicking a
+// block started answering in every preview -- and an identical press-and-release-within-a-few-
+// pixels handler on the same canvas here, so one click ran the whole pick twice (two raycasts,
+// two highlightCell calls) and the two could only ever drift apart on the slop, the button or the
+// depth rule. There is one now, and it is the one the frontend owns.
+//
+// CHAINED, NOT REPLACED. panel.ts has already installed its own onPick by the time this runs, so
+// assigning over it would silently take the readout away from every preview -- including the
+// ordinary ones this feature never touches. The host's message goes out after it, and only while
+// the host is actually attributing something.
+const panelPick = viewer.onPick
+viewer.onPick = (pick) => {
+  // The viewer has already marked the cell WITHOUT framing: the block is under the user's
+  // pointer, so it is on screen, and moving the camera onto it would throw away the view they
+  // chose in order to show them what they were already looking at.
+  panelPick?.(pick)
+  if (!attributionActive) return
   // A POSITION, and nothing else. The host owns the index, the bounds and the node ids.
-  vscodeApi.postMessage({ type: 'pickCell', x: cell.x, y: cell.y, z: cell.z })
-})
+  vscodeApi.postMessage({ type: 'pickCell', x: pick.x, y: pick.y, z: pick.z })
+}
 
 window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
   const msg = event.data
@@ -219,11 +288,24 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
     case 'result': {
       try {
         const decoded = decodeGenerateResult(msg.result)
+        // A NEW RUN IS A NEW SET OF CELLS, so last run's answer is not this run's answer.
+        // The viewer already drops the overlay itself (setVolume clears the mask and the
+        // legend), but this file's own half of the state did not go with it: the readout went
+        // on naming a writer from a run that is no longer on screen, and `attributionActive`
+        // stayed true, so every click in the 3D view kept posting `pickCell` for an index the
+        // host had already replaced. The host re-posts `attribution` whenever it still has an
+        // answer, exactly as it does after any other regenerate, so clearing here costs a live
+        // selection nothing and costs a dead one its ghost.
+        clearAttribution()
         panel.setResult(decoded)
-        if (!framedOnce) {
-          viewer.frameContent()
-          framedOnce = true
-        }
+        // The first result frames itself; every later one leaves the camera where the user left
+        // it. That LATCH used to live here as a `framedOnce` boolean, which is precisely why
+        // framing happened exactly once and never again -- a run that later placed its content
+        // somewhere else left the camera pointed at empty space. The viewer now owns both halves
+        // of the rule (hasFramed() for the first result, and its own re-frame when a result
+        // escapes the framed box -- see reframeIfContentEscaped), so the two can no longer
+        // disagree about what has been framed.
+        if (!viewer.hasFramed()) viewer.frameContent()
       } catch (err) {
         panel.setError(err instanceof Error ? err.message : String(err))
       }
@@ -234,6 +316,19 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break
     case 'stale':
       panel.setStale(Boolean(msg.stale), msg.reason)
+      break
+    case 'restoreState':
+      // THE KEY IS THE PART THAT MATTERS HERE, and it is written down whether or not there is
+      // a blob to go with it: a revived tab with no key is a preview of nothing.
+      //
+      // The blob itself is not applied yet. What this webview would want back -- where the
+      // camera was, and how the sidebar's view controls were set -- is not readable from
+      // outside `featurelab-frontend` today: VoxelViewer exposes no camera get/set and
+      // PanelHandle exposes no state at all. Guessing at it from the setters that do exist
+      // would put the viewer and the sidebar's own controls into two different states, which
+      // is a worse answer than not restoring. The round trip is wired; the contents wait on
+      // that package.
+      if (typeof msg.key === 'string') vscodeApi.setState({ key: msg.key })
       break
     case 'init':
       if (msg.kind && msg.identifier) panel.seedOpenedDocument(msg.kind, msg.identifier)
@@ -253,19 +348,18 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       if (msg.available !== true) {
         // The expected, ordinary "no answer" state -- see the field's own doc comment. Back to
         // exactly the preview this was before anybody asked.
-        //
-        // The picked-block marker is cleared only if THIS feature is what put one there.
-        // highlightCell is also the Diagnostics section's "show me where" (panel.ts), and taking
-        // somebody's diagnostic marker away because an unrelated regenerate came back unprofiled
-        // would be this feature reaching outside itself.
-        if (attributionActive) viewer.clearHighlight()
-        attributionActive = false
-        viewer.setAttributionCells(null)
-        showAttribution(null)
+        clearAttribution()
         break
       }
       attributionActive = true
-      viewer.setAttributionCells(msg.cells ?? [])
+      // ONE COLOUR PER WRITER when the host sent the full set and this viewer can paint it;
+      // the selected node alone otherwise. The fallback is not dead code: `setAttributionGroups`
+      // is newer than `setAttributionCells`, and a bundle built against an older
+      // featurelab-frontend has only the second -- in which case the host's own `cells` field is
+      // exactly what it always was and the preview behaves exactly as it always did.
+      const groups = msg.groups
+      if (groups !== undefined && typeof viewer.setAttributionGroups === 'function') viewer.setAttributionGroups(groups)
+      else viewer.setAttributionCells(msg.cells ?? [])
       const total = msg.cellCount ?? 0
       const shown = msg.shown ?? total
       const writes = msg.writes ?? 0
@@ -293,14 +387,28 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       if (!msg.atlas) break
       void (async () => {
         try {
+          // DELIVERED, NOT SWITCHED ON. setTexturesEnabled(true) used to sit here, which made an
+          // arriving atlas overrule whatever the user had chosen in the panel's own "Block
+          // textures" row -- a preference they set in the sidebar, that the panel persists, and
+          // that panel.ts re-applies for itself the moment an atlas lands (its
+          // onTexturesChanged). The host's job ends at handing over the sheet.
           await viewer.setAtlas(decodeAtlas(msg.atlas))
-          viewer.setTexturesEnabled(true)
         } catch (err) {
           console.warn('featurelab: block textures unavailable, staying on flat colours --', err)
+          // The one texture failure the HOST cannot know about: it delivered an atlas and this
+          // side could not decode or upload it. The row would otherwise keep the host's cheerful
+          // "available" over a checkbox that can never be ticked.
+          panel.setTextureStatus({ available: false, reason: `The block texture atlas could not be read here, so the preview draws one flat colour per block: ${err instanceof Error ? err.message : String(err)}` })
         }
       })()
       break
     }
+    case 'textureStatus':
+      // Straight through -- the host's own sentence, or nothing. See PanelHandle.setTextureStatus
+      // for why a host that cannot say WHY is better off saying nothing than guessing: the panel
+      // has neutral wording of its own for that.
+      if (typeof msg.available === 'boolean') panel.setTextureStatus({ available: msg.available, ...(msg.reason === undefined ? {} : { reason: msg.reason }) })
+      break
     default:
       break
   }

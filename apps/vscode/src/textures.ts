@@ -46,6 +46,42 @@ export interface TextureNoteWire {
   message: string
 }
 
+/** One block face whose texture key produced no image -- featurelab/blocktextures'
+ * UnresolvedTexture, and wire.AtlasUnresolved, which are the same row. Named here rather than
+ * spelled inline twice because the SAME rows arrive by two routes: on a build
+ * (TextureResultWire.pack below) and on the atlas itself (unresolvedFromAtlas below), and a host
+ * that reported them differently depending on which route they came in by would be telling the
+ * same author two stories about one pack. */
+export interface UnresolvedTextureWire {
+  block: string
+  face: string
+  texture: string
+  /** The sentence to show, when there is nothing better to group by. */
+  reason: string
+  /** The same finding as one stable token -- internal/packrender's vocabulary, listed in
+   * UNRESOLVED_CODE_PHRASES below. Absent on an atlas built before codes existed. Grouping keys
+   * off THIS, never off `reason`: matching on the prose would key this extension to an English
+   * sentence the engine is free to reword. */
+  code?: string
+}
+
+/** What each unresolved code MEANS to somebody who has to fix it -- one phrase per token, and
+ * they are one phrase per DIFFERENT ACTION, which is the whole reason the codes are separate
+ * from one another (see internal/packrender's own vocabulary comment).
+ *
+ * An unknown token is "unresolved, reason unclassified", never an error: that tolerance is what
+ * lets the engine name a new failure mode without breaking a host, and this extension resolves
+ * whatever `featurelab` binary it finds on disk. Such a row falls back to its own prose. */
+const UNRESOLVED_CODE_PHRASES: Readonly<Record<string, string>> = {
+  'no-resource-pack': 'no resource pack was found for this pack, so no texture key could resolve at all',
+  'not-vanilla-no-resource-pack': 'the key is not one of vanilla’s, and this pack’s own resource pack was not found',
+  'key-not-declared': 'the key is missing from the resource pack’s terrain_texture.json',
+  'key-skipped': 'the key is in terrain_texture.json and that entry could not be read',
+  'no-texture-path': 'the key is declared and names no path',
+  'image-missing': 'the key names a path and there is no image behind it -- usually a PNG that was never exported',
+  'no-texture-root': 'the key resolves to a path and this build was given no root to look it up in',
+}
+
 /** One `featurelab textures --json` build answer: featurelab/blocktextures' Result. */
 export interface TextureResultWire {
   status: TextureStatusWire
@@ -63,7 +99,7 @@ export interface TextureResultWire {
      * PackSummary.Unresolved -- truncated, see `unresolvedTotal`). Without it `untextured` is a
      * bare number against blocks the preview is drawing as flat colours, which is the same thing
      * a machine with no atlas at all draws: the count alone cannot tell those two apart. */
-    unresolved?: { block: string; face: string; texture: string; reason: string }[]
+    unresolved?: UnresolvedTextureWire[]
     unresolvedTotal?: number
   }
   notes?: TextureNoteWire[]
@@ -190,6 +226,96 @@ export function notesFromAtlas(atlas: unknown): Map<string, string> {
     const note = (entry as { note?: unknown })?.note
     if (typeof note === 'string' && note !== '') out.set(name, note)
   }
+  return out
+}
+
+/** The unresolved-texture rows an ATLAS response carries, when it carries any --
+ * wire.AtlasOutput's own `unresolved` / `unresolvedTotal`, both at the TOP LEVEL beside `table`
+ * and `png`.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM THE BUILD RESULT. The rows above (TextureResultWire.pack
+ * .unresolved) only exist on a run that BUILT the atlas, and the ordinary case is the opposite
+ * one: the atlas was built last week, this preview finds it ready, builds nothing, and every
+ * pack block whose texture key never resolved draws as a flat colour with nothing anywhere
+ * saying which ones or why. Carrying the same rows on the atlas closes that gap, because the
+ * atlas is the thing that is still there a week later.
+ *
+ * ABSENCE MEANS "NOTHING UNRESOLVED", NOT "OLD ENGINE". Both fields are omitempty on the Go
+ * side, so an atlas that textured everything is byte-for-byte the response it always was -- and
+ * an engine too old to record any of this is indistinguishable from a pack with nothing wrong
+ * with it, which is the right way round: this is extra information about a preview and must
+ * never be the reason one looks broken.
+ *
+ * THE TOTAL IS NOT THE LENGTH. `unresolved` is capped (20 rows, blocktextures.UnresolvedLimit)
+ * and `unresolvedTotal` is the real count -- a pack that ships no resource pack at all has one
+ * row per face of every block it defines. Reading the total off the array would tell somebody
+ * with 57 broken faces that they have 20.
+ *
+ * Read loosely, and malformed entries are dropped one by one rather than throwing the atlas
+ * away -- a bad row in a diagnostic list must never cost somebody their preview. */
+export function unresolvedFromAtlas(atlas: unknown): { rows: UnresolvedTextureWire[]; total: number } {
+  const root = atlas as { unresolved?: unknown; unresolvedTotal?: unknown } | null | undefined
+  if (typeof root !== 'object' || root === null) return { rows: [], total: 0 }
+  const rows = unresolvedRows(root.unresolved)
+  return { rows, total: unresolvedTotal(root.unresolvedTotal, rows.length) }
+}
+
+/** The rows of an `unresolved` array that are actually rows. `code` is carried through when the
+ * engine sent one and simply absent when it did not -- an empty string would look like a token
+ * to every grouping downstream. */
+export function unresolvedRows(value: unknown): UnresolvedTextureWire[] {
+  if (!Array.isArray(value)) return []
+  const rows: UnresolvedTextureWire[] = []
+  for (const entry of value) {
+    const { block, face, texture, reason, code } = (entry ?? {}) as Partial<UnresolvedTextureWire>
+    if (typeof block !== 'string' || typeof face !== 'string' || typeof texture !== 'string' || typeof reason !== 'string') continue
+    rows.push({ block, face, texture, reason, ...(typeof code === 'string' && code.length > 0 ? { code } : {}) })
+  }
+  return rows
+}
+
+/** The engine's own count, or the number of rows that arrived when it did not send one. Never
+ * less than the rows in hand: a total below what is already on screen would print a negative
+ * remainder. */
+export function unresolvedTotal(value: unknown, rowCount: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > rowCount ? Math.trunc(value) : rowCount
+}
+
+/** What to write in the output channel about the faces this atlas could not texture: a headline
+ * carrying the REAL total, then the sample grouped by what an author would have to do about it.
+ *
+ * GROUPED BY CODE, NOT BY PROSE. The codes are a closed vocabulary and each one names a
+ * different fix (see UNRESOLVED_CODE_PHRASES); the sentences are English the engine is free to
+ * reword. A row whose code this build does not recognise -- or that carries none at all -- keeps
+ * its own sentence as its heading, so a new failure mode reads as one more group rather than as
+ * nothing at all.
+ *
+ * The headline says the total and the sample says it is a sample, because those are two
+ * different numbers and the one somebody needs is the one the engine counted: twenty lines under
+ * a heading that says twenty is how a pack with fifty-seven broken faces looks fixed. */
+export function summarizeUnresolved(rows: readonly UnresolvedTextureWire[], total: number): string[] {
+  if (rows.length === 0 && total === 0) return []
+  const capped = total > rows.length
+  const out: string[] = [
+    capped
+      ? `Block textures: ${String(total)} block face(s) in this pack have no image in the atlas and draw as a flat colour. The ${String(rows.length)} below are a sample; run "featurelab blocktable" for the full list.`
+      : `Block textures: ${String(total)} block face(s) in this pack have no image in the atlas and draw as a flat colour.`,
+  ]
+  // Insertion-ordered, so the groups come out in the order the engine reported them rather than
+  // in an order this file invented.
+  const groups = new Map<string, { heading: string; rows: UnresolvedTextureWire[] }>()
+  for (const row of rows) {
+    const phrase = row.code === undefined ? undefined : UNRESOLVED_CODE_PHRASES[row.code]
+    const key = phrase === undefined ? `reason:${row.reason}` : `code:${row.code ?? ''}`
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, { heading: phrase ?? row.reason, rows: [row] })
+    else group.rows.push(row)
+  }
+  for (const group of groups.values()) {
+    out.push(`  ${group.heading} (${String(group.rows.length)}):`)
+    for (const row of group.rows) out.push(`    ${row.block} (${row.face} face, texture "${row.texture}")`)
+  }
+  if (capped) out.push(`  ... and ${String(total - rows.length)} more not shown.`)
   return out
 }
 

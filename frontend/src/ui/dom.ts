@@ -23,7 +23,34 @@ export function row(label: string, control: HTMLElement, title?: string): HTMLEl
   const l = h('label', 'fl-row-label', label)
   if (title) r.title = title
   r.append(l, control)
+  labelFor(l, control)
   return r
+}
+
+let labelSeq = 0
+
+/** Points `label` at the form control it names with a real `for`/`id` pair.
+ *
+ * A `<label>` only announces, and only grows a click target, when it is actually associated with
+ * a control -- wrapping or adjacency is not association. Every row here put the two side by side
+ * and stopped there, so a screen reader read "Size X" and then, separately, an unnamed spinbox,
+ * and clicking the word did nothing.
+ *
+ * `control` is frequently a WRAPPER (the Budget section's input+badge, a radio group), so the
+ * first form control inside it is what gets the id. A wrapper with none -- a radio group, where
+ * each option carries its own label already -- is left alone rather than pointed at something
+ * arbitrary. An id already present is never overwritten. */
+export function labelFor(label: HTMLLabelElement, control: HTMLElement): void {
+  const target =
+    control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement
+      ? control
+      : control.querySelector('input, select, textarea')
+  if (!(target instanceof HTMLElement)) return
+  // A radio group's own first option is not what the group's label names -- pointing at it would
+  // turn a click on the word "Environment" into a click on "Solid".
+  if (target instanceof HTMLInputElement && target.type === 'radio') return
+  if (target.id === '') target.id = `fl-c${String(++labelSeq)}`
+  label.htmlFor = target.id
 }
 
 /** A collapsible section: a head (the clickable caret+title toggle, and -- when `onHelp` is
@@ -119,6 +146,86 @@ export function checkboxInput(checked: boolean): HTMLInputElement {
   input.type = 'checkbox'
   input.checked = checked
   return input
+}
+
+/** Marks a control INERT WITHOUT REMOVING IT FROM THE PAGE.
+ *
+ * `disabled` does three things at once: it greys the control, it stops the activation, and it
+ * takes the control out of the tab order along with its accessible name. The third is a problem
+ * whenever the NAME IS THE REASON -- and in this panel it always is, because the standing rule
+ * here is that an inert control carries its explanation as its own tooltip/label ("no texture
+ * atlas has been built for this machine…", "this run turned no cells to air…"). A keyboard or
+ * screen-reader user could not read any of those sentences at the one moment they were worth
+ * reading. Measured: four controls (the CARVED chip, "Block textures", "Show heatmap" and the
+ * viewport's Textures button) were unreachable, each holding its own explanation.
+ *
+ * `aria-disabled` is the ARIA practices' answer: the control stays focusable and keeps its name,
+ * reads as "dimmed"/"unavailable", and its activation is made a no-op instead -- which is what
+ * `guardInertActivation` below does, and what a caller checking `isInert` in its own click
+ * handler does. */
+export function setInert(el: HTMLElement, inert: boolean): void {
+  if (inert) el.setAttribute('aria-disabled', 'true')
+  else el.removeAttribute('aria-disabled')
+}
+
+export function isInert(el: HTMLElement): boolean {
+  return el.getAttribute('aria-disabled') === 'true'
+}
+
+let reasonSeq = 0
+
+/** Gives an inert control the sentence that says WHY, as a real accessible DESCRIPTION.
+ *
+ * `setInert` above only says a control is unavailable. It does not say what `disabled` used to
+ * say by accident, which is the half that matters: every inert control in this panel has an
+ * explanation attached, and until this helper existed that explanation lived in the ROW's
+ * `title` -- an attribute on a wrapper `<div>`, which is not the control's name, not its
+ * description, and reachable by nothing but a mouse hover. Measured on the built bundle: the
+ * accessible description of "Block textures" and of "Show heatmap" was the empty string while
+ * both were inert, and the one element that did hold the texture sentence (the texture note)
+ * had no `id` for anything to point at.
+ *
+ * `visible` is that element, when there is one: a sentence already on screen is described from
+ * where it is, rather than duplicated into a second hidden copy an AT would read out twice. It
+ * is used only when it is actually rendered -- `aria-describedby` pointing at a `display: none`
+ * element produces NO description, so a hidden note falls back to the hidden span like any
+ * other control with nowhere to put its reason.
+ *
+ * `title` is left to the caller: it is the pointer-user's copy of the same sentence, and an
+ * explicit `aria-describedby` outranks it for everyone else. */
+export function setInertReason(control: HTMLElement, reason: string, visible?: HTMLElement | null): void {
+  const owned = control.nextElementSibling instanceof HTMLElement && control.nextElementSibling.dataset.flReasonFor === control.id ? control.nextElementSibling : null
+  const rendered = visible !== null && visible !== undefined && visible.style.display !== 'none' && !visible.hidden && visible.textContent !== ''
+  if (reason === '' && !rendered) {
+    control.removeAttribute('aria-describedby')
+    owned?.remove()
+    return
+  }
+  if (rendered) {
+    owned?.remove()
+    if (visible.id === '') visible.id = `fl-reason${String(++reasonSeq)}`
+    control.setAttribute('aria-describedby', visible.id)
+    return
+  }
+  if (control.id === '') control.id = `fl-c${String(++labelSeq)}`
+  const span = owned ?? h('span', 'fl-sr-only')
+  span.dataset.flReasonFor = control.id
+  if (span.id === '') span.id = `fl-reason${String(++reasonSeq)}`
+  span.textContent = reason
+  if (owned === null) control.after(span)
+  control.setAttribute('aria-describedby', span.id)
+}
+
+/** Makes activation a no-op while `setInert(el, true)` holds -- install once, at construction.
+ *
+ * `preventDefault` on the click is what cancels a checkbox's activation behaviour, which is also
+ * what suppresses the `change` event the caller listens to, so an inert checkbox neither flips
+ * nor reports. It covers the keyboard too: Space on a focused checkbox dispatches exactly this
+ * click. */
+export function guardInertActivation(el: HTMLElement): void {
+  el.addEventListener('click', (ev) => {
+    if (isInert(el)) ev.preventDefault()
+  })
 }
 
 export function iconButton(text: string, title: string, onClick: () => void): HTMLButtonElement {

@@ -1,7 +1,8 @@
 // previewController.ts -- owns the one live EngineProcess for this extension session and the
 // "load a pack once, reuse it for every regenerate" policy on top of it (EngineProcess itself
 // only knows request/response plumbing, not loadPack/generate semantics).
-import { EngineProcess } from './engineProcess.js'
+import { EngineProcess, type EngineNotification } from './engineProcess.js'
+import type { PackDiagnosticLike, PackFileCounts } from './packContents.js'
 import type { AtlasWire, EnvironmentOptionWire, GenerateParamsWire } from 'featurelab-frontend'
 
 // GenerateParams used to be its own hand-rolled interface here, independent of the real wire
@@ -33,11 +34,23 @@ interface PackCatalogs {
  * wrote, and the only way to find out why is to run `check` from a terminal.
  *
  * `fileId` is pack-relative, the same spelling a graph node's `file` carries, so a renderer can
- * put a message beside the node it belongs to. */
+ * put a message beside the node it belongs to.
+ *
+ * `scope`, `line` and `column` are all OPTIONAL here and all pass straight through: the engine
+ * now says whether a diagnostic is about the pack or about a run, and where in the file it is
+ * (1-based), but a user can be running a `featurelab` older than this extension -- the binary is
+ * resolved from disk, not shipped with it -- and a missing field has to mean "this engine did not
+ * say" rather than a wrong guess. Nothing here fills one in. */
 export interface GraphDiagnostic {
   level: string
   fileId: string
   message: string
+  /** "pack" or "run"; see session.Diagnostic.Scope and packContents.ts's isPackScoped. */
+  scope?: string
+  /** 1-based, from the JSON loader that knew it -- what lets the host put a cursor on the comma
+   * rather than only opening the file. */
+  line?: number
+  column?: number
 }
 
 /** The diagnostics carried by a `graph` response, defensively: anything that is not a
@@ -54,9 +67,20 @@ export function graphDiagnostics(graph: unknown): GraphDiagnostic[] {
   const out: GraphDiagnostic[] = []
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object') continue
-    const { level, fileId, message } = entry as Partial<GraphDiagnostic>
+    const { level, fileId, message, scope, line, column } = entry as Partial<GraphDiagnostic>
     if (typeof level !== 'string' || typeof fileId !== 'string' || typeof message !== 'string') continue
-    out.push({ level, fileId, message })
+    // The three newer fields are SPREAD IN only when the engine actually sent them. Writing
+    // `scope: undefined` instead would look identical to a reader of this file and different to
+    // every structural comparison downstream -- including the tests that pin what the webview is
+    // handed -- so an old engine's payload stays byte-for-byte what it always was.
+    out.push({
+      level,
+      fileId,
+      message,
+      ...(typeof scope === 'string' && scope.length > 0 ? { scope } : {}),
+      ...(typeof line === 'number' && line > 0 ? { line } : {}),
+      ...(typeof column === 'number' && column > 0 ? { column } : {}),
+    })
   }
   return out
 }
@@ -66,16 +90,61 @@ export function graphDiagnostics(graph: unknown): GraphDiagnostic[] {
 export type { AnnotateOp } from './graph/groups.js'
 import type { AnnotateOp } from './graph/groups.js'
 
+/** What `loadPack` and `reloadFile` both answer with -- cmd/featurelab/serve.go's loadPackResult.
+ *
+ * READ THE COUNTS CAREFULLY, because their meaning CHANGED and the old meaning is still on the
+ * wire under another name. The four `*Count` fields are how many items of that kind actually
+ * BUILT; `fileCounts` is how many files were read off disk. They used to be the same number,
+ * which is why a pack with one truncated feature file reported the same reassuring count as the
+ * same pack intact -- the file was gone and nothing said so. The honest phrasing of the pair is
+ * "55 of 56 feature file(s) loaded", and packContents.ts is the one place that writes it.
+ *
+ * `fileCounts` and `diagnostics` are OPTIONAL here, not because the current engine omits them --
+ * it always sends both -- but because the extension resolves whatever `featurelab` binary it
+ * finds, which can predate them. Absent means "this engine did not say", which every caller
+ * distinguishes from zero. */
 export interface LoadPackResult {
   warnings: string[]
   featureCount: number
   structureCount: number
   ruleCount: number
   biomeCount: number
+  fileCounts?: PackFileCounts
+  /** Every pack-scoped diagnostic the loaded libraries hold -- the same set `check` reports,
+   * available at LOAD time, with a pack-relative fileId and a 1-based line/column where the JSON
+   * loader knew one. This is what makes a file that cannot be parsed impossible to load in
+   * silence. */
+  diagnostics?: PackDiagnosticLike[]
+}
+
+/** This controller has been shut down for good, and whoever is still holding it is holding the
+ * PREVIOUS engine.
+ *
+ * It exists because dispose() used to be undoable by accident. It nulled `engine`, and
+ * ensureEngine() reads a null `engine` as "never started" and spawns `this.binaryPath` again --
+ * so a panel that captured a controller at construction went on running the OLD binary after
+ * extension.ts had already replaced it (`featurelab.binaryPath` changed, controllerFor disposed
+ * the old controller and built a new one). The user believed they had switched engines; every
+ * generate in that panel was answered by the engine they thought they had left, silently, with
+ * its own copy of the pack loaded and no probe having been run against it.
+ *
+ * The message is the remedy, because there is nothing the panel itself can do: the controller is
+ * gone, and a panel is bound to the one it was constructed with. */
+export class EngineDisposedError extends Error {
+  constructor(readonly binaryPath: string) {
+    super(
+      `this panel is still running the previous engine (${binaryPath}), which has been shut down -- ` +
+        'usually because "featurelab.binaryPath" changed. Close this panel and open it again to use the new engine.',
+    )
+    this.name = 'EngineDisposedError'
+  }
 }
 
 export class PreviewController {
   private engine: EngineProcess | null = null
+  /** The tombstone. Set by dispose() and never cleared: a disposed controller stays disposed.
+   * See EngineDisposedError for what went wrong without it. */
+  private tombstoned = false
   private loadedPackRoot: string | null = null
   /** One in-flight `loadPack` promise per pack root. Exists because loadPack is now reachable
    * from TWO independent callers at once -- extension.ts's background pre-warm (fired when a
@@ -100,14 +169,41 @@ export class PreviewController {
    * Cleared whenever a pack is loaded or reloaded, since that is exactly when the catalogues
    * can change. */
   private catalogs: PackCatalogs | null = null
+  /** The last successful `loadPack`/`reloadFile` answer, and which root it was about.
+   *
+   * Kept so a caller can ask what the loaded pack actually CONTAINS without issuing a second
+   * load -- which is what turns "the panel opened empty" into "this pack declares no features
+   * and no feature rules", said before the panel is even drawn. ensurePackLoaded deliberately
+   * answers null for a pack that was already loaded (it did not initiate the load, so it has no
+   * result to hand back), and that null is exactly the case somebody needs the counts in. */
+  private lastLoad: { packRoot: string; result: LoadPackResult } | null = null
 
   /** The engine binary every request on this controller runs against. Public because the
    * first-run texture flow (src/textures.ts) runs the SAME binary as a separate, short-lived
    * process -- a minutes-long download issued down this controller's one request channel
-   * would block every generate behind it. */
-  constructor(readonly binaryPath: string) {}
+   * would block every generate behind it.
+   *
+   * `onEngineOutput` receives the engine's own stderr, verbatim, as it arrives, plus one line
+   * when the process dies. INJECTED rather than imported: this file is driven by tests that do
+   * not run inside a VS Code host at all, and reaching for `vscode` here to write to an output
+   * channel would make the whole protocol layer unloadable outside one. The host passes a
+   * function that writes to its log; everything else passes nothing and loses nothing. */
+  constructor(
+    readonly binaryPath: string,
+    private readonly onEngineOutput: (text: string) => void = () => {},
+    /** Every `progress` notification the engine sends about a request on this controller --
+     * cmd/featurelab/notify.go. INJECTED for the same reason onEngineOutput is: this file is
+     * driven by tests with no VS Code host, and the host is what decides whether a phase and an
+     * elapsed time become a notification, a status bar or nothing. Defaults to nothing, so every
+     * caller that does not care is unaffected. */
+    private readonly onEngineProgress: (note: EngineNotification) => void = () => {},
+  ) {}
 
   private ensureEngine(): EngineProcess {
+    // BEFORE the null check, because a disposed controller has a null engine and "never started"
+    // and "shut down on purpose" must not take the same branch -- that identical shape is exactly
+    // what resurrected the old binary. See EngineDisposedError.
+    if (this.tombstoned) throw new EngineDisposedError(this.binaryPath)
     if (this.engine && !this.engine.isCrashed()) return this.engine
     // Either never started, or the previous process crashed -- either way a fresh process
     // has no pack loaded, so the next generate() must go through loadPack again. In-flight
@@ -116,11 +212,33 @@ export class PreviewController {
     // issuing a fresh loadPack against the new process.
     this.engine?.dispose()
     this.loadedPackRoot = null
+    this.lastLoad = null
     this.inflightLoads.clear()
     const engine = new EngineProcess(this.binaryPath, ['serve'])
+    // Wired BEFORE start(), so nothing the engine says while coming up is missed -- which is
+    // precisely when a binary that cannot run says the one useful thing it will ever say.
+    this.attachEngine(engine)
     engine.start()
-    this.engine = engine
     return engine
+  }
+
+  /** Adopts `engine` as this controller's process and subscribes to everything it says.
+   *
+   * Its own method rather than four lines inside ensureEngine because this is the only place the
+   * controller decides what the host hears, and because previewController.test.ts drives a fake
+   * `serve` by handing one in -- a test that assigned the field directly would prove the plumbing
+   * it bypassed. */
+  private attachEngine(engine: EngineProcess): void {
+    engine.on('stderr', (chunk: string) => this.onEngineOutput(chunk))
+    engine.on('crash', (err: Error) => this.onEngineOutput(`engine process ended: ${err.message}`))
+    // "The engine is still working, and here is what on." Without this the host has elapsed time
+    // and nothing else, which is precisely the frozen-sentence wait these notifications exist to
+    // end.
+    engine.on('progress', (note: EngineNotification) => this.onEngineProgress(note))
+    engine.on('ready', (note: EngineNotification) =>
+      this.onEngineOutput(`engine ready (version ${note.version ?? 'unknown'}, pid ${String(note.pid ?? 0)})`),
+    )
+    this.engine = engine
   }
 
   /** Issues the actual loadPack request and registers it in inflightLoads for the duration --
@@ -131,6 +249,7 @@ export class PreviewController {
       try {
         const result = (await engine.request('loadPack', { dir: packRoot }, timeoutMs)) as LoadPackResult
         this.loadedPackRoot = packRoot
+        this.lastLoad = { packRoot, result }
         // A load is the only thing that can change what the catalogues contain, so this is the
         // one place they have to be dropped -- see the field's own comment.
         this.catalogs = null
@@ -147,6 +266,12 @@ export class PreviewController {
     return this.engine?.isCrashed() ?? false
   }
 
+  /** Whether this controller has been shut down for good. A holder that wants to say so BEFORE
+   * its next request fails -- previewPanel.ts's notifyEngineDisposed -- asks here. */
+  isDisposed(): boolean {
+    return this.tombstoned
+  }
+
   /** Loads `packRoot` if it isn't already the currently-loaded pack on a live engine -- this
    * is the "do not restart the binary per save" / "load once, regenerate repeatedly"
    * requirement: a save-triggered regenerate for the SAME pack never re-hits loadPack. */
@@ -161,6 +286,28 @@ export class PreviewController {
       await inflight
       return null
     }
+    return this.startLoad(engine, packRoot, timeoutMs)
+  }
+
+  /** What the loaded pack CONTAINS -- ensurePackLoaded's answer for a caller that needs the
+   * counts rather than only the side effect.
+   *
+   * It exists because "the panel opened and there was nothing in it" has two completely
+   * different causes -- a pack with no features in it, and a pack whose files all failed to load
+   * -- and neither is distinguishable from a broken editor without these numbers. A command asks
+   * for them before it opens anything, so the emptiness can be said in words.
+   *
+   * Never issues a second load: an already-loaded pack answers from the remembered result, a
+   * load already in flight is ridden, and only a pack this controller has not loaded costs a
+   * request. */
+  async loadPackSummary(packRoot: string, timeoutMs: number): Promise<LoadPackResult> {
+    const engine = this.ensureEngine()
+    const remembered = this.lastLoad
+    if (this.loadedPackRoot === packRoot && remembered !== null && remembered.packRoot === packRoot) {
+      return remembered.result
+    }
+    const inflight = this.inflightLoads.get(packRoot)
+    if (inflight) return inflight
     return this.startLoad(engine, packRoot, timeoutMs)
   }
 
@@ -214,16 +361,28 @@ export class PreviewController {
     try {
       const result = (await engine.request('reloadFile', { dir: packRoot, path: filePath }, timeoutMs)) as LoadPackResult
       this.catalogs = null
+      // The counts can change on exactly this call -- the saved file may have added, renamed or
+      // deleted a feature -- so the remembered summary has to move with them, for the same
+      // reason the catalogues do.
+      this.lastLoad = { packRoot, result }
       return result
     } catch {
       return this.reloadPack(packRoot, timeoutMs)
     }
   }
 
-  async generate(packRoot: string, params: GenerateParams, timeoutMs: number): Promise<unknown> {
+  /** `signal`, on this and the other two long methods below, is what carries a user's Cancel all
+   * the way to the engine: EngineProcess sends a `cancel` for this request's id and settles the
+   * promise as a RequestCancelledError rather than leaving the placement running for a result
+   * nobody will look at. Optional everywhere, because most callers (a save-triggered regenerate,
+   * a pre-warm) have nothing that could cancel them.
+   *
+   * The pack load is deliberately NOT covered by it: it is shared state every later request
+   * reads, and the engine will not interrupt a loadPack anyway (see serve.go's dispatch). */
+  async generate(packRoot: string, params: GenerateParams, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
     await this.ensurePackLoaded(packRoot, timeoutMs)
     const engine = this.ensureEngine()
-    return this.withCatalogs((p) => engine.request('generate', p, timeoutMs), params)
+    return this.withCatalogs((p) => engine.request('generate', p, timeoutMs, signal), params)
   }
 
   /** Runs one generate-shaped request with the pack catalogues fetched at most once per load.
@@ -260,10 +419,10 @@ export class PreviewController {
    * response (adds `grown`/`preGrowBounds` -- see wire.GrownGenerateOutput's own doc comment),
    * which frontend/src/protocol.ts's decodeGenerateResult already decodes without needing a
    * separate wire-level type on this side. */
-  async generateGrown(packRoot: string, params: GenerateParams, timeoutMs: number): Promise<unknown> {
+  async generateGrown(packRoot: string, params: GenerateParams, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
     await this.ensurePackLoaded(packRoot, timeoutMs)
     const engine = this.ensureEngine()
-    return this.withCatalogs((p) => engine.request('generateGrown', p, timeoutMs), params)
+    return this.withCatalogs((p) => engine.request('generateGrown', p, timeoutMs, signal), params)
   }
 
   /** Fetches the pack's feature graph -- cmd/featurelab's "graph" method, the same builder the
@@ -281,9 +440,9 @@ export class PreviewController {
    * The same goes one step further for a file the engine REFUSED, which has no node at all: the
    * response carries a `diagnostics` array saying so -- see graphDiagnostics above, and
    * wire.Graph.Diagnostics for why it is on the graph rather than left to `check`. */
-  async graph(packRoot: string, timeoutMs: number): Promise<unknown> {
+  async graph(packRoot: string, timeoutMs: number, signal?: AbortSignal): Promise<unknown> {
     await this.ensurePackLoaded(packRoot, timeoutMs)
-    return this.ensureEngine().request('graph', undefined, timeoutMs)
+    return this.ensureEngine().request('graph', undefined, timeoutMs, signal)
   }
 
   /** Writes whole new pack files and re-reads the pack -- cmd/featurelab's "createFiles".
@@ -457,9 +616,17 @@ export class PreviewController {
     return (await engine.request('atlas', {}, timeoutMs)) as AtlasWire
   }
 
+  /** Shuts the engine down for good. NOT reversible, and that irreversibility is the point --
+   * see EngineDisposedError. Every later request on this object rejects with one rather than
+   * quietly starting `binaryPath` over again. */
   dispose(): void {
+    this.tombstoned = true
     this.engine?.dispose()
     this.engine = null
     this.loadedPackRoot = null
+    this.lastLoad = null
+    // Nothing can ride these any more: their engine is gone and a new caller must be refused,
+    // not made to await a promise belonging to a dead process.
+    this.inflightLoads.clear()
   }
 }

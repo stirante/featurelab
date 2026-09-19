@@ -32,7 +32,7 @@ styleEl.textContent = PANEL_CSS
 document.head.append(styleEl)
 
 function makeViewerStub(): VoxelViewer {
-  const state = { environmentMode: 'solid' as EnvironmentMode, showCarved: true, showHeatmap: false, showOverflow: true }
+  const state = { environmentMode: 'solid' as EnvironmentMode, showCarved: true, showHeatmap: false, showOverflow: true, hasAtlas: false, texturesEnabled: false }
   return {
     setVolume: vi.fn(),
     setSlice: vi.fn(),
@@ -67,6 +67,29 @@ function makeViewerStub(): VoxelViewer {
     // net (see applyBusy's doc comment there), so this stub needs the method even in tests that
     // never call panel.setBusy() themselves.
     setBusy: vi.fn(),
+    // Cancel wiring: panel.ts arms (or explicitly disarms) the viewport pill's Cancel button on
+    // every panel, so this stub needs the method even in tests that never pass an onCancel.
+    setCancelHandler: vi.fn(),
+    canCancel: vi.fn(() => false),
+    hasFramed: vi.fn(() => false),
+    setProjection: vi.fn(),
+    getProjection: vi.fn(() => 'perspective' as const),
+    // Textures: panel.ts applies its remembered preference on construction and asks the viewer
+    // what it is ACTUALLY drawing whenever it renders the texture row, so both are needed even by
+    // a test that never touches textures. The stub answers "no atlas", which is every host that
+    // has not fetched one -- the state the row is inert in.
+    setTexturesEnabled: vi.fn((v: boolean) => {
+      state.texturesEnabled = v
+    }),
+    getTexturesEnabled: vi.fn(() => state.hasAtlas && state.texturesEnabled),
+    getTextureReport: vi.fn(() => ({ hasAtlas: state.hasAtlas, enabled: state.hasAtlas && state.texturesEnabled, blocks: 0, unresolved: [] as string[] })),
+    hasAtlas: vi.fn(() => state.hasAtlas),
+    setNotice: vi.fn(),
+    setAttributionCells: vi.fn(),
+    setAttributionGroups: vi.fn(),
+    onTexturesChanged: null,
+    onPick: null,
+    onViewChange: null,
   } as unknown as VoxelViewer
 }
 
@@ -80,6 +103,9 @@ function makeDiagnostic(overrides: Partial<DecodedDiagnostic> & Pick<DecodedDiag
     chain: [overrides.fileId],
     count: 1,
     position: null,
+    // Null is what the engine sends today -- see DecodedDiagnostic.scope. A test that wants the
+    // pack/run distinction passes it explicitly.
+    scope: null,
     ...overrides,
   }
 }
@@ -335,9 +361,12 @@ describe('createPanel: seedOpenedDocument -- the opened document wins over persi
     const heatmapCheckbox = [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Show heatmap')!.querySelector('input') as HTMLInputElement
     heatmapCheckbox.checked = true
     heatmapCheckbox.dispatchEvent(new Event('change'))
-    const profilerSection = [...root.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'profiler')! as HTMLElement
-    profilerSection.querySelector('.fl-section-header')!.dispatchEvent(new Event('click'))
-    expect(profilerSection.classList.contains('fl-collapsed')).toBe(true)
+    // Environment, not Profiler: Profiler is one of the sections a brand-new panel starts
+    // collapsed (see DEFAULT_COLLAPSED_SECTIONS), so clicking it here would EXPAND it and this
+    // test would be asserting the opposite of what it means to.
+    const envSection = [...root.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'environment')! as HTMLElement
+    envSection.querySelector('.fl-section-header')!.dispatchEvent(new Event('click'))
+    expect(envSection.classList.contains('fl-collapsed')).toBe(true)
 
     panel.seedOpenedDocument('rule', 'wiki:crater_shrub') // a DIFFERENT subject -- only this should change
 
@@ -347,7 +376,7 @@ describe('createPanel: seedOpenedDocument -- the opened document wins over persi
     expect(params.writeBudget).toBe(10000000)
     expect(growStickyCheckboxOf(root).checked).toBe(true)
     expect(heatmapCheckbox.checked).toBe(true)
-    expect(profilerSection.classList.contains('fl-collapsed')).toBe(true)
+    expect(envSection.classList.contains('fl-collapsed')).toBe(true)
   })
 })
 
@@ -422,15 +451,15 @@ describe('createPanel: out-of-bounds capture and grow-and-regenerate', () => {
     expect(onGrowRegenerate.mock.calls[0]![0]).toMatchObject({ feature: 'test:a' })
   })
 
-  it('the grown re-run banner is hidden for an ordinary (non-grown) result', () => {
+  it('the grow badge is hidden for an ordinary (non-grown) result', () => {
     const root = document.createElement('div')
     const panel = createPanel(root, { viewer: makeViewerStub() })
     panel.setResult(makeResult({ grown: false, preGrowBounds: null }))
-    const banner = root.querySelector('.fl-banner-grown') as HTMLElement
-    expect(banner.style.display).toBe('none')
+    const badge = root.querySelector('.fl-grow-badge') as HTMLElement
+    expect(badge.style.display).toBe('none')
   })
 
-  it('the grown re-run banner appears as one line about this run, with "a different run" as its tooltip rather than its text', () => {
+  it('the grow badge says only what is true of this run, with "a different placement" as its tooltip rather than its text', () => {
     const root = document.createElement('div')
     const panel = createPanel(root, { viewer: makeViewerStub() })
     panel.setResult(
@@ -440,25 +469,25 @@ describe('createPanel: out-of-bounds capture and grow-and-regenerate', () => {
         volume: { minX: -32, minY: 44, minZ: -32, sizeX: 64, sizeY: 48, sizeZ: 64, data: new Uint32Array(0), baseline: new Uint32Array(0), changed: new Uint8Array(0), removed: new Uint8Array(0) },
       }),
     )
-    const banner = root.querySelector('.fl-banner-grown') as HTMLElement
-    expect(banner.style.display).not.toBe('none')
-    expect(banner.textContent).toContain('32×48×32')
-    expect(banner.textContent).toContain('64×48×64')
-    // The standing fact about every grown run is the tooltip, not a sentence in the banner: the
-    // banner's own text stays one short line about this run.
-    expect(banner.textContent).not.toMatch(/different/i)
-    expect(banner.title).toMatch(/different placement/i)
-    expect(banner.textContent!.length).toBeLessThan(80)
+    const badge = root.querySelector('.fl-grow-badge') as HTMLElement
+    expect(badge.style.display).not.toBe('none')
+    expect(badge.textContent).toContain('32×48×32')
+    expect(badge.textContent).toContain('64×48×64')
+    // The standing fact about every grown run is the tooltip, not a sentence on screen: the badge
+    // itself stays a few words about this run. Everything longer is behind the row's own `?`.
+    expect(badge.textContent).not.toMatch(/different/i)
+    expect(badge.title).toMatch(/different placement/i)
+    expect(badge.textContent!.length).toBeLessThan(48)
   })
 
-  it('a later ordinary result clears a previously-shown grown banner', () => {
+  it('a later ordinary result clears a previously-shown grow badge', () => {
     const root = document.createElement('div')
     const panel = createPanel(root, { viewer: makeViewerStub() })
     panel.setResult(makeResult({ grown: true, preGrowBounds: { minX: 0, minY: 0, minZ: 0, sizeX: 8, sizeY: 8, sizeZ: 8 } }))
-    expect((root.querySelector('.fl-banner-grown') as HTMLElement).style.display).not.toBe('none')
+    expect((root.querySelector('.fl-grow-badge') as HTMLElement).style.display).not.toBe('none')
 
     panel.setResult(makeResult({ grown: false, preGrowBounds: null }))
-    expect((root.querySelector('.fl-banner-grown') as HTMLElement).style.display).toBe('none')
+    expect((root.querySelector('.fl-grow-badge') as HTMLElement).style.display).toBe('none')
   })
 
   it('the View section’s "Show overflow" toggle defaults to on and drives VoxelViewer.setShowOverflow', () => {
@@ -542,6 +571,9 @@ describe('createPanel: out-of-bounds capture and grow-and-regenerate', () => {
     sliceMinInput1.max = '47'
     sliceMinInput1.value = '15'
     sliceMinInput1.dispatchEvent(new Event('input'))
+    // Releasing a slider fires `change`, which is what flushes the debounced localStorage write
+    // (see panel.ts's applySlice -- a drag is one write now, not one per pixel of travel).
+    sliceMinInput1.dispatchEvent(new Event('change'))
 
     const root2 = document.createElement('div')
     const viewer2 = makeViewerStub()
@@ -608,34 +640,35 @@ describe('createPanel: sticky grow-to-fit', () => {
   // THE load-bearing assertions for renderGrownBanner's sticky branch. Reproduces the reported bug directly: a run that needed no
   // growth must not hide the banner while sticky is still on, and the banner must be visible
   // from the moment the mode is switched on, not only after a grown result arrives.
-  it('the RE-RUN banner stays visible for as long as sticky mode is on, even across a run that needed no growth', () => {
+  it('the grow badge keeps reporting THIS run for as long as sticky mode is on, including a run that needed no growth', () => {
     const root = document.createElement('div')
     const panel = createPanel(root, { viewer: makeViewerStub(), onConfigChange: vi.fn(), onGrowRegenerate: vi.fn() })
     panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
-    const banner = () => root.querySelector('.fl-banner-grown') as HTMLElement
-    expect(banner().style.display).toBe('none') // off by default, nothing grown yet
+    const badge = () => root.querySelector('.fl-grow-badge') as HTMLElement
+    expect(badge().style.display).toBe('none') // off by default, nothing grown yet
 
     const growCheckbox = growStickyCheckboxOf(root)
     growCheckbox.checked = true
     growCheckbox.dispatchEvent(new Event('change'))
-    expect(banner().style.display).not.toBe('none') // visible the instant it's turned on
-    expect(banner().textContent).toContain('Grow every run: on')
-    expect(banner().textContent).toContain('waiting for the next run')
+    // Turning the mode on says nothing on its own: the CHECKBOX is the state, and a badge
+    // repeating "on" next to a ticked box is the fifth line of explanation this replaced. It
+    // speaks once there is a run to describe.
+    expect(badge().style.display).toBe('none')
 
     panel.setResult(makeResult({ grown: true, preGrowBounds: { minX: 0, minY: 0, minZ: 0, sizeX: 8, sizeY: 8, sizeZ: 8 } }))
-    expect(banner().style.display).not.toBe('none')
-    expect(banner().textContent).toContain('grown 8×8×8 → 4×4×4 this run')
+    expect(badge().style.display).not.toBe('none')
+    expect(badge().textContent).toBe('grown 8×8×8 → 4×4×4')
 
-    // The actual bug report: a later run that needed NO growth (grown: false) must not hide the
-    // banner while sticky is still active -- and it says so in one line, not a paragraph.
+    // The actual bug report: a later run that needed NO growth must still say so while sticky is
+    // active -- silence there would read as the mode having quietly reverted.
     panel.setResult(makeResult({ grown: false, preGrowBounds: null }))
-    expect(banner().style.display).not.toBe('none')
-    expect(banner().textContent).toBe('Grow every run: on · no growth needed this run')
+    expect(badge().style.display).not.toBe('none')
+    expect(badge().textContent).toBe('no growth needed')
 
     // The obvious off switch: unchecking reverts to the old, single-result-only behaviour.
     growCheckbox.checked = false
     growCheckbox.dispatchEvent(new Event('change'))
-    expect(banner().style.display).toBe('none')
+    expect(badge().style.display).toBe('none')
   })
 
   it('a persisted sticky "on" does not resurrect on a fresh host instance that has no onGrowRegenerate', () => {
@@ -924,23 +957,44 @@ describe('createPanel: buildGenerateParams / onConfigChange', () => {
     presetSelect.dispatchEvent(new Event('change'))
   }
 
+  /** "This control is inert" as the panel now says it: aria-disabled for the announcement and
+   * `readonly` for the actual refusal, instead of `disabled`, which said both at the cost of
+   * taking the control -- and its reason -- out of the tab order. */
+  function seaSlotInert(input: HTMLInputElement): boolean {
+    expect(input.disabled, 'a `disabled` control is unreachable, reason and all').toBe(false)
+    return input.getAttribute('aria-disabled') === 'true' && input.readOnly
+  }
+
+  /** The panel's text as a reader SEES it -- .fl-sr-only content excluded, because it is
+   * visually hidden by construction (panel.css) and exists precisely so a sentence can be
+   * reachable without being written into the panel. */
+  function visibleText(root: HTMLElement): string {
+    const clone = root.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('.fl-sr-only, .fl-sr-status').forEach((el) => { el.remove() })
+    return clone.textContent ?? ''
+  }
+
   it('disables the three sea material controls under a preset that builds no sea, and enables them under one that does', () => {
     const root = document.createElement('div')
     const panel = createPanel(root, { viewer: makeViewerStub() })
     panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
     panel.setEnvironments(makeEnvironments()) // default preset is 'plains' -- buildsSea: false
 
-    for (const label of SEA_LABELS) expect(materialInputOf(root, label).disabled).toBe(true)
+    // INERT, NOT DISABLED: `disabled` takes the control out of the tab order together with the
+    // only sentence that says why it is inert, which is the moment that sentence is worth
+    // reading. `readonly` is what actually stops the editing -- aria-disabled is an
+    // announcement and nothing more. See dom.ts's setInert/setInertReason.
+    for (const label of SEA_LABELS) expect(seaSlotInert(materialInputOf(root, label))).toBe(true)
     // The other three are never gated -- every preset has a top/mid/foundation identity.
     for (const label of ['Top material', 'Mid material', 'Foundation material']) {
-      expect(materialInputOf(root, label).disabled).toBe(false)
+      expect(seaSlotInert(materialInputOf(root, label))).toBe(false)
     }
 
     selectPreset(root, 'ocean')
-    for (const label of SEA_LABELS) expect(materialInputOf(root, label).disabled).toBe(false)
+    for (const label of SEA_LABELS) expect(seaSlotInert(materialInputOf(root, label))).toBe(false)
 
     selectPreset(root, 'desert')
-    for (const label of SEA_LABELS) expect(materialInputOf(root, label).disabled).toBe(true)
+    for (const label of SEA_LABELS) expect(seaSlotInert(materialInputOf(root, label))).toBe(true)
   })
 
   it('shows WHY the sea controls are inert -- dimmed row, the reason as the input\'s own tooltip -- with no sentence written into the panel', () => {
@@ -959,9 +1013,26 @@ describe('createPanel: buildGenerateParams / onConfigChange', () => {
       expect(input.title).toContain('Ocean floor')
       expect(input.title).toMatch(/kept/)
       expect(input.title.split(/[.!?](\s|$)/).filter((s) => s.trim().length > 0)).toHaveLength(1) // one sentence
+      // ...and the same sentence as a real accessible DESCRIPTION, which a `title` never was:
+      // the row's tooltip is an attribute on a wrapper <div>, reachable by a hovering mouse and
+      // nothing else. aria-describedby points at a visually-hidden span holding the same words.
+      // Queried off `root`, not document: this harness never attaches the panel to the document,
+      // so getElementById would find nothing and the assertion would fail for the wrong reason.
+      const describedBy = root.querySelector(`#${input.getAttribute('aria-describedby') ?? 'none'}`)
+      expect(describedBy, `${label} has no accessible description`).not.toBeNull()
+      expect(describedBy!.className).toBe('fl-sr-only')
+      expect(describedBy!.textContent).toBe(input.title)
     }
-    expect(root.textContent).not.toMatch(/builds no sea/)
-    expect(root.querySelector('.fl-note:not([style*="display: none"])')).toBeNull()
+    // Still no sentence PAINTED into the panel -- .fl-sr-only is visually hidden, which is the
+    // whole reason it is where that sentence can live.
+    expect(visibleText(root)).not.toMatch(/builds no sea/)
+    // No note under the MATERIALS section. There is one visible .fl-note elsewhere now -- the
+    // View section's texture note, which says why "Block textures" is inert and is that
+    // checkbox's own accessible description (panel.ts's syncTextureAvailability). The rule this
+    // line guards is about these three slots, whose reason is deliberately not written into the
+    // panel at all; it was never "the panel has no notes".
+    const materialsBody = [...root.querySelectorAll('.fl-section')].find((sec) => sec.querySelector('.fl-section-title-text')?.textContent === 'Materials')!
+    expect(materialsBody.querySelector('.fl-note:not([style*="display: none"])')).toBeNull()
 
     selectPreset(root, 'ocean')
     for (const label of SEA_LABELS) {
@@ -1025,14 +1096,14 @@ describe('createPanel: buildGenerateParams / onConfigChange', () => {
     // No setEnvironments yet: nothing has told this panel whether 'plains' builds a sea. Greying
     // the controls out (or dropping a value) on that guess would be asserting a fact it does not
     // have -- see panel.ts's presetBuildsSea.
-    for (const label of SEA_LABELS) expect(materialInputOf(root, label).disabled).toBe(false)
+    for (const label of SEA_LABELS) expect(seaSlotInert(materialInputOf(root, label))).toBe(false)
     materialInputOf(root, 'Sea material').value = 'minecraft:lava'
     materialInputOf(root, 'Sea material').dispatchEvent(new Event('change'))
     expect(panel.getGenerateParams()!.materials).toEqual({ seaMaterial: 'minecraft:lava' })
 
     // The list lands and the panel acts on the real answer, without a preset change to prompt it.
     panel.setEnvironments(makeEnvironments())
-    for (const label of SEA_LABELS) expect(materialInputOf(root, label).disabled).toBe(true)
+    for (const label of SEA_LABELS) expect(seaSlotInert(materialInputOf(root, label))).toBe(true)
     expect(panel.getGenerateParams()!.materials).toBeUndefined()
     expect(materialInputOf(root, 'Sea material').value).toBe('minecraft:lava') // still kept
   })
@@ -1211,7 +1282,10 @@ describe('createPanel: diagnostics readability', () => {
     const panel = createPanel(root, { viewer })
     panel.setResult(makeResult({ diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'a.json', position: { x: 3, y: 70, z: -2 }, message: 'oops' })] }))
 
-    const posBtn = root.querySelector('.fl-diag-position') as HTMLButtonElement
+    // Scoped to the diagnostic ITEM: the same camera-jump control now also appears on the
+    // "Placed nothing" line (see that test below), deliberately as the same class, because it is
+    // the same affordance answering the same question.
+    const posBtn = root.querySelector('.fl-diag-item .fl-diag-position') as HTMLButtonElement
     expect(posBtn).not.toBeNull()
     posBtn.dispatchEvent(new Event('click'))
     expect(viewer.highlightCell).toHaveBeenCalledWith(3, 70, -2)
@@ -1222,13 +1296,13 @@ describe('createPanel: diagnostics readability', () => {
     const viewer = makeViewerStub()
     const panel = createPanel(root, { viewer })
     panel.setResult(makeResult({ diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'a.json', position: null, message: 'no position here' })] }))
-    expect(root.querySelector('.fl-diag-position')).toBeNull()
+    expect(root.querySelector('.fl-diag-item .fl-diag-position')).toBeNull()
 
     const root2 = document.createElement('div')
     const viewer2 = makeViewerStub()
     const panel2 = createPanel(root2, { viewer: viewer2 })
     panel2.setResult(makeResult({ diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'a.json', position: { x: 0, y: 0, z: 0 }, message: 'origin is real' })] }))
-    const posBtn = root2.querySelector('.fl-diag-position') as HTMLButtonElement
+    const posBtn = root2.querySelector('.fl-diag-item .fl-diag-position') as HTMLButtonElement
     expect(posBtn).not.toBeNull()
     posBtn.dispatchEvent(new Event('click'))
     expect(viewer2.highlightCell).toHaveBeenCalledWith(0, 0, 0)
@@ -1375,7 +1449,12 @@ describe('createPanel: no prose in the panel -- tooltips and one `?` per section
       // The allowed exceptions are all about THIS run or THIS selection: diagnostics, the banners
       // (stale/error/busy/overflow/grown), the feature/rule info line, a status line, the
       // profiler's summary, the partial badge, and <option> text.
-      if (parent.closest('.fl-diag-item, .fl-banner, .fl-info, .fl-note, .fl-profiler-summary, .fl-badge-partial, option') !== null) continue
+      // .fl-sr-status is the outcome announcement -- a status about THIS run by definition, and
+      // one that is never painted (see panel.css). It is here for the same reason .fl-banner is.
+      // .fl-sr-only joins it: that is an inert control's REASON, parked where a screen reader
+      // can reach it precisely BECAUSE this rule forbids writing it into the panel as a visible
+      // paragraph. Neither is text on screen, which is what this test is about.
+      if (parent.closest('.fl-diag-item, .fl-banner, .fl-info, .fl-note, .fl-profiler-summary, .fl-badge-partial, .fl-sr-status, .fl-sr-only, option') !== null) continue
       const text = (node.textContent ?? '').trim()
       if (text.length > 40) out.push(text)
     }
@@ -1441,9 +1520,14 @@ describe('createPanel: no prose in the panel -- tooltips and one `?` per section
       panel.setEnvironments(makeEnvironments())
       panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
       const sections = root.querySelectorAll('.fl-section')
-      expect(root.querySelectorAll('.fl-help').length).toBe(sections.length)
       expect(root.querySelectorAll('.fl-section-head .fl-help').length).toBe(sections.length)
-      expect(root.querySelectorAll('.fl-row .fl-help').length).toBe(0)
+      // Exactly ONE `?` outside a section head: the "Grow every run" row, which replaced five
+      // permanent lines of explanation under its own checkbox. A `?` beside the control it
+      // explains is the pattern; a `?` on every row would be the pattern used as wallpaper.
+      const rowHelps = [...root.querySelectorAll('.fl-row .fl-help')]
+      expect(rowHelps.length).toBe(1)
+      expect(rowHelps[0]!.closest('.fl-row')!.querySelector('.fl-row-label')!.textContent).toBe('Grow every run')
+      expect(root.querySelectorAll('.fl-help').length).toBe(sections.length + 1)
       expect(document.querySelector('.fl-docs')).toBeNull()
 
       const materialsHelp = root.querySelector<HTMLButtonElement>('.fl-section[data-section-id="materials"] .fl-help')!
@@ -1524,12 +1608,14 @@ describe('createPanel: view state persists section-open/closed across regenerati
   it('a collapsed section stays collapsed across a setResult call', () => {
     const root = document.createElement('div')
     const panel = createPanel(root, { viewer: makeViewerStub() })
-    const profilerSection = [...root.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'profiler')! as HTMLElement
-    profilerSection.querySelector('.fl-section-header')!.dispatchEvent(new Event('click'))
-    expect(profilerSection.classList.contains('fl-collapsed')).toBe(true)
+    // A section that starts OPEN, so the click below collapses it -- Profiler starts collapsed
+    // in a fresh panel now (see DEFAULT_COLLAPSED_SECTIONS).
+    const envSection = [...root.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'environment')! as HTMLElement
+    envSection.querySelector('.fl-section-header')!.dispatchEvent(new Event('click'))
+    expect(envSection.classList.contains('fl-collapsed')).toBe(true)
 
     panel.setResult(makeResult())
-    expect(profilerSection.classList.contains('fl-collapsed')).toBe(true)
+    expect(envSection.classList.contains('fl-collapsed')).toBe(true)
   })
 
   it('persists collapsed sections and the selected subject across a fresh createPanel call (new webview instance)', () => {
@@ -1613,8 +1699,10 @@ describe('createPanel: persistence policy -- view state follows you, generation 
     }
     growStickyCheckboxOf(root1).checked = true
     growStickyCheckboxOf(root1).dispatchEvent(new Event('change'))
-    const materialsSection = [...root1.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'materials')! as HTMLElement
-    materialsSection.querySelector('.fl-section-header')!.dispatchEvent(new Event('click'))
+    // Environment starts open in a fresh panel, so this click collapses it -- Materials now
+    // starts collapsed, and clicking THAT would persist an expansion instead.
+    const envSection = [...root1.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'environment')! as HTMLElement
+    envSection.querySelector('.fl-section-header')!.dispatchEvent(new Event('click'))
 
     const root2 = document.createElement('div')
     const viewer2 = makeViewerStub()
@@ -1629,8 +1717,8 @@ describe('createPanel: persistence policy -- view state follows you, generation 
     expect(viewer2.setShowHeatmap).toHaveBeenCalledWith(true)
     expect(viewer2.setShowCarved).toHaveBeenCalledWith(false)
     expect(viewer2.setShowGrid).toHaveBeenCalledWith(false)
-    const materialsSection2 = [...root2.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'materials')! as HTMLElement
-    expect(materialsSection2.classList.contains('fl-collapsed')).toBe(true)
+    const envSection2 = [...root2.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === 'environment')! as HTMLElement
+    expect(envSection2.classList.contains('fl-collapsed')).toBe(true)
     // The subject: the one generation-config field that deliberately still persists, mode and all.
     const params = panel2.getGenerateParams()!
     expect(params.rule).toBe('wiki:crater_shrub')
@@ -1713,29 +1801,39 @@ describe('createPanel: persistence policy -- view state follows you, generation 
   })
 })
 
-// Busy state (never "no indication that anything is happening") -- setBusy() drives a visible pending
-// state (a banner, plus a class the stat tiles/viewer respond to), and setResult/setError/
-// setStale(true) must ALWAYS clear it even if a host never calls setBusy(false) itself (the
-// "cannot get stuck" requirement).
+// Busy state (never "no indication that anything is happening") -- setBusy() marks the stat tiles
+// pending and hands the request to the viewer, whose viewport pill is the ONE live busy
+// indicator; setResult/setError/setStale(true) must ALWAYS clear it even if a host never calls
+// setBusy(false) itself (the "cannot get stuck" requirement).
 describe('createPanel: busy state', () => {
-  it('setBusy(true) shows a busy indicator, dims the stat tiles, and tells the viewer; setBusy(false) reverses all three', () => {
+  it('setBusy(true) marks the stat tiles pending and tells the viewer; setBusy(false) reverses both', () => {
     const root = document.createElement('div')
     const viewer = makeViewerStub()
     const panel = createPanel(root, { viewer })
     const readout = root.querySelector('.fl-readout') as HTMLElement
-    const busyBanner = root.querySelector('.fl-banner-busy') as HTMLElement
-    expect(busyBanner.style.display).toBe('none')
     expect(readout.classList.contains('fl-readout-busy')).toBe(false)
 
     panel.setBusy(true)
-    expect(busyBanner.style.display).not.toBe('none')
     expect(readout.classList.contains('fl-readout-busy')).toBe(true)
     expect(viewer.setBusy).toHaveBeenLastCalledWith(true)
 
     panel.setBusy(false)
-    expect(busyBanner.style.display).toBe('none')
     expect(readout.classList.contains('fl-readout-busy')).toBe(false)
     expect(viewer.setBusy).toHaveBeenLastCalledWith(false)
+  })
+
+  // ONE busy indicator, not two. The sidebar used to raise its own pulsing "Generating..." banner
+  // at the same moment the viewport pill appeared -- the same word, twice, for one request, and
+  // only one of the two could stop it.
+  it('raises NO sidebar banner of its own while busy -- the viewport pill is the only live indicator', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    panel.setBusy(true)
+    expect(root.querySelector('.fl-banner-busy')).toBeNull()
+    const showing = [...root.querySelectorAll('.fl-banner')].filter((b) => (b as HTMLElement).style.display !== 'none')
+    expect(showing).toEqual([])
+    expect([...root.querySelectorAll('*')].filter((e) => e.textContent === 'Generating\u2026')).toEqual([])
   })
 
   it('setResult clears busy on its own, even if the host never calls setBusy(false)', () => {
@@ -1744,7 +1842,7 @@ describe('createPanel: busy state', () => {
     const panel = createPanel(root, { viewer })
     panel.setBusy(true)
     panel.setResult(makeResult())
-    expect((root.querySelector('.fl-banner-busy') as HTMLElement).style.display).toBe('none')
+    expect((root.querySelector('.fl-readout') as HTMLElement).classList.contains('fl-readout-busy')).toBe(false)
     expect(viewer.setBusy).toHaveBeenLastCalledWith(false)
   })
 
@@ -1754,7 +1852,7 @@ describe('createPanel: busy state', () => {
     const panel = createPanel(root, { viewer })
     panel.setBusy(true)
     panel.setError('engine exploded')
-    expect((root.querySelector('.fl-banner-busy') as HTMLElement).style.display).toBe('none')
+    expect((root.querySelector('.fl-readout') as HTMLElement).classList.contains('fl-readout-busy')).toBe(false)
     expect(viewer.setBusy).toHaveBeenLastCalledWith(false)
   })
 
@@ -1764,16 +1862,18 @@ describe('createPanel: busy state', () => {
     const panel = createPanel(root, { viewer })
     panel.setBusy(true)
     panel.setStale(true, 'engine crashed')
-    expect((root.querySelector('.fl-banner-busy') as HTMLElement).style.display).toBe('none')
+    expect((root.querySelector('.fl-readout') as HTMLElement).classList.contains('fl-readout-busy')).toBe(false)
     expect(viewer.setBusy).toHaveBeenLastCalledWith(false)
   })
 
   it('setStale(false) does NOT clear busy -- a host sends this at the START of every request, clearing a PREVIOUS stale banner, not signalling this one finished', () => {
     const root = document.createElement('div')
-    const panel = createPanel(root, { viewer: makeViewerStub() })
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
     panel.setBusy(true)
     panel.setStale(false)
-    expect((root.querySelector('.fl-banner-busy') as HTMLElement).style.display).not.toBe('none')
+    expect((root.querySelector('.fl-readout') as HTMLElement).classList.contains('fl-readout-busy')).toBe(true)
+    expect(viewer.setBusy).toHaveBeenLastCalledWith(true)
   })
 })
 
@@ -1904,5 +2004,862 @@ describe('parseBudgetDiagnostic against the messages the engine really emits', (
 
   it('still returns null for an ordinary diagnostic', () => {
     expect(parseBudgetDiagnostic('wiki:x: Block could not attach to the given location')).toBeNull()
+  })
+})
+
+// ============================================================================================
+// The preview-side UX fixes: an empty run that says why, chips that are the toggles they look
+// like, diagnostics that read as a list, and a way to just run it again.
+// ============================================================================================
+
+function panelWithSubject(overrides: Partial<Parameters<typeof createPanel>[1]> = {}): { root: HTMLElement; panel: PanelHandle; viewer: VoxelViewer } {
+  const root = document.createElement('div')
+  const viewer = makeViewerStub()
+  // `regenerateDebounceMs: 0` keeps a typed change synchronous for the assertions below -- the
+  // debounce itself has its own test rather than being waited on in every other one.
+  const panel = createPanel(root, { viewer, regenerateDebounceMs: 0, ...overrides })
+  panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
+  return { root, panel, viewer }
+}
+
+function emptyResultLine(root: HTMLElement): HTMLElement {
+  return root.querySelector('.fl-empty-result') as HTMLElement
+}
+
+function statChip(root: HTMLElement, label: string): HTMLButtonElement {
+  return [...root.querySelectorAll('.fl-stat')].find((t) => t.querySelector('.fl-stat-label')?.textContent === label) as HTMLButtonElement
+}
+
+describe('createPanel: a run that placed nothing says why', () => {
+  const NOTHING = { changed: 0, placed: 0, carved: 0, replaced: 0, writesOutOfBounds: 0 }
+
+  it('names the stop that ended the run, rather than showing three zeros and "No diagnostics."', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [{ identifier: 'wiki:poplar_tree', reason: 'iterations_zero', detail: 'iterations = 0', count: 412 }],
+      }),
+    )
+    const line = emptyResultLine(root)
+    expect(line.style.display).not.toBe('none')
+    expect(line.textContent).toBe('Placed nothing · no iterations — iterations = 0 ×412')
+    // The whole count and the feature it is credited to still belong in the tooltip -- the line
+    // is one line.
+    expect(line.title).toContain('No iterations')
+    expect(line.title).toContain('412 times in this run')
+  })
+
+  // The visible sentence used to be `stopped: <raw engine detail>`, with the only plain-English
+  // words in a native tooltip -- so the one line a user reads about a run that placed nothing was
+  // an evaluated expression out of context.
+  it('leads with the plain-English reason and keeps the raw engine detail second', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [{ identifier: 'wiki:poplar_tree', reason: 'no_surface', detail: 'searched 12 down', count: 1 }],
+      }),
+    )
+    const text = emptyResultLine(root).textContent ?? ''
+    expect(text).toBe('Placed nothing · no surface to snap to — searched 12 down')
+    expect(text.indexOf('no surface to snap to')).toBeLessThan(text.indexOf('searched 12 down'))
+    // ×1 is noise: a count is only shown when it means "more than once".
+    expect(text).not.toContain('×')
+  })
+
+  it('leads with the stop hit most often and counts the rest, rather than whichever came first', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [
+          { identifier: 'wiki:a', reason: 'no_surface', detail: 'no surface at y=44', count: 3 },
+          { identifier: 'wiki:b', reason: 'chance_failed', detail: 'chance 0.05 did not roll', count: 900 },
+        ],
+      }),
+    )
+    expect(emptyResultLine(root).textContent).toContain('chance roll failed — chance 0.05 did not roll ×900')
+    expect(emptyResultLine(root).textContent).toContain('(+1 more)')
+    // The one stop where another seed is the right next step says so.
+    expect(emptyResultLine(root).title).toContain('Another seed may pass.')
+  })
+
+  it('says nothing at all when the run actually placed, carved or replaced something', () => {
+    const { root, panel } = panelWithSubject()
+    // The default fixture places 8, carves 3, replaces 1.
+    panel.setResult(makeResult({ stops: [{ identifier: 'wiki:a', reason: 'chance_failed', detail: 'chance 0.5 did not roll', count: 2 }] }))
+    expect(emptyResultLine(root).style.display).toBe('none')
+
+    // Carved-only counts as having done something: a terraform feature that only excavates is
+    // the exact case a "placed nothing" line would libel.
+    panel.setResult(makeResult({ counts: { ...NOTHING, carved: 40 }, stops: [] }))
+    expect(emptyResultLine(root).style.display).toBe('none')
+  })
+
+  // The lie this section exists to prevent coming back. An empty `stops` used to be read as "this
+  // engine cannot report stops", and the line told the user to turn profiling on -- which
+  // recovers nothing, because there was nothing to recover. Absent and empty both mean "nothing
+  // stopped", and with nothing else to report the line says only that.
+  it('never claims an old engine when a run simply had no stops, and never advises profiling', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(makeResult({ counts: NOTHING, stops: [], diagnostics: [] }))
+    const line = emptyResultLine(root)
+    expect(line.style.display).not.toBe('none')
+    expect(line.textContent).toBe('Placed nothing · nothing reported stopping it')
+    expect(line.textContent).not.toMatch(/engine/i)
+    expect(line.title).not.toMatch(/profil/i)
+
+    // A decoded result that never carried the field at all (a hand-made fixture, an older host)
+    // reads the same way, rather than as a different, weaker claim.
+    const noField = makeResult({ counts: NOTHING, diagnostics: [] })
+    delete (noField as { stops?: unknown }).stops
+    panel.setResult(noField)
+    expect(emptyResultLine(root).textContent).toBe('Placed nothing · nothing reported stopping it')
+  })
+
+  // The reviewer's own case: the true explanation was a diagnostic sitting ~1000px below the
+  // fold behind six sections, while the line above the zeros said nothing useful.
+  it('points at the diagnostics when nothing stopped, and the control opens the one it means', () => {
+    const { root, panel } = panelWithSubject()
+    const culprit = makeDiagnostic({
+      level: 'warning',
+      fileId: 'poplar.json',
+      identifier: 'wiki:poplar_tree',
+      message: 'may_replace rejected this position: it holds minecraft:air',
+    })
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [],
+        diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'other.json', message: 'unrelated' }), culprit],
+      }),
+    )
+    const line = emptyResultLine(root)
+    expect(line.textContent).toBe('Placed nothing · see Diagnostics (2)')
+    const link = line.querySelector('.fl-empty-result-link') as HTMLButtonElement
+    expect(link.style.display).not.toBe('none')
+
+    // Collapsed to start with: the whole point is that the answer was behind a closed section.
+    const diagSection = root.querySelector('.fl-section[data-section-id="diagnostics"]') as HTMLElement
+    ;(diagSection.querySelector('.fl-section-header') as HTMLButtonElement).dispatchEvent(new Event('click'))
+    expect(diagSection.classList.contains('fl-collapsed')).toBe(true)
+
+    link.dispatchEvent(new Event('click'))
+    expect(diagSection.classList.contains('fl-collapsed')).toBe(false)
+    const revealed = root.querySelector('.fl-diag-item.fl-diag-revealed') as HTMLElement
+    expect(revealed).not.toBeNull()
+    // The one about THIS run's feature, not merely the first in the list.
+    expect(revealed.textContent).toContain('may_replace rejected this position')
+  })
+
+  // A stop and a diagnostic can both exist; the stop is the engine's own answer to "why did this
+  // stop", so it wins the line and the diagnostics link stays out of the way.
+  it('prefers the stop reason over the diagnostics link when there is one', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [{ identifier: 'wiki:poplar_tree', reason: 'chance_zero', detail: 'chance = 0', count: 1 }],
+        diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'a.json', message: 'something else' })],
+      }),
+    )
+    const line = emptyResultLine(root)
+    expect(line.textContent).toContain('chance is 0')
+    expect((line.querySelector('.fl-empty-result-link') as HTMLElement).style.display).toBe('none')
+  })
+
+  // Tolerant of a field the engine does not send yet: absent `scope` counts as this run's, so
+  // nothing changes today -- but a pack-wide diagnostic, once labelled, is not an explanation for
+  // this placement and must not be offered as one.
+  it('offers only this run\'s diagnostics, and falls back to the plain sentence when all are pack-wide', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [],
+        diagnostics: [makeDiagnostic({ level: 'error', fileId: 'broken.json', message: 'this file is not valid JSON', scope: 'pack' })],
+      }),
+    )
+    expect(emptyResultLine(root).textContent).toBe('Placed nothing · nothing reported stopping it')
+
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [],
+        diagnostics: [
+          makeDiagnostic({ level: 'error', fileId: 'broken.json', message: 'this file is not valid JSON', scope: 'pack' }),
+          makeDiagnostic({ level: 'warning', fileId: 'poplar.json', message: 'may_replace rejected this position', scope: 'run' }),
+        ],
+      }),
+    )
+    expect(emptyResultLine(root).textContent).toBe('Placed nothing · see Diagnostics (1)')
+  })
+
+  it('offers the camera jump when a diagnostic places the stopping feature at a cell, and nothing when none does', () => {
+    const { root, panel, viewer } = panelWithSubject()
+    panel.setResult(
+      makeResult({
+        counts: NOTHING,
+        stops: [{ identifier: 'wiki:poplar_tree', reason: 'no_surface', detail: 'no surface at y=44', count: 1 }],
+        diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'a.json', identifier: 'wiki:poplar_tree', position: { x: 5, y: 44, z: -7 }, message: 'nothing to snap to' })],
+      }),
+    )
+    const locate = emptyResultLine(root).querySelector('.fl-diag-position') as HTMLButtonElement
+    expect(locate.style.display).not.toBe('none')
+    expect(locate.textContent).toBe('⌖ (5, 44, -7)')
+    locate.dispatchEvent(new Event('click'))
+    expect(viewer.highlightCell).toHaveBeenCalledWith(5, 44, -7)
+
+    // A stop nothing can locate gets no marker rather than an invented one.
+    panel.setResult(makeResult({ counts: NOTHING, stops: [{ identifier: 'wiki:other', reason: 'chance_failed', detail: 'chance 0.1 did not roll', count: 1 }] }))
+    expect((emptyResultLine(root).querySelector('.fl-diag-position') as HTMLElement).style.display).toBe('none')
+  })
+
+  it('is cleared by a failed run, whose banner is what explains that one', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(makeResult({ counts: NOTHING, stops: [] }))
+    expect(emptyResultLine(root).style.display).not.toBe('none')
+    panel.setError('engine exited')
+    expect(emptyResultLine(root).style.display).toBe('none')
+  })
+})
+
+// A run that FAILED raised a role=alert banner. A run that placed NOTHING showed a role=status
+// line. A run that simply worked announced nothing at all: the three live regions that mutate at
+// that instant (the busy pill, the viewport notice, the host's attribution readout) are every one
+// of them hidden by then, and the figures land in plain <div>s. The one sentence a screen reader
+// user most wants -- what the run did -- was the one never spoken.
+describe('createPanel: a run that succeeds says so', () => {
+  function announcer(root: HTMLElement): HTMLElement {
+    return root.querySelector('.fl-sr-status') as HTMLElement
+  }
+
+  it('announces the outcome of a finished run in a polite status', () => {
+    const { root, panel } = panelWithSubject()
+    expect(announcer(root).getAttribute('role')).toBe('status')
+    expect(announcer(root).getAttribute('aria-live')).toBe('polite')
+    // Nothing before a run: the region must not speak on construction.
+    expect(announcer(root).textContent).toBe('')
+
+    panel.setResult(makeResult({ counts: { changed: 135, placed: 135, carved: 0, replaced: 0, writesOutOfBounds: 0 }, placementDurationMs: 1.04 }))
+    // The same three figures the chips carry, plus the duration the readout shows.
+    expect(announcer(root).textContent).toBe('135 placed, 0 carved, 0 replaced, in 1.0 ms.')
+    expect(root.querySelector('.fl-stat-placed .fl-stat-value')!.textContent).toBe('135')
+  })
+
+  it('says a partial result is partial, which is the one thing the figures cannot', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(makeResult({ counts: { changed: 9, placed: 9, carved: 1, replaced: 2, writesOutOfBounds: 0 }, placementDurationMs: 12, partial: true }))
+    expect(announcer(root).textContent).toBe('Partial result. 9 placed, 1 carved, 2 replaced, in 12.0 ms.')
+  })
+
+  it('leaves an empty run to the line that says WHY it was empty, rather than reading three zeros over it', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(makeResult({ counts: { changed: 0, placed: 0, carved: 0, replaced: 0, writesOutOfBounds: 0 } }))
+    expect(announcer(root).textContent).toBe('')
+    // ...because that case already has its own status line, and it is strictly more useful.
+    const empty = emptyResultLine(root)
+    expect(empty.getAttribute('role')).toBe('status')
+    expect(empty.style.display).not.toBe('none')
+  })
+})
+
+describe('createPanel: the stat chips are the toggles they look like', () => {
+  it('clicking CARVED toggles "Show carved", in both directions, and keeps the View row in step', () => {
+    const { root, viewer } = panelWithSubject()
+    const carvedRowCheckbox = [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Show carved')!.querySelector('input') as HTMLInputElement
+    const chip = statChip(root, 'carved')
+
+    expect(carvedRowCheckbox.checked).toBe(true) // on by default
+    chip.dispatchEvent(new Event('click'))
+    expect(viewer.setShowCarved).toHaveBeenLastCalledWith(false)
+    expect(carvedRowCheckbox.checked).toBe(false)
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+
+    chip.dispatchEvent(new Event('click'))
+    expect(viewer.setShowCarved).toHaveBeenLastCalledWith(true)
+    expect(carvedRowCheckbox.checked).toBe(true)
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('clicking PLACED hides the surrounding terrain so only what was placed is drawn', () => {
+    const { root, viewer } = panelWithSubject()
+    statChip(root, 'placed').dispatchEvent(new Event('click'))
+    expect(viewer.setEnvironmentMode).toHaveBeenLastCalledWith('hidden')
+    statChip(root, 'placed').dispatchEvent(new Event('click'))
+    expect(viewer.setEnvironmentMode).toHaveBeenLastCalledWith('solid')
+  })
+
+  // REPLACED's NUMBER is real whether or not profiling was on -- only the heat map needs a
+  // profiled run. Greying the chip out said the figure was unavailable, which was never true, and
+  // left a live number looking dead on every unprofiled run.
+  it('REPLACED stays live without profiling, and a click asks for the profiled run its lens needs', () => {
+    const { root, viewer, panel } = panelWithSubject()
+    const chip = statChip(root, 'replaced')
+    const heatmapRow = [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Show heatmap')!
+    const heatmapCheckbox = heatmapRow.querySelector('input') as HTMLInputElement
+    const profilingCheckbox = [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Enable profiling')!.querySelector('input') as HTMLInputElement
+
+    expect(chip.disabled).toBe(false)
+    // Inert, but still reachable and still carrying its own reason -- see dom.ts's setInert.
+    expect(heatmapCheckbox.disabled).toBe(false)
+    expect(heatmapCheckbox.getAttribute('aria-disabled')).toBe('true')
+    // The chip still SAYS what the lens needs -- in words on the chip, not only in a tooltip.
+    expect(chip.querySelector('.fl-stat-lens')!.textContent).toBe('heat map needs profiling')
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+
+    // A real number, shown at full strength.
+    panel.setResult(makeResult())
+    expect(chip.querySelector('.fl-stat-value')!.textContent).toBe('1')
+
+    chip.dispatchEvent(new Event('click'))
+    expect(profilingCheckbox.checked).toBe(true)
+    expect(heatmapCheckbox.checked).toBe(true)
+    expect(heatmapCheckbox.hasAttribute('aria-disabled')).toBe(false)
+    expect(viewer.setShowHeatmap).toHaveBeenLastCalledWith(true)
+    expect(chip.querySelector('.fl-stat-lens')!.textContent).toBe('heat map on')
+
+    chip.dispatchEvent(new Event('click'))
+    expect(viewer.setShowHeatmap).toHaveBeenLastCalledWith(false)
+  })
+
+  // The carved overlay is on by default, so the chip lit up on every run -- including the
+  // overwhelming majority that carve nothing, where the accent pointed at an empty overlay.
+  it('CARVED reads as off, and goes inert, on a run that carved nothing', () => {
+    const { root, panel } = panelWithSubject()
+    const chip = statChip(root, 'carved')
+
+    panel.setResult(makeResult({ counts: { changed: 0, placed: 8, carved: 0, replaced: 0, writesOutOfBounds: 0 } }))
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+    expect(chip.classList.contains('fl-stat-on')).toBe(false)
+    // aria-disabled, not `disabled`: the chip's own title is the only place the reason is
+    // written, and `disabled` took it out of the tab order (see dom.ts's setInert).
+    expect(chip.disabled).toBe(false)
+    expect(chip.getAttribute('aria-disabled')).toBe('true')
+    expect(chip.querySelector('.fl-stat-lens')!.textContent).toBe('nothing carved')
+    expect(chip.title).toMatch(/no cells to air/i)
+
+    // A run that did carve brings it back, with the lens still on underneath.
+    panel.setResult(makeResult())
+    expect(chip.hasAttribute('aria-disabled')).toBe(false)
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+    expect(chip.querySelector('.fl-stat-lens')!.textContent).toBe('overlay on')
+  })
+
+  // A row of three numbers that is secretly three toggles has to say so somewhere other than a
+  // native tooltip.
+  it('says on the chip itself what each lens is and whether it is on', () => {
+    const { root } = panelWithSubject()
+    expect(statChip(root, 'placed').querySelector('.fl-stat-lens')!.textContent).toBe('hide terrain')
+    statChip(root, 'placed').dispatchEvent(new Event('click'))
+    expect(statChip(root, 'placed').querySelector('.fl-stat-lens')!.textContent).toBe('terrain hidden')
+  })
+
+  it('paints no fill of its own -- the zero in an empty run must not arrive in success green', () => {
+    const { root } = panelWithSubject()
+    // The stylesheet is loaded into jsdom at the top of this file, so this is the REAL computed
+    // rule, not an inline style.
+    const chip = statChip(root, 'placed')
+    expect(getComputedStyle(chip).background).not.toMatch(/2e7d4f|46, 125, 79/)
+  })
+})
+
+describe('createPanel: diagnostics read as a list before they read as paragraphs', () => {
+  const LONG =
+    'feature "wiki:poplar_tree" could not be placed at 0,64,0 because the surface it asked to snap to does not exist at this origin, and the search that looks for one gave up after 64 attempts.'
+
+  it('clamps a long diagnostic to one line until its disclosure is used, keeping the count in the header', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(makeResult({ diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'a.json', message: LONG })] }))
+
+    const text = root.querySelector('.fl-diag-item .fl-diag-text') as HTMLElement
+    expect(text.classList.contains('fl-diag-text-clamped')).toBe(true)
+    // Nothing is hidden from the DOM -- the whole message is there to select, copy and search.
+    expect(text.textContent).toBe(LONG)
+
+    const more = root.querySelector('.fl-diag-more') as HTMLButtonElement
+    expect(more.textContent).toBe('Show more')
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    more.dispatchEvent(new Event('click'))
+    expect(text.classList.contains('fl-diag-text-clamped')).toBe(false)
+    expect(more.textContent).toBe('Show less')
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    more.dispatchEvent(new Event('click'))
+    expect(text.classList.contains('fl-diag-text-clamped')).toBe(true)
+
+    // The header still carries the count, which is the promise the clamped list keeps.
+    expect(root.querySelector('.fl-section[data-section-id="diagnostics"] .fl-section-title-text')!.textContent).toContain('1 warning')
+  })
+
+  it('gives a short diagnostic no disclosure at all', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(makeResult({ diagnostics: [makeDiagnostic({ level: 'warning', fileId: 'a.json', message: 'biome tag "swamp" matched nothing' })] }))
+    expect(root.querySelector('.fl-diag-more')).toBeNull()
+  })
+
+  it('keeps the budget quick fix, which is the best thing on a budget diagnostic', () => {
+    const { root, panel } = panelWithSubject()
+    panel.setResult(makeResult({ diagnostics: [makeDiagnostic({ level: 'error', fileId: 'a.json', message: 'write budget hit at 4000000 of 4000000 block writes' })] }))
+    expect((root.querySelector('.fl-diag-budget-fix') as HTMLElement).textContent).toContain('8,000,000')
+  })
+})
+
+describe('createPanel: Regenerate, uncommitted inputs and the debounce', () => {
+  function seedInputOf(root: HTMLElement): HTMLInputElement {
+    return [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Seed')!.querySelector('input') as HTMLInputElement
+  }
+
+  it('re-runs the CURRENT settings, same seed included, without anything having to change', () => {
+    const onConfigChange = vi.fn()
+    const { root } = panelWithSubject({ onConfigChange })
+    const seed = seedInputOf(root)
+    seed.value = '42'
+    seed.dispatchEvent(new Event('change'))
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ seed: 42 }))
+    const runs = onConfigChange.mock.calls.length
+
+    const regen = root.querySelector('.fl-regen-btn') as HTMLButtonElement
+    regen.dispatchEvent(new Event('click'))
+    expect(onConfigChange.mock.calls.length).toBe(runs + 1)
+    // The SAME seed: "run it again" must not quietly reroll, or a fix could never be checked.
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ seed: 42 }))
+  })
+
+  it('is reachable by Ctrl+Enter from inside a field, which is where the hands already are', () => {
+    const onConfigChange = vi.fn()
+    const { root } = panelWithSubject({ onConfigChange })
+    document.body.append(root)
+    try {
+      const seed = seedInputOf(root)
+      seed.value = '7'
+      seed.dispatchEvent(new Event('change'))
+      const runs = onConfigChange.mock.calls.length
+      seed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+      expect(onConfigChange.mock.calls.length).toBe(runs + 1)
+      expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ seed: 7 }))
+    } finally {
+      root.remove()
+    }
+  })
+
+  it('marks a typed-but-not-yet-run field, and unmarks it the moment it is committed', () => {
+    const onConfigChange = vi.fn()
+    // A REAL debounce here: the marker's whole reason to exist is the window before a commit.
+    const root = document.createElement('div')
+    const panel = createPanel(root, { viewer: makeViewerStub(), onConfigChange, regenerateDebounceMs: 10_000 })
+    panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
+    const seed = seedInputOf(root)
+
+    seed.value = '99'
+    seed.dispatchEvent(new Event('input'))
+    expect(seed.classList.contains('fl-dirty')).toBe(true)
+    expect(seed.title).toMatch(/not run yet/i)
+    expect(onConfigChange).not.toHaveBeenCalled()
+
+    seed.dispatchEvent(new Event('change'))
+    expect(seed.classList.contains('fl-dirty')).toBe(false)
+    expect(seed.title).toBe('')
+    expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ seed: 99 }))
+  })
+
+  it('does not run twice for one edit when the debounce lands before the blur', () => {
+    vi.useFakeTimers()
+    try {
+      const onConfigChange = vi.fn()
+      const root = document.createElement('div')
+      const panel = createPanel(root, { viewer: makeViewerStub(), onConfigChange, regenerateDebounceMs: 50 })
+      panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
+      const seed = seedInputOf(root)
+
+      // Four keystrokes of one number: the old panel sent four requests.
+      for (const v of ['1', '12', '123', '1234']) {
+        seed.value = v
+        seed.dispatchEvent(new Event('input'))
+      }
+      expect(onConfigChange).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(60)
+      expect(onConfigChange.mock.calls.length).toBe(1)
+      expect(onConfigChange).toHaveBeenLastCalledWith(expect.objectContaining({ seed: 1234 }))
+
+      // ...and the browser's own `change` on blur, for the same edit, is not a second run.
+      seed.dispatchEvent(new Event('change'))
+      expect(onConfigChange.mock.calls.length).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// ================================================================================================
+// Third-round polish: the things a person hits on their FIRST preview (the sections they are lost
+// in, the flat colours they cannot turn off, the block they click that does nothing) and on their
+// TENTH (a slice drag that writes localStorage two hundred times).
+// ================================================================================================
+
+/** The View section's "Block textures" row, by its label. */
+function textureRowOf(root: HTMLElement): HTMLElement {
+  return [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Block textures')! as HTMLElement
+}
+function textureCheckboxOf(root: HTMLElement): HTMLInputElement {
+  return textureRowOf(root).querySelector('input') as HTMLInputElement
+}
+/** Points the stub at a different texture state -- what a host delivering (or failing to deliver)
+ * an atlas looks like from inside the panel. */
+function setStubTextures(viewer: VoxelViewer, report: { hasAtlas: boolean; enabled: boolean; blocks?: number; unresolved?: string[] }): void {
+  const full = { blocks: 6, unresolved: [] as string[], ...report }
+  ;(viewer.getTextureReport as unknown as ReturnType<typeof vi.fn>).mockReturnValue(full)
+  ;(viewer.hasAtlas as unknown as ReturnType<typeof vi.fn>).mockReturnValue(full.hasAtlas)
+  ;(viewer.getTexturesEnabled as unknown as ReturnType<typeof vi.fn>).mockReturnValue(full.enabled)
+}
+
+describe('createPanel: block textures are reachable from the preview, not only from settings.json', () => {
+  it('puts the switch in the View section, applies the remembered preference to the viewer, and never claims more than the viewer is doing', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    createPanel(root, { viewer })
+    // Applied on construction -- the preference travels to the viewer whether or not it can be
+    // honoured yet, which is what makes "textures when there are any" true without the host
+    // having to know the preference exists.
+    expect(viewer.setTexturesEnabled).toHaveBeenCalledWith(true)
+    // ...but with no atlas the control is inert and says so, rather than reading as "on".
+    // aria-disabled, not `disabled`: the row's title IS the explanation, and `disabled` took the
+    // control (and therefore the sentence) out of the tab order -- see dom.ts's setInert.
+    expect(textureCheckboxOf(root).disabled).toBe(false)
+    expect(textureCheckboxOf(root).getAttribute('aria-disabled')).toBe('true')
+    // ...and it does not claim to be on. The viewport's own Textures button reports what is
+    // being DRAWN (aria-pressed=false here); this reported the stored PREFERENCE, so the two
+    // controls for one setting gave opposite answers.
+    expect(textureCheckboxOf(root).checked).toBe(false)
+    expect(textureRowOf(root).classList.contains('fl-row-inert')).toBe(true)
+    expect(textureRowOf(root).title).toMatch(/No block texture atlas is available/)
+  })
+
+  it('goes live, and reports what the viewer is really drawing, once an atlas arrives', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    createPanel(root, { viewer })
+    setStubTextures(viewer, { hasAtlas: true, enabled: true })
+    viewer.onTexturesChanged?.(viewer.getTextureReport())
+
+    expect(textureCheckboxOf(root).hasAttribute('aria-disabled')).toBe(false)
+    expect(textureCheckboxOf(root).checked).toBe(true)
+    expect(textureRowOf(root).title).toMatch(/Turn off for one flat colour per block/)
+  })
+
+  // The reported shape of this problem: a host that delivers an atlas has to decide, at the one
+  // instant the decode resolves, whether the user wants textures. It cannot know. The panel does.
+  it('re-applies a remembered "off" when an atlas turns up later, instead of the host deciding', () => {
+    const root1 = document.createElement('div')
+    const viewer1 = makeViewerStub()
+    createPanel(root1, { viewer: viewer1 })
+    setStubTextures(viewer1, { hasAtlas: true, enabled: true })
+    viewer1.onTexturesChanged?.(viewer1.getTextureReport())
+    const checkbox = textureCheckboxOf(root1)
+    checkbox.checked = false
+    checkbox.dispatchEvent(new Event('change'))
+    expect(viewer1.setTexturesEnabled).toHaveBeenLastCalledWith(false)
+
+    // A fresh panel, an atlas that arrives after it was built: the preference wins.
+    const root2 = document.createElement('div')
+    const viewer2 = makeViewerStub()
+    createPanel(root2, { viewer: viewer2 })
+    expect(viewer2.setTexturesEnabled).toHaveBeenLastCalledWith(false)
+    setStubTextures(viewer2, { hasAtlas: true, enabled: true })
+    viewer2.onTexturesChanged?.(viewer2.getTextureReport())
+    expect(viewer2.setTexturesEnabled).toHaveBeenLastCalledWith(false)
+  })
+
+  // The honest half. A block the atlas cannot answer for still DRAWS -- in its flat palette
+  // colour, inside the textured pass -- so on screen it is indistinguishable from a block whose
+  // texture happens to be flat.
+  it('names the blocks the atlas could not texture, rather than letting them pass as textured', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    setStubTextures(viewer, { hasAtlas: true, enabled: true, blocks: 24, unresolved: ['wiki:glow_moss', 'wiki:runestone', 'wiki:sap', 'wiki:vine'] })
+    viewer.onTexturesChanged?.(viewer.getTextureReport())
+    panel.setResult(makeResult())
+
+    const note = root.querySelector('.fl-texture-note') as HTMLElement
+    expect(note.style.display).not.toBe('none')
+    expect(note.textContent).toBe('4 of 24 blocks have no texture in the atlas: wiki:glow_moss, wiki:runestone, wiki:sap, +1 more')
+
+    // Nothing unresolved -- nothing said.
+    setStubTextures(viewer, { hasAtlas: true, enabled: true, blocks: 24, unresolved: [] })
+    viewer.onTexturesChanged?.(viewer.getTextureReport())
+    expect((root.querySelector('.fl-texture-note') as HTMLElement).style.display).toBe('none')
+  })
+
+  it('uses a host own reason for why textures are unavailable when it has one', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    panel.setTextureStatus({ available: false, reason: 'No texture atlas has been built yet — run the textures command once to build one.' })
+    expect(textureRowOf(root).title).toMatch(/run the textures command once/)
+    expect((root.querySelector('.fl-texture-note') as HTMLElement).textContent).toMatch(/run the textures command once/)
+
+    // Back to the panel's own neutral wording when the host withdraws its claim.
+    panel.setTextureStatus(null)
+    expect(textureRowOf(root).title).toMatch(/No block texture atlas is available/)
+  })
+
+  it('remembers the preference across a fresh panel, like every other view setting', () => {
+    const root1 = document.createElement('div')
+    const viewer1 = makeViewerStub()
+    createPanel(root1, { viewer: viewer1 })
+    setStubTextures(viewer1, { hasAtlas: true, enabled: true })
+    viewer1.onTexturesChanged?.(viewer1.getTextureReport())
+    const checkbox = textureCheckboxOf(root1)
+    checkbox.checked = false
+    checkbox.dispatchEvent(new Event('change'))
+
+    const root2 = document.createElement('div')
+    const viewer2 = makeViewerStub()
+    createPanel(root2, { viewer: viewer2 })
+    expect(viewer2.setTexturesEnabled).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('createPanel: clicking a block says what it is and where', () => {
+  /** What the viewer hands over for a click -- see VoxelViewer.onPick. */
+  const pick = (over: Record<string, unknown> = {}) => ({ x: 12, y: 68, z: -3, cell: 917, blockId: 4, blockName: 'minecraft:oak_log', kind: 'solid' as const, placed: true, carved: false, ...over })
+
+  it('arms the pick in an ordinary preview, not only in attribution mode', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    createPanel(root, { viewer })
+    // The panel subscribes unconditionally: no mode, no host message, no profile required.
+    expect(viewer.onPick).toBeTypeOf('function')
+  })
+
+  it('writes the block id, the world position and what this run did with it', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    createPanel(root, { viewer })
+    viewer.onPick?.(pick())
+
+    const picked = root.querySelector('.fl-picked') as HTMLElement
+    expect(picked.style.display).not.toBe('none')
+    expect((picked.querySelector('.fl-picked-name') as HTMLElement).textContent).toBe('minecraft:oak_log')
+    expect((picked.querySelector('.fl-diag-position') as HTMLElement).textContent).toBe('⌖ (12, 68, -3)')
+    expect((picked.querySelector('.fl-picked-role') as HTMLElement).textContent).toBe('· placed by this run')
+  })
+
+  it('distinguishes terrain and a carved cell from a block this run placed', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    createPanel(root, { viewer })
+    const role = () => (root.querySelector('.fl-picked-role') as HTMLElement).textContent
+
+    viewer.onPick?.(pick({ placed: false, carved: false, blockName: 'minecraft:stone' }))
+    expect(role()).toBe('· terrain, not written by this run')
+    viewer.onPick?.(pick({ placed: true, carved: true, blockName: 'minecraft:dirt' }))
+    expect(role()).toBe('· carved by this run')
+  })
+
+  it('offers the coordinate as a way back to the cell, and says so plainly for an id the palette lacks', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    createPanel(root, { viewer })
+    viewer.onPick?.(pick({ blockName: '', blockId: 77 }))
+    expect((root.querySelector('.fl-picked-name') as HTMLElement).textContent).toBe('block id 77 (not in this run’s palette)')
+    ;(root.querySelector('.fl-picked .fl-diag-position') as HTMLButtonElement).dispatchEvent(new Event('click'))
+    expect(viewer.highlightCell).toHaveBeenCalledWith(12, 68, -3)
+  })
+
+  it('drops the identification when a fresh result arrives, because the cell indices are not the same ones', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    viewer.onPick?.(pick())
+    expect((root.querySelector('.fl-picked') as HTMLElement).style.display).not.toBe('none')
+    panel.setResult(makeResult())
+    expect((root.querySelector('.fl-picked') as HTMLElement).style.display).toBe('none')
+  })
+})
+
+describe('createPanel: a first preview opens on what a first preview needs', () => {
+  const collapsedIds = (root: HTMLElement): string[] =>
+    [...root.querySelectorAll('.fl-section')].filter((s) => s.classList.contains('fl-collapsed')).map((s) => (s as HTMLElement).dataset.sectionId!)
+
+  it('starts with the generation params, the view and the diagnostics open, and the four excursions closed', () => {
+    const root = document.createElement('div')
+    createPanel(root, { viewer: makeViewerStub() })
+    expect(collapsedIds(root)).toEqual(['materials', 'biome', 'budget', 'profiler'])
+  })
+
+  it('remembers what you open, and what you close, rather than re-imposing the default', () => {
+    const root1 = document.createElement('div')
+    createPanel(root1, { viewer: makeViewerStub() })
+    const header = (root: HTMLElement, id: string): HTMLElement =>
+      ([...root.querySelectorAll('.fl-section')].find((s) => (s as HTMLElement).dataset.sectionId === id)! as HTMLElement).querySelector('.fl-section-header')! as HTMLElement
+    header(root1, 'materials').dispatchEvent(new Event('click')) // open a closed one
+    header(root1, 'view').dispatchEvent(new Event('click')) // close an open one
+
+    const root2 = document.createElement('div')
+    createPanel(root2, { viewer: makeViewerStub() })
+    expect(collapsedIds(root2).sort()).toEqual(['biome', 'budget', 'profiler', 'view'])
+  })
+
+  // A blob written before the default existed is a set of choices already made. Someone who had
+  // all eight open keeps all eight open.
+  it('honours a saved set with nothing collapsed rather than applying the default over it', () => {
+    localStorage.setItem('featurelab.panel.v1', JSON.stringify({ config: {}, view: {}, collapsed: [] }))
+    const root = document.createElement('div')
+    createPanel(root, { viewer: makeViewerStub() })
+    expect(collapsedIds(root)).toEqual([])
+  })
+})
+
+describe('createPanel: the one-line answer is promoted onto the view', () => {
+  it('puts the stop reason on the viewport when a run places nothing, and takes it away when one does', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    panel.setResult(
+      makeResult({
+        counts: { changed: 0, placed: 0, carved: 0, replaced: 0, writesOutOfBounds: 0 },
+        stops: [{ reason: 'chance_failed', detail: 'chance = 0.05', count: 412, identifier: 'wiki:poplar_tree', ordinal: null }],
+      }),
+    )
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(expect.objectContaining({ tone: 'empty', text: expect.stringContaining('Placed nothing') }))
+    // The SAME sentence as the sidebar's, never a second wording of it.
+    expect((viewer.setNotice as unknown as ReturnType<typeof vi.fn>).mock.lastCall![0].text).toBe((root.querySelector('.fl-empty-result-text') as HTMLElement).textContent)
+
+    panel.setResult(makeResult())
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(null)
+  })
+
+  it('says a run was cut short, which the picture cannot say for itself', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    panel.setResult(makeResult({ partial: true }))
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(expect.objectContaining({ tone: 'warn', text: expect.stringContaining('Partial result') }))
+  })
+
+  // A stale reply leaves the viewport drawing the PREVIOUS run's mesh -- a complete, confident,
+  // wrong picture -- and the only thing that said so was a banner in the sidebar. Somebody
+  // watching the 3D view (which is what you watch while you wait for a run) saw a preview that
+  // simply never changed.
+  it('says on the view itself that the picture is a previous run, not this one', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    panel.setResult(makeResult())
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(null)
+
+    panel.setStale(true, 'The featurelab engine stopped responding. This preview is from the last run that finished.')
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tone: 'warn', text: 'The featurelab engine stopped responding. This preview is from the last run that finished.' }),
+    )
+    // The SAME sentence as the sidebar banner's, never a second wording of it.
+    expect((viewer.setNotice as unknown as ReturnType<typeof vi.fn>).mock.lastCall![0].text).toBe((root.querySelector('.fl-banner-stale') as HTMLElement).textContent)
+
+    // Stale outranks the "placed nothing" line it would otherwise sit under: what is on screen
+    // being the wrong run is the more urgent of the two facts.
+    panel.setStale(false)
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(null)
+
+    // And a host that sends no reason still gets a notice, because the picture is still stale.
+    panel.setStale(true)
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(expect.objectContaining({ tone: 'warn', text: expect.stringContaining('not responding') }))
+
+    // A fresh result IS the engine answering: the notice goes with the banner.
+    panel.setResult(makeResult())
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(null)
+  })
+
+  it('clears it when the run failed outright, so the banner and the view do not describe two different runs', () => {
+    const root = document.createElement('div')
+    const viewer = makeViewerStub()
+    const panel = createPanel(root, { viewer })
+    panel.setResult(makeResult({ counts: { changed: 0, placed: 0, carved: 0, replaced: 0, writesOutOfBounds: 0 } }))
+    panel.setError('engine exited')
+    expect(viewer.setNotice).toHaveBeenLastCalledWith(null)
+  })
+})
+
+describe('createPanel: dragging the Y cut costs one write, not one per pixel', () => {
+  it('applies every step to the viewer immediately but writes localStorage once, when the drag pauses', () => {
+    vi.useFakeTimers()
+    try {
+      const root = document.createElement('div')
+      const viewer = makeViewerStub()
+      const panel = createPanel(root, { viewer })
+      panel.setResult(makeResult())
+      const maxRow = [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Max Y (cut)')!
+      const slider = maxRow.querySelector('input[type=range]') as HTMLInputElement
+      slider.min = '10'
+      slider.max = '60'
+
+      const writes = vi.spyOn(Storage.prototype, 'setItem')
+      const applied = (viewer.setSlice as unknown as ReturnType<typeof vi.fn>).mock.calls.length
+      // A drag across half the range: thirty-one `input` events, which is what a slider fires.
+      for (let v = 60; v >= 30; v--) {
+        slider.value = String(v)
+        slider.dispatchEvent(new Event('input'))
+      }
+      // The VALUES are never delayed -- a cut that lagged the slider by a quarter second would be
+      // worse than an extra write.
+      expect((viewer.setSlice as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(applied + 31)
+      expect((viewer.setSlice as unknown as ReturnType<typeof vi.fn>).mock.lastCall).toEqual([10, 30])
+      // ...and not one of those thirty-one events wrote the blob.
+      expect(writes).not.toHaveBeenCalled()
+
+      vi.advanceTimersByTime(250)
+      expect(writes).toHaveBeenCalledTimes(1)
+      writes.mockRestore()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes the write the moment the slider is released, rather than leaving it owed to a timer', () => {
+    vi.useFakeTimers()
+    try {
+      const root = document.createElement('div')
+      const viewer = makeViewerStub()
+      const panel = createPanel(root, { viewer })
+      panel.setResult(makeResult())
+      const maxRow = [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Max Y (cut)')!
+      const slider = maxRow.querySelector('input[type=range]') as HTMLInputElement
+      slider.min = '10'
+      slider.max = '60'
+      const writes = vi.spyOn(Storage.prototype, 'setItem')
+      slider.value = '42'
+      slider.dispatchEvent(new Event('input'))
+      expect(writes).not.toHaveBeenCalled()
+      slider.dispatchEvent(new Event('change'))
+      expect(writes).toHaveBeenCalledTimes(1)
+      // And the timer it cancelled does not fire a second one.
+      vi.advanceTimersByTime(500)
+      expect(writes).toHaveBeenCalledTimes(1)
+      writes.mockRestore()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('PLACED counts cells, and says so', () => {
+  // The graph editor next door reports the SAME run's per-feature figure as writes performed --
+  // 110 on the run this was measured from, against 79 here -- and while both were labelled
+  // "blocks" the two panels reported one run with two numbers and nothing anywhere reconciling
+  // them except the attribution readout ("79 block(s), 110 write(s)"). Neither number is wrong:
+  // a feature that writes the same cell twice spends two writes on one block. So the tile says
+  // which of the two it counts.
+  it('names its unit as cells rather than blocks, in both the pressed and unpressed states', () => {
+    const root = document.createElement('div')
+    createPanel(root, { viewer: makeViewerStub() })
+    const placed = root.querySelector<HTMLButtonElement>('.fl-stat-placed')!
+    expect(placed.title).toMatch(/cells/i)
+    expect(placed.title).toMatch(/counted once each/i)
+    // And the isolate-terrain state, which is the other half of the tooltip and used to be the
+    // only one that mentioned what was on screen at all.
+    placed.click()
+    expect(placed.getAttribute('aria-pressed')).toBe('true')
+    expect(placed.title).toMatch(/cells/i)
   })
 })

@@ -50,6 +50,35 @@
   --fl-warning-border: var(--vscode-inputValidation-warningBorder, #b89500);
   --fl-warning-bg: var(--vscode-inputValidation-warningBackground, #5a4a1a);
   --fl-warning-fg: var(--vscode-editorWarning-foreground, #cca700);
+  /* A TEXT-appropriate warning colour, and the same lesson --fl-link-fg records above for
+     focusBorder: editorWarning.foreground's contract is a squiggle and a gutter icon, not body
+     text. Light Modern ships #bf8803, which is 3.12:1 on this panel's white -- so every warning
+     diagnostic's message, file, type and chain link, and the Diagnostics section title at
+     2.79:1, failed AA while Dark Modern's identical token passed at 7.69:1. Mixing it toward the
+     theme's OWN foreground keeps the hue recognisably "warning" while borrowing the one colour
+     the theme already guarantees is readable against this background, whichever direction that
+     is -- the same idiom (and the same reasoning) as the graph panel's --flg-fg-dim. 55% is the
+     weakest mix that clears 4.5:1 on the SECTION HEAD's tinted background (#f2f2f2), which is
+     the lowest-contrast surface any of this text is painted on.
+     The unmixed token stays for borders and for the ⚠ glyph: those are non-text and owe 3:1. */
+  --fl-warning-text-fg: color-mix(in srgb, var(--fl-warning-fg) 55%, var(--fl-fg));
+  /* Quieter text that is still text. Dimming with `opacity`, or with disabledForeground (which
+     is rgba(30,30,30,0.4) in Light Modern), took .fl-stat-value's own figure to 2.46:1 light /
+     3.69:1 dark -- a number the panel is still asking to be read. 78% of the theme's foreground
+     mixed into the theme's background is the graph panel's --flg-fg-dim, measured there at
+     5.4:1 light and 6.7:1 dark, and it follows a high-contrast theme instead of ignoring it. */
+  --fl-fg-dim: color-mix(in srgb, var(--fl-fg) 78%, var(--fl-bg));
+  /* THE SECOND-RANK TEXT INSIDE A DIAGNOSTIC ROW (its type, its file, its chain, the `›`
+     between segments). Default: the same --fl-fg-dim every other quieted surface uses.
+     Overridden to `currentColor` on a warning/error row further down, because those rows have
+     already spent their whole contrast budget on HUE: --fl-warning-text-fg measures 5.06:1 on
+     the row's own tint in Light Modern, so dimming it even to 78% takes it to 3.30:1 and the
+     opacity it used to be dimmed with (0.7 and 0.55) took it to 2.89:1 and 2.23:1 -- measured
+     off rendered pixels, which is the only way to see an `opacity` at all: it is invisible to
+     getComputedStyle().color, which is why an earlier round of this fix reported these two
+     surfaces repaired while they were not. On those rows the rank is said with SIZE alone
+     (0.92em/0.85em, already there); on an ordinary row there is budget for both. */
+  --fl-diag-quiet-fg: var(--fl-fg-dim);
   --fl-badge-bg: var(--vscode-badge-background, #4d4d4d);
   --fl-badge-fg: var(--vscode-badge-foreground, #ffffff);
   --fl-font: var(--vscode-font-family, -apple-system, 'Segoe UI', system-ui, sans-serif);
@@ -95,39 +124,18 @@
 .fl-banner-stale {
   background: var(--fl-warning-bg);
   border: 1px solid var(--fl-warning-border);
-  color: var(--fl-warning-fg);
+  color: var(--fl-warning-text-fg);
 }
 .fl-banner-error {
   background: var(--fl-error-bg);
   border: 1px solid var(--fl-error-border);
   color: var(--fl-error-fg);
 }
-/* In-flight indicator (so a request never shows "no indication that anything is happening") -- neutral, not
-   alarming like stale/error above, since being busy is the normal state of a request in
-   flight, not a problem. Pairs with .fl-readout-busy below (dims the stat tiles so a pending
-   run never reads as "finished with a fresh zero") and VoxelViewer.setBusy's own
-   .fl-canvas-busy (dims the 3D preview the same way). The pulse keeps it obviously LIVE rather
-   than a static line of text a user could mistake for stuck/frozen. */
-.fl-banner-busy {
-  background: var(--fl-hover-bg);
-  border: 1px solid var(--fl-border);
-  color: var(--fl-fg-muted);
-  animation: fl-pulse 1.4s ease-in-out infinite;
-}
-@keyframes fl-pulse {
-  0%,
-  100% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .fl-banner-busy {
-    animation: none;
-  }
-}
+/* There is NO .fl-banner-busy rule any more, and that is the point. A sidebar "Generating…"
+   banner used to pulse here at the same moment as the viewport's own busy pill, which says the
+   same word, counts the elapsed time and carries Cancel -- one request, two live indicators, one
+   window. What is left in the sidebar is .fl-readout-busy below: the numbers declining to read
+   as this run's, which is a property of the numbers rather than a second announcement. */
 
 /* ---- prominent placed/carved/replaced readout ------------------------------------------
    The main result of a generate call -- deliberately the biggest, boldest thing in the
@@ -168,33 +176,241 @@
     opacity: 0.4;
   }
 }
+/* Quiet text on theme tokens, and a real button.
+   The three hardcoded fills this replaced (#2e7d4f / #b1511f / #2f6fa8) were loud enough to be
+   the first thing in the sidebar, ignored the user's theme entirely, and -- worst of the three
+   problems -- painted a zero in success green, which is how "this run placed nothing" came to
+   look like "this run went fine". A number is a number; the accent is now a 2px rule under it,
+   present only while that chip's lens is ON, so colour means "you are looking at this", not
+   "this is good". */
 .fl-stat {
+  border: 1px solid var(--fl-border);
   border-radius: 4px;
-  padding: 6px 4px 5px;
+  padding: 5px 4px 4px;
   text-align: center;
-  color: #fff;
+  color: var(--fl-fg);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  border-bottom-width: 2px;
+  border-bottom-color: transparent;
+}
+.fl-stat:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--fl-hover-bg);
+}
+.fl-stat:focus-visible {
+  outline: 1px solid var(--fl-focus-border);
+  outline-offset: 1px;
+}
+/* INERT, NOT REMOVED. `disabled` took the CARVED chip out of the tab order along with the only
+   sentence that says why it is inert ("this run turned no cells to air…"), which is exactly the
+   moment that sentence is worth reading. aria-disabled keeps the chip focusable and its name
+   readable; syncStatChips makes the activation a no-op (panel.ts). `:disabled` stays in the
+   selector so the look is right if any future chip is ever genuinely disabled.
+   The colour is --fl-fg-dim, not disabledForeground: see that token's own comment. */
+.fl-stat:disabled,
+.fl-stat[aria-disabled='true'] {
+  cursor: default;
+  color: var(--fl-fg-dim);
 }
 .fl-stat-value {
-  font-size: 1.5em;
-  font-weight: 700;
+  font-size: 1.4em;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
 .fl-stat-label {
-  font-size: 0.75em;
+  font-size: 0.72em;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  opacity: 0.85;
+  color: var(--fl-fg-muted);
   margin-top: 1px;
 }
-.fl-stat-placed {
-  background: #2e7d4f;
+/* The third line: what this chip's LENS is, in words, so a row that reads as three statistics
+   stops hiding the fact that it is three toggles. Written by syncStatChips, which is also what
+   keeps it agreeing with the View section's own rows. */
+.fl-stat-lens {
+  font-size: 0.68em;
+  line-height: 1.25;
+  color: var(--fl-fg-muted);
+  opacity: 0.8;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.fl-stat-carved {
-  background: #b1511f;
+.fl-stat-on .fl-stat-lens {
+  opacity: 1;
+  color: var(--fl-fg);
 }
-.fl-stat-replaced {
-  background: #2f6fa8;
+.fl-stat:disabled .fl-stat-lens,
+.fl-stat[aria-disabled='true'] .fl-stat-lens {
+  font-style: italic;
+}
+/* The three accents survive as the ON indicator only -- see the .fl-stat comment above. They stay
+   fixed hues rather than theme-derived for the same reason the viewer's own overlay colours do:
+   carved and replaced have to stay distinguishable from each other in every theme. */
+.fl-stat-on {
+  background: var(--fl-hover-bg);
+}
+.fl-stat-placed.fl-stat-on {
+  border-bottom-color: #4e9e6f;
+}
+.fl-stat-carved.fl-stat-on {
+  border-bottom-color: #d1763f;
+}
+.fl-stat-replaced.fl-stat-on {
+  border-bottom-color: #4f8fc8;
+}
+
+/* The sidebar's outcome announcer: role=status, polite, and nothing on screen. A run that FAILED
+   had a role=alert banner and a run that placed nothing had a status line, but a run that
+   SUCCEEDED announced nothing at all -- the three regions that mutate on a good result are all
+   hidden at that instant, so the one sentence a screen reader user most wants ("135 placed, 0
+   carved, 0 replaced, in 1.0 ms") was the one sentence never spoken. Visually hidden rather than
+   aria-hidden text, because the same figures are already on screen in the stat chips. */
+/* .fl-sr-only is the same treatment, generic: it is what dom.ts's setInertReason parks an inert
+   control's REASON in when the panel has no visible place to put that sentence (the three sea
+   material slots, where the standing rule is deliberately "no paragraph under the control").
+   Visually hidden, not aria-hidden and not display:none -- an aria-describedby pointing at a
+   display:none element yields no description at all, which is the state "Show heatmap" and
+   "Block textures" were both in. */
+.fl-sr-status,
+.fl-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- "this run placed nothing" ----------------------------------------------------------
+   Deliberately NOT error-coloured: a run that placed nothing is usually a correct answer to a
+   wrong question (iterations that rounded to zero, a chance roll that did not land), not a
+   failure -- the error banner above it is what failures look like. */
+.fl-empty-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 5px 7px;
+  border: 1px solid var(--fl-warning-border);
+  border-radius: 4px;
+  background: var(--fl-warning-bg);
+  color: var(--fl-fg);
+  font-size: 0.92em;
+}
+.fl-empty-result-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* "What did I just click on" -- see panel.ts's pickedEl. Quieter than the empty-result line
+   above it: this answers a question the user asked by clicking, so it does not need to attract
+   attention, only to be there when they look. */
+.fl-picked {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 7px;
+  border: 1px solid var(--fl-border);
+  border-radius: 4px;
+  background: var(--fl-hover-bg);
+  font-size: 0.92em;
+}
+.fl-picked-name {
+  font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+  font-size: 0.95em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.fl-picked-role {
+  opacity: 0.75;
+}
+/* The texture footnote: which blocks the atlas could not cover, or the host's reason for there
+   being no atlas at all. Wraps rather than ellipsises -- a list of block names truncated
+   mid-name names nothing, and a reason truncated mid-sentence is worse: the setting-off reason
+   wants 866px in a 266px row, so "Turn that setting on…" -- the entire actionable half -- was
+   never on screen, and that element carries no `title` for the ellipsis to hide behind.
+
+   `.fl-note.fl-texture-note`, NOT `.fl-texture-note`: the generic `.fl-note` rule below sets
+   `white-space: nowrap; overflow: hidden; text-overflow: ellipsis` at the same specificity and
+   later in the file, so it won every one of these declarations and this rule did nothing at
+   all. The extra class is what makes the override outrank it wherever either rule moves to. */
+.fl-note.fl-texture-note {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+/* "see Diagnostics (5)" -- the one control on this line when nothing stopped the run. Styled as
+   a link rather than a button because it MOVES you somewhere that already exists rather than
+   doing something new; see panel.ts's revealDiagnostic. */
+button.fl-empty-result-link {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fl-link-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.fl-empty-result-link:hover {
+  filter: brightness(1.2);
+}
+button.fl-empty-result-link:focus-visible {
+  outline: 1px solid var(--fl-focus-border);
+  outline-offset: 2px;
+}
+
+/* ---- Regenerate --------------------------------------------------------------------------- */
+.fl-regen-btn {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--fl-input-border);
+  border-radius: 3px;
+  background: var(--fl-button-bg);
+  color: var(--fl-button-fg);
+  font: inherit;
+  cursor: pointer;
+}
+.fl-regen-btn:hover {
+  background: var(--fl-button-hover-bg);
+}
+.fl-regen-btn:focus-visible {
+  outline: 1px solid var(--fl-focus-border);
+  outline-offset: 1px;
+}
+
+/* ---- grow state, as a badge on its own row ------------------------------------------------ */
+.fl-grow-badge {
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--fl-badge-bg);
+  color: var(--fl-badge-fg);
+  font-size: 0.78em;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.fl-grow-badge-grew {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- uncommitted input --------------------------------------------------------------------
+   These inputs commit on blur or Enter, so a typed value that has not been sent yet looked
+   exactly like one that had. The marker is a border, not a colour swap: "not sent yet" is not an
+   error, and painting it like one would teach people to ignore real ones. */
+.fl-dirty {
+  border-color: var(--fl-warning-border) !important;
+  box-shadow: inset 2px 0 0 var(--fl-warning-border);
 }
 
 .fl-badge-partial {
@@ -202,7 +418,7 @@
   border-radius: 3px;
   background: var(--fl-warning-bg);
   border: 1px solid var(--fl-warning-border);
-  color: var(--fl-warning-fg);
+  color: var(--fl-warning-text-fg);
   font-size: 11px;
   font-weight: 700;
   text-align: center;
@@ -299,7 +515,14 @@
   color: var(--fl-error-fg);
 }
 .fl-section-header-warning {
-  color: var(--fl-warning-fg);
+  color: var(--fl-warning-text-fg);
+}
+/* A caret quieted to 0.75 ON TOP of a level colour is dimming a colour that was already chosen
+   to be read -- it took the Diagnostics head's own marker below 3:1 in Light Modern. The level
+   colours carry their own emphasis; the quieting is for the ordinary heads. */
+.fl-section-header-error .fl-caret,
+.fl-section-header-warning .fl-caret {
+  opacity: 1;
 }
 .fl-caret {
   display: inline-block;
@@ -350,7 +573,11 @@
   flex: 0 0 auto;
   min-width: 108px;
   max-width: 108px;
-  opacity: 0.85;
+  /* Was `opacity: 0.85`, which is the same look but MULTIPLIES with anything applied below it:
+     an inert row's label got 0.85 x 0.45 and measured 2.40:1, and even after that 0.45 became a
+     colour the surviving 0.85 held the result at 4.04:1, still under AA. Opacity composites,
+     colours replace -- and only the second of those is a number this stylesheet can state. */
+  color: color-mix(in srgb, var(--fl-fg) 85%, var(--fl-bg));
   font-size: 0.93em;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -359,11 +586,17 @@
 .fl-row-primary {
   font-weight: 600;
 }
-/* A control that does nothing under the current state SHOWS it: the row dims as a whole and
-   the disabled input carries the reason as its own tooltip (panel.ts's
-   syncSeaSlotAvailability) -- no sentence beneath it. */
+/* A control that does nothing under the current state SHOWS it: the row dims as a whole and the
+   inert input carries the reason as its own tooltip AND as its accessible description (panel.ts's
+   syncSeaSlotAvailability / setInertReason).
+
+   QUIET IS NOT UNREADABLE. `opacity: 0.45` here measured 2.40:1 in Light Modern and 3.23:1 in
+   Dark Modern off rendered pixels -- on the LABEL of the very control whose explanation the
+   reader has just been sent to find, which is the one label in the panel that must survive being
+   quieted. --fl-fg-dim is the panel's one dimming treatment (5.4:1 light / 6.7:1 dark) and it
+   follows a high-contrast theme instead of ignoring it. */
 .fl-row-inert > .fl-row-label {
-  opacity: 0.45;
+  color: var(--fl-fg-dim);
 }
 
 .fl-select,
@@ -379,11 +612,19 @@
   font: inherit;
   font-size: 0.93em;
 }
+/* `[aria-disabled]` alongside `:disabled` because the three sea slots are now inert-but-
+   focusable (readonly + aria-disabled -- see dom.ts's setInert and panel.ts's
+   syncSeaSlotAvailability), and the look must not depend on which of the two mechanisms made
+   them inert. Colour, not `opacity: 0.7` over disabledForeground: that pair is the same
+   treatment --fl-fg-dim's own comment records at 2.46:1, applied to a value the reader is still
+   being asked to read (the sea material the panel promises it is KEEPING for them). */
 .fl-select:disabled,
 .fl-num-input:disabled,
-.fl-text-input:disabled {
-  color: var(--fl-input-disabled-fg);
-  opacity: 0.7;
+.fl-text-input:disabled,
+.fl-select[aria-disabled='true'],
+.fl-num-input[aria-disabled='true'],
+.fl-text-input[aria-disabled='true'] {
+  color: var(--fl-fg-dim);
 }
 .fl-select:focus-visible,
 .fl-num-input:focus-visible,
@@ -401,11 +642,34 @@
   height: 15px;
   flex: 0 0 auto;
 }
+/* INERT, NOT REMOVED -- see .fl-stat[aria-disabled] above for the whole argument. "Block
+   textures" and "Show heatmap" are the two rows whose row title IS the explanation ("no texture
+   atlas has been built…", "needs profiling on the run that produced this result"), and
+   `disabled` took them out of the tab order along with it. */
+.fl-checkbox[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: default;
+}
 
+/* WRAPS, rather than running off the side of the panel.
+   The options are laid beside a 108px label in a sidebar the user can drag down to
+   MIN_SIDEBAR_WIDTH (240px, see splitter.ts), and "Solid / Ghost / Hidden" does not fit there:
+   it overhung the section's own `overflow: hidden` edge by 88.9px at 240px, 27.9px at the
+   300px default and 7.9px at 320px, with `scrollWidth === clientWidth` -- so the last option
+   was cut off the side of the window with nothing to scroll to reach it, at every width up to
+   340px, whatever the viewport was doing.
+   Wrapping rather than raising DEFAULT_SIDEBAR_WIDTH past 340 because the default is not the
+   problem: the width is dragged, persisted and restored, so a wider default only moves the
+   cut-off to the widths a user chooses, and MIN_SIDEBAR_WIDTH would still cut two options off.
+   A radio that has moved to a second line is still a radio; a radio nobody can see is not.
+   `min-width: 0` is the other half of it -- without it this flex item refuses to shrink below
+   its content and wrapping never gets a chance to happen. */
 .fl-radio-group {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 3px 10px;
   flex: 1 1 auto;
+  min-width: 0;
 }
 .fl-radio-option {
   display: flex;
@@ -453,10 +717,14 @@
 
 /* Status lines: one line each, about THIS run/selection, cut short with the whole text in the
    tooltip -- the node inspector's own .flg-ins-problem rule. Never a paragraph. */
+/* Quieted with a COLOUR, not `opacity`. .fl-note is now the accessible DESCRIPTION of the
+   Block-textures checkbox (panel.ts's syncTextureAvailability points aria-describedby at it),
+   so "the sentence explaining why the control is inert" and "text nobody can read" cannot both
+   be true of it. */
 .fl-info,
 .fl-note {
   font-size: 0.85em;
-  opacity: 0.75;
+  color: var(--fl-fg-dim);
   margin: 0 0 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -468,14 +736,20 @@
   border-left: 2px solid var(--fl-warning-border);
   padding: 4px 6px;
   border-radius: 2px;
-  opacity: 0.9;
 }
 
+/* `min-width: 0` because a range input's automatic minimum size is its intrinsic width (~129px
+   in Chromium), which `flex-shrink` is not allowed to go under -- so in a narrow sidebar the
+   slider kept its full width, pushed its own value label 61px off the side of the section, and
+   took 31px of itself with it. The value is the only readout the slider has; losing it to the
+   clip edge is losing the control. */
 .fl-slice-slider {
   flex: 1 1 auto;
+  min-width: 0;
   accent-color: var(--fl-button-bg);
 }
 .fl-slice-label {
+  flex: 0 0 auto;
   min-width: 3.5ch;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -540,18 +814,442 @@
   overflow-wrap: anywhere;
   font-family: var(--fl-mono);
 }
+/* One line until asked otherwise -- see renderDiagnostics' own comment. A list of five problems
+   has to be readable AS a list before any one of them is readable in full. */
+.fl-diag-text-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fl-diag-more {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.85em;
+  color: var(--fl-link-fg);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.fl-diag-more:focus-visible {
+  outline: 1px solid var(--fl-focus-border);
+  outline-offset: 1px;
+}
+
+/* ==========================================================================================
+   ---- viewport overlay (frontend/src/ui/viewportOverlay.ts) --------------------------------
+   ==========================================================================================
+   A SIBLING of the canvas, not a descendant of .fl-panel, so -- exactly like .fl-splitter below
+   -- it cannot inherit this file's --fl-* custom properties and declares its own from
+   --vscode-* with literal fallbacks.
+
+   The container is transparent to the pointer and only the controls take it back: nothing here
+   may eat a drag meant for the camera. */
+.fl-vp {
+  --fl-vp-bg: var(--vscode-editorWidget-background, rgba(30, 30, 30, 0.82));
+  --fl-vp-fg: var(--vscode-editorWidget-foreground, var(--vscode-foreground, #cccccc));
+  --fl-vp-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+  --fl-vp-accent: var(--vscode-focusBorder, #007fd4);
+  /* The overlay's own quiet text (the bench size, the keys button, the key hint) used
+     descriptionForeground, which is a MUTED token and measured 3.48:1 over a Light Modern
+     window -- below AA for 10px text. Same treatment, same numbers, as .fl-panel's --fl-fg-dim:
+     78% of this overlay's own foreground mixed into its own background, so it tracks whatever
+     theme is live instead of being a second hardcoded grey. */
+  --fl-vp-fg-dim: color-mix(in srgb, var(--fl-vp-fg) 78%, var(--fl-vp-bg));
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  pointer-events: none;
+  font-family: var(--vscode-font-family, -apple-system, 'Segoe UI', system-ui, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  color: var(--fl-vp-fg);
+  z-index: 2;
+}
+/* role="toolbar" with a roving tabindex (see viewportOverlay.ts): five buttons floating over the
+   canvas were five separate tab stops, and -- because .fl-vp used to be appended AFTER
+   #fl-sidebar -- they were stops 51 to 55 of 56, for a control sitting in the top-left corner of
+   the picture. The graph panel solved the identical problem the identical way. */
+.fl-vp-controls {
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+  background: var(--fl-vp-bg);
+  border: 1px solid var(--fl-vp-border);
+  border-radius: 4px;
+  padding: 2px;
+}
+/* A glyph and a word. The word is collapsed to zero width at rest and expands on hover/focus, so
+   the resting toolbar is still four small squares over the 3D view while the answer to "what
+   does this one do" costs a pointer move rather than a tooltip delay -- see overlayButton's own
+   doc comment for why four unlabelled marks was the problem. `max-width` (not `display`) is what
+   animates, and `overflow: hidden` is what keeps the collapsed word from spilling. */
+.fl-vp-btn {
+  height: 26px;
+  min-width: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  overflow: hidden;
+}
+.fl-vp-btn-glyph {
+  flex: 0 0 26px;
+  text-align: center;
+}
+.fl-vp-btn-label {
+  flex: 0 0 auto;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.72em;
+  letter-spacing: 0.02em;
+  transition:
+    max-width 120ms ease,
+    padding-right 120ms ease;
+  padding-right: 0;
+}
+.fl-vp-btn:hover .fl-vp-btn-label,
+.fl-vp-btn:focus-visible .fl-vp-btn-label,
+.fl-vp-controls:focus-within .fl-vp-btn-label {
+  max-width: 7em;
+  padding-right: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fl-vp-btn-label {
+    transition: none;
+  }
+}
+.fl-vp-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.12));
+}
+.fl-vp-btn:focus-visible {
+  outline: 1px solid var(--fl-vp-accent);
+  outline-offset: -1px;
+}
+.fl-vp-btn-on {
+  box-shadow: inset 0 -2px 0 var(--fl-vp-accent);
+}
+/* An unavailable control (today: textures with no atlas) shows that it is unavailable and keeps
+   its tooltip, which is where the reason is -- the same rule .fl-row-inert follows in the
+   sidebar. `pointer-events` stays on so the reason is still hoverable. */
+.fl-vp-btn:disabled,
+.fl-vp-btn[aria-disabled='true'] {
+  color: var(--fl-vp-fg-dim);
+  cursor: default;
+}
+.fl-vp-btn:disabled:hover,
+.fl-vp-btn[aria-disabled='true']:hover {
+  background: transparent;
+}
+
+/* The one-line answer, promoted out of the sidebar readout onto the view -- see
+   viewportOverlay.ts's setNotice. Deliberately NOT a banner across the top: it sits under the
+   toolbar, at the left, one line high, and disappears entirely for a run that placed something. */
+.fl-vp-notice {
+  pointer-events: auto;
+  max-width: min(46ch, calc(100% - 16px));
+  background: var(--fl-vp-bg);
+  border: 1px solid var(--fl-vp-border);
+  border-left: 3px solid var(--vscode-editorInfo-foreground, #6b9bd2);
+  border-radius: 4px;
+  padding: 4px 9px;
+  font-size: 0.92em;
+  line-height: 1.35;
+}
+.fl-vp-notice[hidden] {
+  display: none;
+}
+.fl-vp-notice-warn {
+  border-left-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+/* A status line the HOST owns, adopted into this column -- see viewportOverlay.ts's
+   adoptStatus. The host keeps painting it (its own background, border, colours and role); all
+   this says is that it behaves as a flow item here rather than as a floating layer, so it can
+   no longer land on top of the toolbar. Its `position` and width cap are set INLINE by
+   adoptStatus, because the shell's own rule is keyed on an id and nothing this stylesheet can
+   write about a class outranks that. */
+.fl-vp-status {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+/* The overlay legend: what each overlay colour on screen means. Present only while there IS an
+   overlay colour on screen (VoxelViewer.syncLegend), so an ordinary preview has none of this. */
+.fl-vp-legend {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--fl-vp-bg);
+  border: 1px solid var(--fl-vp-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 0.85em;
+  max-width: min(34ch, calc(100% - 16px));
+}
+.fl-vp-legend[hidden] {
+  display: none;
+}
+.fl-vp-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* A WRITER'S ROW IS A CONTROL. "Click a block to find what placed it" was the only route to the
+   attribution answer and it needed a mouse; the legend already carried every writer's name and
+   count as text, but as role=listitem with a negative tabindex, so Tab could not reach the one
+   place that text lives. Each writer row is now a button that frames and selects that writer's
+   own cells -- the same answer, from the keyboard. Rows with nothing to select (carved, the
+   overflow tint, the heatmap ramp) stay plain listitems rather than becoming buttons that would
+   have to do nothing. */
+.fl-vp-legend-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 2px;
+  margin: -1px -2px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fl-vp-legend-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.12));
+}
+.fl-vp-legend-btn:focus-visible {
+  outline: 1px solid var(--fl-vp-accent);
+  outline-offset: 1px;
+}
+/* The selected writer -- the one whose cells the camera is framing. A left rule rather than a
+   fill, for the same reason .fl-diag-revealed is: the swatch's own colour is the subject of the
+   row and must still read through. */
+.fl-vp-legend-btn[aria-pressed='true'] {
+  box-shadow: inset 2px 0 0 var(--fl-vp-accent);
+}
+.fl-vp-swatch {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  /* A hairline so a swatch stays visible against a background of the same colour -- the
+     attribution violet over a violet-ish block, the heatmap red over red terrain. */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.fl-vp-legend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fl-vp-legend-detail {
+  margin-left: auto;
+  padding-left: 8px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+/* The busy pill. Full opacity, the last frame untouched behind it -- see .fl-canvas-busy. */
+.fl-vp-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  background: var(--fl-vp-bg);
+  border: 1px solid var(--fl-vp-border);
+  border-radius: 12px;
+  padding: 3px 4px 3px 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fl-vp-pill[hidden] {
+  display: none;
+}
+.fl-vp-cancel {
+  border: 1px solid var(--fl-vp-border);
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 8px;
+  cursor: pointer;
+}
+.fl-vp-cancel[hidden] {
+  display: none;
+}
+.fl-vp-cancel:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.12));
+}
+.fl-vp-cancel:focus-visible {
+  outline: 1px solid var(--fl-vp-accent);
+  outline-offset: 1px;
+}
+/* Cancel, already asked for. The pill's own text says "Cancelling…"; this stops the button from
+   inviting a second click at the one moment a second click can only mean "the first did
+   nothing". */
+/* aria-disabled, NOT disabled: `cancelBtn.disabled = true` fired while the button still held
+   focus, which dropped focus to <body> and restarted the next Tab from the end of the overlay.
+   A control that is inert but keeps its name and its place is the ARIA practice, and here it is
+   also the only way the acknowledgement stays readable to the person who just pressed it. */
+.fl-vp-cancel:disabled,
+.fl-vp-cancel[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+.fl-vp-cancel[aria-disabled='true']:hover {
+  background: transparent;
+}
+/* The announcer: role=status, polite, and nothing on screen. The busy pill used to BE the live
+   region while its elapsed reading was rewritten ten times a second -- 30 mutations in three
+   seconds, 16 more in the four after Cancel -- so the polite queue backed up and read stale
+   seconds long after the run had ended. The pill is now ordinary text; only the transitions
+   (started, cancelling, no reply, the outcome) are announced, and they are announced here. */
+.fl-vp-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The compass sits at the BOTTOM of the overlay column: margin-top:auto rather than a second
+   absolutely-positioned block, so it can never overlap the controls on a short canvas.
+
+   ==========================================================================================
+   IT PAINTS ITS OWN SURFACE, like every other block in this column.
+   ==========================================================================================
+   .fl-vp-controls, .fl-vp-notice, .fl-vp-legend and .fl-vp-pill each sit on --fl-vp-bg. The
+   gizmo was the one that did not, so the contrast of the bench size ("32×48×32") and the keys
+   button was a property of WHATEVER THE SCENE HAPPENED TO RENDER BEHIND THEM. Measured off
+   rendered pixels with the wiki fixture loaded: 1.67:1 in Light Modern and 1.43:1 in Dark
+   Modern, both against #759077 -- a grass-green block.
+
+   The other candidate fix was to make viewer.ts's clear colour (BACKGROUND_COLOR, #14161a,
+   hardcoded in both themes) follow the theme. That is a real cosmetic wart -- a light theme
+   gets a near-black hole -- but it is NOT this bug and it does not fix it: #759077 is not the
+   clear colour, it is geometry, and a preview whose whole job is to draw arbitrary blocks can
+   put any colour at all under this corner. A clear-colour that tracked the theme would have
+   moved these two numbers without making either of them provable, and would have re-baselined
+   every captured screenshot in a tree three other agents are working in. A label that carries
+   its own background is the only version whose contrast is a fact about this stylesheet.
+   (--fl-vp-fg-dim is already defined as a mix toward --fl-vp-bg, i.e. it had ALWAYS assumed the
+   label was sitting on that surface. It just never was.)
+
+   One surface for the whole gizmo rather than one per label: the axis triad is drawn in three
+   fixed hues (#e0645a/#7cc45a/#5a9ae0 -- see viewportOverlay.ts on why they are not
+   theme-derived) and was reading against the scene for exactly the same reason. */
+.fl-vp-gizmo {
+  margin-top: auto;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: var(--fl-vp-bg);
+  border: 1px solid var(--fl-vp-border);
+  border-radius: 4px;
+  padding: 3px 6px 4px;
+}
+.fl-vp-axes {
+  display: block;
+  opacity: 0.9;
+}
+.fl-vp-scale,
+.fl-vp-hint,
+.fl-vp-keys {
+  font-size: 0.78em;
+  color: var(--fl-vp-fg-dim);
+  font-variant-numeric: tabular-nums;
+  pointer-events: auto;
+}
+.fl-vp-scale[hidden],
+.fl-vp-hint[hidden] {
+  display: none;
+}
+/* The key hint on demand -- see viewportOverlay.ts for why it is no longer parked permanently in
+   the corner of every preview. Deliberately quiet: this is the smallest, least insistent control
+   in the overlay, because it is the least often wanted. */
+.fl-vp-keys {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  padding: 1px 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.fl-vp-keys:hover {
+  color: var(--fl-vp-fg);
+}
+.fl-vp-keys:focus-visible {
+  outline: 1px solid var(--fl-vp-accent);
+  outline-offset: 1px;
+}
 .fl-diag-error {
   color: var(--fl-error-fg);
   background: color-mix(in srgb, var(--fl-error-bg) 35%, transparent);
 }
 .fl-diag-warning {
-  color: var(--fl-warning-fg);
+  color: var(--fl-warning-text-fg);
   background: color-mix(in srgb, var(--fl-warning-bg) 25%, transparent);
 }
+/* A ROW THAT HAS ALREADY SPENT ITS CONTRAST ON HUE GETS NO SECOND DIM. See
+   --fl-diag-quiet-fg's own comment: `currentColor` in a `color:` declaration resolves to the
+   INHERITED colour, so each of these children ends up painted in its row's own error/warning
+   text colour, and rank is carried by the font sizes that were always there. */
+.fl-diag-item.fl-diag-warning,
+.fl-diag-item.fl-diag-error {
+  --fl-diag-quiet-fg: currentColor;
+}
+/* The "no diagnostics" line. Was `opacity: 0.6`. */
 .fl-diag-empty {
-  opacity: 0.6;
+  color: var(--fl-fg-dim);
+}
+/* The ⚠ was going to keep the raw token -- it is an icon, not prose, so it owes 3:1 rather than
+   4.5:1 -- but #bf8803 on the row's own tint measures 2.90:1, which does not clear even that.
+   It inherits .fl-diag-warning's text colour instead, which also stops one row being painted in
+   two shades of the same hue. The raw token still owns every BORDER, where the 3:1 it does
+   clear is the whole requirement. */
+.fl-diag-empty {
   font-size: 0.9em;
   padding: 2px 4px;
+}
+/* The row the empty-result line just sent the reader to. Arriving at a list of five and being
+   left to work out which one was meant is most of the way back to not having been sent at all,
+   so the destination is marked. A left rule, not a fill: the level colours (error red, warning
+   yellow) still have to read through it. */
+.fl-diag-item.fl-diag-revealed {
+  box-shadow: inset 2px 0 0 var(--fl-focus-border);
+  background: var(--fl-hover-bg);
 }
 
 /* The failing feature's own identifier/type -- the prominent, "what actually broke" line
@@ -564,10 +1262,17 @@
   gap: 6px;
 }
 .fl-diag-identifier,
+/* `overflow-wrap: anywhere` because the chain is a list of file and identifier names, and one of
+   them (horizontal_tree_decoration_leaf_litter.json) is a single unbreakable word wider than the
+   narrow sidebar: .fl-diag-chain already wraps BETWEEN segments, which does nothing for a
+   segment that is itself too long, so 64.8px of the file name ran past the section's clip edge.
+   A name broken across two lines is still readable; a name with its end cut off is not. */
 .fl-diag-chain-seg {
   font-family: var(--fl-mono);
   font-weight: 700;
   color: inherit;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .fl-diag-heading .fl-diag-chain-seg {
   font-size: 1em;
@@ -585,7 +1290,7 @@ button.fl-diag-chain-link:hover {
   text-decoration-style: solid;
 }
 .fl-diag-type {
-  opacity: 0.7;
+  color: var(--fl-diag-quiet-fg);
   font-size: 0.92em;
 }
 .fl-diag-count {
@@ -599,7 +1304,7 @@ button.fl-diag-chain-link:hover {
 }
 .fl-diag-file {
   margin-left: auto;
-  opacity: 0.55;
+  color: var(--fl-diag-quiet-fg);
   font-size: 0.85em;
   white-space: nowrap;
 }
@@ -610,14 +1315,21 @@ button.fl-diag-chain-link:hover {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 3px;
-  opacity: 0.75;
   font-size: 0.85em;
 }
-.fl-diag-chain-sep {
-  opacity: 0.5;
+/* The breadcrumb's earlier segments and its `›` separators, quieted so the LAST segment -- the
+   identifier the diagnostic is actually about -- is the one that reads first. This was
+   `opacity: 0.75` on the chain and `opacity: 0.5` on the separator: 3.15:1 and 1.53:1 in Light
+   Modern off rendered pixels. The `›` is a separator rather than prose, but it is still painted
+   text doing one job, so it takes the row's quiet colour rather than a fraction of it.
+   Scoped INSIDE .fl-diag-chain because .fl-diag-chain-seg is also the heading's own identifier,
+   which is the loudest thing in the row and must not be dimmed with it. */
+.fl-diag-chain .fl-diag-chain-seg,
+.fl-diag-chain .fl-diag-chain-sep {
+  color: var(--fl-diag-quiet-fg);
 }
 .fl-diag-chain .fl-diag-chain-last {
-  opacity: 1;
+  color: inherit;
 }
 /* Click-to-locate: jumps the viewer camera to this diagnostic's world cell and highlights it --
    see viewer.ts's highlightCell(). */
@@ -722,9 +1434,15 @@ button.fl-diag-budget-fix:hover {
    properties and uses a plain, fixed value instead. Dims (not hides) the preview while a
    request is in flight, the canvas half of the "stat tiles and preview should read as
    pending" behaviour -- toggled by VoxelViewer.setBusy, itself driven by panel.ts's own setBusy. */
+/* NO OPACITY CHANGE. This used to be `opacity: 0.45`, which let the page show through the
+   preview and made a tool that was working look like one that had broken -- the single most
+   misread state in the whole panel. A result already on screen stays a true result while the next
+   one is computed; what says "something is happening" is the viewport's own pill (see .fl-vp-pill
+   below), which also says for how long and offers the way out. The inset rule here is a quiet
+   edge, readable in either theme, that costs the frame nothing. */
 .fl-canvas-busy {
-  opacity: 0.45;
-  transition: opacity 120ms ease;
+  box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, #007fd4);
+  transition: box-shadow 120ms ease;
 }
 
 /* ---- resizable sidebar splitter ---------------------------------------------------------
@@ -760,14 +1478,17 @@ button.fl-diag-budget-fix:hover {
   cursor: default;
   width: 18px;
 }
+/* A 9px glyph in a 16px box was, in the reviewer's words, a speck -- and it is the ONLY way back
+   from a collapsed sidebar, so missing it means the controls are simply gone. 22x44 with a
+   readable glyph is still narrow enough not to intrude on the preview. */
 .fl-splitter-toggle {
-  width: 16px;
-  height: 32px;
+  width: 22px;
+  height: 44px;
   border-radius: 3px;
   border: 1px solid var(--fl-split-border);
   background: var(--fl-split-bg);
   color: var(--fl-split-fg);
-  font-size: 9px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -994,40 +1715,61 @@ button.fl-diag-budget-fix:hover {
 }
 
 /* ---- Wails/OS-light-mode fallback -------------------------------------------------------
-   Only affects the FALLBACK values above (the second argument of each var(--vscode-x, y)) --
-   a real VS Code webview always has --vscode-* defined and never falls through to this block,
-   whichever theme the user has picked. Outside a webview (Wails with no explicit theme wired
-   up yet), this keeps the panel from defaulting to a dark palette on a light-OS system. */
+   This block used to say, in a comment, that "a real VS Code webview always has --vscode-*
+   defined and never falls through to this block". That is true of the fallbacks ABOVE and false
+   of this block, and the difference is what made it a bug: a custom property does not fall
+   through. `--fl-bg: #ffffff` is a later declaration at the same specificity, so it simply WINS
+   over `--fl-bg: var(--vscode-sideBar-background, …)` in every light webview -- measured with
+   --vscode-sideBar-background: #f8f8f8 and --vscode-foreground: #3b3b3b set, .fl-panel still
+   computed rgb(255,255,255) / rgb(30,30,30). Every light VS Code theme, including the
+   high-contrast ones whose entire purpose is a palette the user chose, was painted over with
+   this one.
+
+   The literals therefore live where the dark ones do: in the SECOND ARGUMENT of each var(), the
+   one place CSS really does treat as a fallback. A webview keeps its own theme, and a host with
+   no --vscode-* at all (Wails, or this file loaded standalone for a screenshot) still stops
+   defaulting to a dark palette on a light-mode OS, which is the one thing this block was for.
+   Deliberately not gated on body.vscode-light/.vscode-dark instead: that is a list of theme-kind
+   classes to keep in step with VS Code (it has grown twice), and the var() form needs no list. */
 @media (prefers-color-scheme: light) {
   .fl-panel {
-    --fl-bg: #ffffff;
-    --fl-fg: #1e1e1e;
-    --fl-fg-muted: rgba(30, 30, 30, 0.65);
-    --fl-border: rgba(0, 0, 0, 0.15);
-    --fl-input-bg: #ffffff;
-    --fl-input-fg: #1e1e1e;
-    --fl-input-border: rgba(0, 0, 0, 0.2);
-    --fl-input-disabled-fg: rgba(30, 30, 30, 0.4);
-    --fl-hover-bg: rgba(0, 0, 0, 0.05);
-    --fl-badge-bg: #dddddd;
-    --fl-badge-fg: #1e1e1e;
+    --fl-bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #ffffff));
+    --fl-fg: var(--vscode-foreground, #1e1e1e);
+    --fl-fg-muted: var(--vscode-descriptionForeground, rgba(30, 30, 30, 0.65));
+    --fl-border: var(--vscode-panel-border, rgba(0, 0, 0, 0.15));
+    --fl-input-bg: var(--vscode-input-background, #ffffff);
+    --fl-input-fg: var(--vscode-input-foreground, #1e1e1e);
+    --fl-input-border: var(--vscode-input-border, rgba(0, 0, 0, 0.2));
+    --fl-input-disabled-fg: var(--vscode-disabledForeground, rgba(30, 30, 30, 0.4));
+    --fl-hover-bg: var(--vscode-list-hoverBackground, rgba(0, 0, 0, 0.05));
+    --fl-badge-bg: var(--vscode-badge-background, #dddddd);
+    --fl-badge-fg: var(--vscode-badge-foreground, #1e1e1e);
   }
   /* .fl-splitter reads --vscode-*-with-fallback directly rather than through --fl-* (see its
      own rule's header comment) since it sits outside .fl-panel's scope -- give it the same
      light-mode fallback override the block above gives .fl-panel. */
   .fl-splitter {
-    --fl-split-border: rgba(0, 0, 0, 0.15);
-    --fl-split-fg: #1e1e1e;
-    --fl-split-bg: #ffffff;
+    --fl-split-border: var(--vscode-panel-border, rgba(0, 0, 0, 0.15));
+    --fl-split-fg: var(--vscode-foreground, #1e1e1e);
+    --fl-split-bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #ffffff));
   }
   /* Same for the documentation panel, which sits outside .fl-panel's scope too. */
   .fl-docs {
-    --fl-docs-bg: #ffffff;
-    --fl-docs-fg: #1e1e1e;
-    --fl-docs-fg-muted: rgba(30, 30, 30, 0.65);
-    --fl-docs-border: rgba(0, 0, 0, 0.15);
-    --fl-docs-hover: rgba(0, 0, 0, 0.05);
-    --fl-docs-shadow: rgba(0, 0, 0, 0.18);
+    --fl-docs-bg: var(--vscode-editorWidget-background, #ffffff);
+    --fl-docs-fg: var(--vscode-foreground, #1e1e1e);
+    --fl-docs-fg-muted: var(--vscode-descriptionForeground, rgba(30, 30, 30, 0.65));
+    --fl-docs-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(0, 0, 0, 0.15)));
+    --fl-docs-hover: var(--vscode-list-hoverBackground, rgba(0, 0, 0, 0.05));
+    --fl-docs-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.18));
+  }
+  /* And the viewport overlay, which is a sibling of the canvas rather than a descendant of
+     .fl-panel and so declares its own tokens too. It had no light-mode block at all before --
+     every one of its literals was the dark one, which is what made .fl-vp-fg's fallback a
+     near-white over a light canvas. */
+  .fl-vp {
+    --fl-vp-bg: var(--vscode-editorWidget-background, rgba(243, 243, 243, 0.86));
+    --fl-vp-fg: var(--vscode-editorWidget-foreground, var(--vscode-foreground, #1e1e1e));
+    --fl-vp-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(0, 0, 0, 0.15)));
   }
 }
 
@@ -1053,4 +1795,61 @@ button.fl-diag-budget-fix:hover {
 
 .fl-seed-btn:hover {
   background: var(--fl-button-hover-bg);
+}
+
+/* ==========================================================================================
+   ---- forced colors ------------------------------------------------------------------------
+   ==========================================================================================
+   panel.css had no `forced-colors` block at all (the graph panel has had one for a while), and
+   the omission cost the viewport toolbar its ON state: `.fl-vp-btn-on`'s only visible marker is
+   an `inset 0 -2px` box-shadow, and box-shadow computes to `none` under forced colors. Measured
+   in a forced-colors profile: `vpBtnOnBoxShadow: "none"` -- so Grid, Textures and Projection all
+   looked identical whether they were on or off. `aria-pressed` still said which; the picture did
+   not, and the picture is what this toolbar is for.
+
+   Everything below paints with SYSTEM colours (Highlight/HighlightText/CanvasText), which are
+   the colours forced-colors mode actually honours from a stylesheet -- not with --fl-* tokens,
+   which it replaces. */
+@media (forced-colors: active) {
+  /* The on-state, said with a fill instead of a shadow. */
+  .fl-vp-btn-on {
+    box-shadow: none;
+    background-color: Highlight;
+    color: HighlightText;
+  }
+  .fl-vp-btn-on:hover {
+    background-color: Highlight;
+  }
+  /* Same fix, same reason, for the two other box-shadow-only markers in this file: the stat chip
+     whose lens is live, and the diagnostic an empty-result line just sent the reader to. */
+  .fl-stat-on {
+    border-bottom-color: Highlight;
+    border-bottom-width: 3px;
+  }
+  .fl-vp-legend-btn[aria-pressed='true'],
+  .fl-diag-item.fl-diag-revealed {
+    box-shadow: none;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  /* Opacity is one of the very few signals left in forced colors, so the quieting stays -- but
+     shallower, because a forced-colors user is asking for MORE contrast and there is no hue left
+     for the eye to fall back on. Same value, same reasoning, as the graph panel's own block. */
+  .fl-vp-btn:disabled,
+  .fl-vp-btn[aria-disabled='true'],
+  .fl-vp-cancel[aria-disabled='true'],
+  .fl-checkbox[aria-disabled='true'],
+  .fl-row-inert > .fl-row-label {
+    opacity: 0.85;
+  }
+  /* A 1px hairline is easy to lose against a forced background; the panels that carry meaning
+     get the same 2px the graph panel's nodes and chips get. */
+  .fl-vp-controls,
+  .fl-vp-legend,
+  .fl-vp-pill,
+  .fl-vp-notice,
+  .fl-banner,
+  .fl-badge-partial {
+    border-width: 2px;
+  }
 }

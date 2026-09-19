@@ -365,7 +365,11 @@ describe('nodeStats', () => {
     expect(tree.activity).toBe('wrote')
     expect(tree.writeShare).toBeCloseTo(0.6)
     expect(isDominantWriter(tree, totals)).toBe(true)
-    expect(describeNodeRun(tree, totals)).toBe("Wrote 600 blocks in this run (60% of the run's 1,000), entered 4 times.")
+    // WRITES, and the noun is the assertion. The preview panel beside this one reports the same
+    // run's PLACED figure, which counts CELLS -- 79 against 110 on a measured run -- and while
+    // both said "blocks" the two panels contradicted each other about one run in plain words.
+    expect(describeNodeRun(tree, totals)).toBe("Performed 600 writes in this run (60% of the run's 1,000), entered 4 times.")
+    expect(describeNodeRun(tree, totals)).not.toMatch(/blocks/)
   })
 
   it('reports a budget share separately from a run share', () => {
@@ -528,12 +532,12 @@ describe('stops', () => {
 
   it('describes a stop with a short label and a longer title', () => {
     expect(describeStop({ reason: 'iterations_zero', detail: 'iterations = 0', count: 412 })).toEqual({
-      label: 'stopped: iterations = 0 ×412',
+      label: 'no iterations — iterations = 0 ×412',
       title: 'No iterations: iterations = 0. 412 times in this run.',
     })
     // One hit carries no count, and an entry index is named only in the title.
     expect(describeStop({ reason: 'condition_false', detail: 'condition = 0', count: 1, ordinal: 0 })).toEqual({
-      label: 'stopped: condition = 0',
+      label: 'condition false — condition = 0',
       title: 'Condition false (entry 0): condition = 0. 1 time in this run.',
     })
     expect(describeStop({ reason: 'chance_failed', detail: 'roll failed at 25%', count: 2 }).title).toBe(

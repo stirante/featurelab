@@ -77,6 +77,12 @@ export interface DiagnosticWire {
   count?: number
   position?: DiagnosticPositionWire | null
   message: string
+  /** OPTIONAL and forward-looking -- whether this diagnostic is about the RUN that just
+   * happened (`"run"`) or about the loaded pack as a whole (`"pack"`: a file that would not
+   * parse, a reference nothing resolves). The engine does not send it yet; this package decodes
+   * it when it appears and treats its absence as "no opinion", never as a guess (see
+   * `DecodedDiagnostic.scope`). */
+  scope?: string
 }
 
 /** `DiagnosticWire` normalized so every field this package's own decoder guarantees is always
@@ -93,6 +99,13 @@ export interface DecodedDiagnostic {
   count: number
   position: DiagnosticPositionWire | null
   message: string
+  /** `'run'`, `'pack'`, or null for "this engine did not say" -- see `DiagnosticWire.scope`.
+   *
+   * NULL IS THE ORDINARY CASE TODAY and must never be rendered as a third category: a consumer
+   * that wants only this run's diagnostics asks `scope !== 'pack'` (see panel.ts's
+   * `isRunDiagnostic`), so an engine that says nothing keeps behaving exactly as it did before
+   * the field existed. */
+  scope: 'run' | 'pack' | null
 }
 
 /** Wire shape of wgen.BlockPos as it appears under GenerateOutput's `origin` field -- the
@@ -225,6 +238,23 @@ export interface StopStatWire {
   ordinal?: number
 }
 
+/** One stop, with the feature it belongs to attached -- the shape of a top-level `stops` entry
+ * on a generate response.
+ *
+ * WHY A TOP-LEVEL FIELD AND NOT JUST `profile.features[].stops`: a stop is the answer to "why is
+ * this preview empty", and that question is asked most often on exactly the runs that have no
+ * profile, because profiling is off by default (it costs, see the Profiler section). Until the
+ * engine carries this, `decodeGenerateResult` recovers the same rows from the profile whenever
+ * one happens to be present -- see `collectStops`. */
+export interface ResultStopWire {
+  /** The feature that stopped. */
+  identifier: string
+  reason: string
+  detail: string
+  count: number
+  ordinal?: number
+}
+
 /** Wire shape of profiler.CellAttribution: three parallel arrays, entry i meaning feature
  * `featureIdentifiers[feature[i]]` wrote cell `cell[i]`, `count[i]` times. */
 export interface CellAttributionWire {
@@ -336,6 +366,13 @@ export interface GenerateResultWire {
    * (session.Config.Profiling / GenerateParams.Profile) -- absent (undefined) or explicit
    * null otherwise. See ProfileResultWire's doc comment. */
   profile?: ProfileResultWire | null
+  /** Every gate that ended a feature's work early this run, REGARDLESS of whether profiling was
+   * armed -- see ResultStopWire.
+   *
+   * OMITTED WHEN NOTHING STOPPED, which is the healthy case and the engine's stated contract
+   * (wire/wire.go, "# Stops"): "a client must treat a missing field as 'no stops', never as an
+   * older engine". See DecodedResult.stops for the inverted flag this note used to justify. */
+  stops?: ResultStopWire[] | null
 }
 
 export interface BlockCounts {
@@ -411,6 +448,21 @@ export interface DecodedResult {
   grown: boolean
   /** The pre-grow bench bounds, non-null only when `grown` is true. */
   preGrowBounds: BoundsWire | null
+  /** Why features stopped short this run, heaviest first.
+   *
+   * EMPTY MEANS NOTHING STOPPED. The engine omits the wire field entirely in that case and its
+   * contract (wire/wire.go, "# Stops") is explicit that a client must read a missing field as
+   * "no stops", never as an older engine.
+   *
+   * This used to be paired with a `stopsKnown` flag computed as `Array.isArray(result.stops) ||
+   * profile !== null` -- exactly backwards, since the healthy case (nothing stopped, so the
+   * field is omitted) is the one that produced `false`. Six of eight fixture features that
+   * place nothing therefore told the user "no stop reasons from this engine" and advised
+   * turning profiling on, which recovers nothing because there was nothing to recover. The flag
+   * is gone rather than corrected: a field that is now always true is a lie waiting to be
+   * re-derived. An empty list is an answer, and panel.ts says so by pointing at the
+   * diagnostics instead (see `renderEmptyResult`). */
+  stops: ResultStopWire[]
 }
 
 // --- `environments` method (cmd/featurelab/environments.go) --------------------------------
@@ -753,7 +805,26 @@ export function decodeGenerateResult(raw: unknown): DecodedResult {
     overflowBlocks,
     grown: result.grown ?? false,
     preGrowBounds: result.preGrowBounds ?? null,
+    stops: collectStops(result, profile),
   }
+}
+
+/** The run's stops, from the top-level field when the engine sent one and from the profile's own
+ * per-feature rows otherwise.
+ *
+ * The two are the same rows read from two places, so preferring the top-level field is not a
+ * fallback ordering so much as a statement about which one is authoritative: the profile only
+ * carries stops for features it also profiled, while the top-level field is about the run. */
+function collectStops(result: GenerateResultWire, profile: DecodedProfile | null): ResultStopWire[] {
+  if (Array.isArray(result.stops)) return result.stops.filter((s) => s !== null && typeof s === 'object' && typeof s.reason === 'string' && typeof s.detail === 'string')
+  const out: ResultStopWire[] = []
+  for (const row of profile?.features ?? []) {
+    for (const stop of row.stops ?? []) {
+      if (typeof stop?.reason !== 'string' || typeof stop.detail !== 'string') continue
+      out.push({ identifier: row.identifier, reason: stop.reason, detail: stop.detail, count: stop.count, ...(stop.ordinal === undefined ? {} : { ordinal: stop.ordinal }) })
+    }
+  }
+  return out
 }
 
 /** Normalizes a wire DiagnosticWire into a DecodedDiagnostic -- see that type's own doc comment
@@ -768,6 +839,10 @@ function normalizeDiagnostic(d: DiagnosticWire): DecodedDiagnostic {
   const identifier = d.identifier && d.identifier.length > 0 ? d.identifier : d.fileId
   const chain = d.chain && d.chain.length > 0 ? d.chain : [identifier]
   const count = typeof d.count === 'number' && d.count > 0 ? d.count : 1
+  // Only the two values this package knows survive; anything else (a newer engine's third
+  // category, a typo) becomes null, which every consumer already handles as "no opinion". A
+  // string passed through verbatim would let an unknown value silently act as "not pack".
+  const scope = d.scope === 'run' || d.scope === 'pack' ? d.scope : null
   return {
     level: d.level,
     fileId: d.fileId,
@@ -777,6 +852,7 @@ function normalizeDiagnostic(d: DiagnosticWire): DecodedDiagnostic {
     count,
     position: d.position ?? null,
     message: d.message,
+    scope,
   }
 }
 

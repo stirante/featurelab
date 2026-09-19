@@ -53,7 +53,7 @@ export function panelDocs(ctx: PanelDocsContext): DocSection[] {
     id: 'readout',
     title: 'Result',
     intro: [
-      'The three tiles are the run\'s own counts: blocks placed, blocks carved to air, and blocks replaced. They dim while a request is in flight, and a PARTIAL RESULT badge appears when a budget or the time limit cut the run short.',
+      'The three tiles are the run\'s own counts: blocks placed, blocks carved to air, and blocks replaced. They dim while a request is in flight -- the pill on the preview itself is what says a run is in flight, counts how long it has taken and offers Cancel -- and a PARTIAL RESULT badge appears when a budget or the time limit cut the run short.',
     ],
     entries: [
       {
@@ -76,6 +76,28 @@ export function panelDocs(ctx: PanelDocsContext): DocSection[] {
         summary: 'Grows the bench once to fit every out-of-bounds block the last run captured, then places again.',
         detail: [
           'Shown only while the current result has writes outside the bench. The very next regenerate reverts to the ungrown bench -- turn on "Grow every run" to keep it grown.',
+        ],
+      },
+      {
+        name: 'Regenerate',
+        glyph: DOC_GLYPH.button,
+        kindLabel: 'action',
+        summary: 'Runs the current settings again, Ctrl+Enter, without anything having to change first.',
+        detail: [
+          'With no seed pinned that is a different roll of the same configuration; with one pinned it is the same run again, which is how a fix is checked.',
+          'A typed value that has not been run yet is marked in its field; committing it (Enter, or Ctrl+Enter from anywhere) clears the mark.',
+        ],
+      },
+      {
+        name: 'placed / carved / replaced',
+        glyph: DOC_GLYPH.readout,
+        kindLabel: 'status',
+        summary: 'This run\'s own counts, and each one toggles the lens that shows what it counted. The small line under each number says which lens, and whether it is on.',
+        detail: [
+          'PLACED hides the surrounding terrain, CARVED draws the carved cells, REPLACED colours every cell by how many writes hit it. They are the same three settings as the View section\'s own rows, reachable from the numbers they belong to.',
+          'CARVED goes inert on a run that carved nothing -- there is nothing for its overlay to draw. REPLACED\'s number is real whether or not profiling was on; only its heat map needs a profiled run, and clicking it turns profiling on and generates again.',
+          'A run that placed, carved and replaced nothing says so in one line under the counts: the gate the engine stopped at, in plain words with the engine\'s own detail after it, or -- when nothing stopped -- a link into the Diagnostics section at the entry that explains it.',
+          'That one line also appears on the 3D view itself, because a run that placed nothing leaves the picture unchanged and there is otherwise nothing there to notice. A run that placed something gets no banner: it is its own answer. A run cut off by a budget says so there too.',
         ],
       },
       {
@@ -320,6 +342,27 @@ export function panelDocs(ctx: PanelDocsContext): DocSection[] {
         summary: 'How the untouched terrain around the feature is drawn: solid, see-through, or not at all.',
       },
       {
+        name: 'Block textures',
+        glyph: DOC_GLYPH.toggle,
+        kindLabel: 'toggle',
+        summary: 'Draws each block with its own texture instead of one flat colour.',
+        detail: [
+          'Needs a texture atlas built from a vanilla resource pack; without one the row is inert and says so, because the preview genuinely cannot draw textures it does not have.',
+          'This is a preference, not a claim: leaving it on means "use textures whenever there are any", so an atlas that arrives later in the session is picked up without you having to come back here.',
+          'A block the atlas has no image for is still drawn — in its flat palette colour, alongside everything textured. Those blocks are listed in one line under the row rather than left to pass as textured.',
+        ],
+      },
+      {
+        name: 'Clicking a block',
+        glyph: DOC_GLYPH.button,
+        kindLabel: 'gesture',
+        summary: 'Names the block under the pointer and where it is, in the readout above the sections.',
+        detail: [
+          'A click is a press and release that did not move the camera, so orbiting never picks anything. The clicked cell is marked but the camera is not moved: it is already on screen.',
+          'The line says the block id, its world x/y/z, and whether this run placed it, carved it, or merely stands on it. Clicking the coordinate afterwards moves the camera to it.',
+        ],
+      },
+      {
         name: 'Show carved',
         glyph: DOC_GLYPH.toggle,
         kindLabel: 'toggle',
@@ -342,16 +385,29 @@ export function panelDocs(ctx: PanelDocsContext): DocSection[] {
       },
       { name: 'Show grid', glyph: DOC_GLYPH.toggle, kindLabel: 'toggle', summary: 'Draws the bench\'s outline and floor grid.' },
       {
-        name: 'Frame view (R)',
+        name: 'Frame feature (R)',
         glyph: DOC_GLYPH.button,
         kindLabel: 'action',
-        summary: 'Fits the camera to what is occupied right now, respecting the Y cut.',
+        summary: 'Fits the camera to the cells this run placed, carved or overwrote, respecting the Y cut.',
+        detail: ['A run that touched nothing has no feature to frame, so this falls back to the visible terrain rather than leaving the camera pointed at nothing.'],
       },
       {
-        name: 'Frame volume (Shift+R)',
+        name: 'Frame bench (Shift+R)',
         glyph: DOC_GLYPH.button,
         kindLabel: 'action',
         summary: 'Fits the camera to the whole bench, air included, to see where the feature sits in the box it was asked to fill.',
+        detail: ['The bench outline is drawn only when the bench actually fits in the frame, so it is also the readout for which of the two framings you are in.'],
+      },
+      {
+        name: 'On the preview itself',
+        glyph: DOC_GLYPH.readout,
+        kindLabel: 'overlay',
+        summary: 'Frame, environment mode, grid and projection sit in the top-left corner of the 3D view, with a compass and the bench size below them. Hover a button to see its name.',
+        detail: [
+          'Press 1 for front, 3 for side, 7 for top; R frames the feature and Shift+R the whole bench. The "keys" link under the compass says so on the preview. Drag to orbit, right-drag or middle-drag to pan, scroll to zoom.',
+          'Orthographic projection removes the perspective divide, so two equal runs of blocks measure equal on screen -- which is what makes counting a trunk\'s height by eye reliable.',
+          'The camera re-fits on its own in two cases only: a panel resize while you have not moved it, and a fresh result whose content landed outside what was last framed. Everything else leaves it exactly where you put it.',
+        ],
       },
     ],
   }

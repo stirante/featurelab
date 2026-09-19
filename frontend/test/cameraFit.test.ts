@@ -14,7 +14,7 @@
 // of fitBoxToView, the "does not clip a wide, shallow box" test is the one that would go red.
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { computeClipPlanes, fitBoxToView, type Box3, type Vec3 } from '../src/cameraFit.js'
+import { boxContains, computeClipPlanes, fitBoxToView, maxDollyDistance, type Box3, type Vec3 } from '../src/cameraFit.js'
 
 const DIAGONAL_DIR: Vec3 = { x: 1, y: 0.85, z: 1 }
 const VFOV_DEG = 60
@@ -155,5 +155,41 @@ describe('computeClipPlanes: far plane always covers the current camera distance
   it('never produces an inverted or degenerate near >= far frustum, even for a zero/negative input', () => {
     const { near, far } = computeClipPlanes(0, 0)
     expect(near).toBeLessThan(far)
+  })
+})
+
+// --- the two rules that decide when the camera moves on its own --------------------------------
+describe('boxContains: when a fresh result has landed somewhere the camera is not looking', () => {
+  const framed = { minX: 0, minY: 0, minZ: 0, maxX: 32, maxY: 32, maxZ: 32 }
+
+  it('holds for content inside the framed box, so an ordinary regenerate never moves the camera', () => {
+    expect(boxContains(framed, { minX: 4, minY: 4, minZ: 4, maxX: 20, maxY: 20, maxZ: 20 })).toBe(true)
+    expect(boxContains(framed, framed)).toBe(true)
+  })
+
+  it('fails for content that escaped, which is the case a preview must not show as empty space', () => {
+    expect(boxContains(framed, { minX: 100, minY: 0, minZ: 0, maxX: 130, maxY: 32, maxZ: 32 })).toBe(false)
+    expect(boxContains(framed, { minX: 0, minY: -40, minZ: 0, maxX: 32, maxY: -10, maxZ: 32 })).toBe(false)
+  })
+
+  it('forgives an overhang within slack, so a result one block taller does not yank the camera', () => {
+    const slightlyTaller = { minX: 0, minY: 0, minZ: 0, maxX: 32, maxY: 34, maxZ: 32 }
+    expect(boxContains(framed, slightlyTaller)).toBe(false)
+    expect(boxContains(framed, slightlyTaller, 8)).toBe(true)
+  })
+})
+
+describe('maxDollyDistance: the bench stays an object, not a speck', () => {
+  it('is a small multiple of the content radius, not the forty radii that let it vanish', () => {
+    const radius = 40
+    expect(maxDollyDistance(radius)).toBe(240)
+    expect(maxDollyDistance(radius)).toBeLessThan(radius * 40)
+    // Framing lands around two radii out (see fitBoxToView), so the ceiling has to be clear of it.
+    expect(maxDollyDistance(radius)).toBeGreaterThan(radius * 2.5)
+  })
+
+  it('keeps a floor, so a tiny volume does not become unscrollable', () => {
+    expect(maxDollyDistance(4)).toBe(64)
+    expect(maxDollyDistance(0)).toBe(64)
   })
 })

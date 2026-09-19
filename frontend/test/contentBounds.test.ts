@@ -158,3 +158,66 @@ describe('computeOccupiedBounds', () => {
     expect(bounds).toEqual({ minX: 1, minY: 1, minZ: 1, maxX: 21, maxY: 2, maxZ: 2 })
   })
 })
+
+// --- framing the FEATURE, not the bench ------------------------------------------------------
+//
+// With the default solid environment, every terrain cell counts as occupied, so "what is
+// occupied" IS the bench: a small feature framed as a postage stamp, and "frame view" and "frame
+// the whole bench" producing the same picture until the terrain was hidden -- which is exactly
+// what the frame button's own tooltip advertised as the difference between them.
+describe('computeOccupiedBounds: includeEnvironment separates the feature from the bench', () => {
+  /** A full floor of terrain with a few feature blocks standing in one corner of it -- the shape
+   * of every ordinary preview. */
+  function benchWithSmallFeature() {
+    const made = makeVolume(0, 0, 0, 32, 20, 32)
+    for (let x = 0; x < 32; x++) for (let z = 0; z < 32; z++) for (let y = 0; y <= 3; y++) made.set(x, y, z, STONE.id)
+    for (let y = 4; y <= 6; y++) {
+      made.set(2, y, 2, WOOD.id)
+      made.setChanged(2, y, 2)
+    }
+    return made
+  }
+
+  it('frames the feature alone with a solid environment, instead of the whole terrain slab', () => {
+    const { volume } = benchWithSmallFeature()
+    const feature = computeOccupiedBounds(volume, PALETTE, { ...DEFAULT_OPTS, includeEnvironment: false })
+    expect(feature).toEqual({ minX: 2, minY: 4, minZ: 2, maxX: 3, maxY: 7, maxZ: 3 })
+
+    // And the two really are different pictures -- the regression was that they were not.
+    const bench = computeOccupiedBounds(volume, PALETTE, { ...DEFAULT_OPTS, includeEnvironment: true })
+    expect(bench).toEqual({ minX: 0, minY: 0, minZ: 0, maxX: 32, maxY: 7, maxZ: 32 })
+    expect(feature).not.toEqual(bench)
+    expect(bench!.maxX - bench!.minX).toBeGreaterThan((feature!.maxX - feature!.minX) * 10)
+  })
+
+  it('defaults to including the environment, so an unset flag behaves exactly as before', () => {
+    const { volume } = benchWithSmallFeature()
+    expect(computeOccupiedBounds(volume, PALETTE, DEFAULT_OPTS)).toEqual(computeOccupiedBounds(volume, PALETTE, { ...DEFAULT_OPTS, includeEnvironment: true }))
+  })
+
+  it('still counts carved cells, which belong to the run even though they are now air', () => {
+    const { volume, set, setBaseline, setRemoved } = makeVolume(0, 0, 0, 16, 8, 16)
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) set(x, 0, z, STONE.id)
+    setBaseline(9, 0, 9, STONE.id)
+    set(9, 0, 9, AIR.id)
+    setRemoved(9, 0, 9)
+    const bounds = computeOccupiedBounds(volume, PALETTE, { ...DEFAULT_OPTS, includeEnvironment: false })
+    expect(bounds).toEqual({ minX: 9, minY: 0, minZ: 9, maxX: 10, maxY: 1, maxZ: 10 })
+  })
+
+  // What makes the fallback in VoxelViewer.frameContent necessary: a run that touched nothing has
+  // no feature box at all, and the camera must not be pointed at nothing.
+  it('returns null when the run touched nothing, so a caller can fall back to the terrain', () => {
+    const { volume, set } = makeVolume(0, 0, 0, 16, 8, 16)
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) set(x, 0, z, STONE.id)
+    expect(computeOccupiedBounds(volume, PALETTE, { ...DEFAULT_OPTS, includeEnvironment: false })).toBeNull()
+    expect(computeOccupiedBounds(volume, PALETTE, { ...DEFAULT_OPTS, includeEnvironment: true })).not.toBeNull()
+  })
+
+  // A hidden environment already excluded terrain, so the new flag must not resurrect it.
+  it('never counts terrain the environment pass is not drawing, whatever the flag says', () => {
+    const { volume } = benchWithSmallFeature()
+    const hidden = { ...DEFAULT_OPTS, environmentVisible: false, includeEnvironment: true }
+    expect(computeOccupiedBounds(volume, PALETTE, hidden)).toEqual({ minX: 2, minY: 4, minZ: 2, maxX: 3, maxY: 7, maxZ: 3 })
+  })
+})

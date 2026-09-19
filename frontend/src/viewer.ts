@@ -11,8 +11,10 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { computeOccupiedBounds } from './contentBounds.js'
-import { computeClipPlanes, fitBoxToView, type Box3, type Vec3 } from './cameraFit.js'
-import { buildMesh, buildOverflowMesh, compileAtlas, concatMeshBuffers, EMPTY_MESH_BUFFERS, PASS_TRANSLUCENT, type CompiledAtlas, type MeshBuffers, type OverflowBlockMesh } from './mesher.js'
+import { boxContains, computeClipPlanes, fitBoxToView, maxDollyDistance, type Box3, type Vec3 } from './cameraFit.js'
+import { createViewportOverlay, type OverlayNotice, type OverlayProjection, type ViewportOverlayHandle } from './ui/viewportOverlay.js'
+import { compileAtlas, type CompiledAtlas, type MeshBuffers, type OverflowBlockMesh } from './mesher.js'
+import { buildScenePasses, describeCellAt, describeLegend, internAttributionGroups, summarizeVolume, type AttributionState, type CellBox, type VolumeSummary } from './remesh.js'
 import type { AtlasTableWire, DecodedAtlas } from './protocol.js'
 import { compileShapes } from './shapes.js'
 
@@ -71,6 +73,72 @@ export interface ViewerVolume {
 
 export type EnvironmentMode = 'solid' | 'ghost' | 'hidden'
 
+/** One writer's share of the write-attribution overlay -- see `setAttributionGroups`. */
+export interface AttributionGroup {
+  /** The host's own name for this writer (a graph node id). Never shown; carried back out
+   * through `getAttributionGroups` so a host can match a legend row to its own selection. */
+  id: string
+  /** What the legend shows for this writer. A single unnamed group (what `setAttributionCells`
+   * produces) may leave this empty, and the legend then says "written by the selected node"
+   * rather than inventing a name. */
+  label: string
+  /** Flat cell indices under the current volume's own indexing. */
+  cells: Uint32Array | readonly number[]
+}
+
+/** What the overlay ended up painting for one group. */
+export interface AttributionGroupState {
+  id: string
+  label: string
+  /** Cells this group actually owns on screen. */
+  cells: number
+  /** Cells this group named that an EARLIER group had already claimed -- see
+   * `setAttributionGroups` on why overlap goes to the first claimant and is reported rather than
+   * silently resolved. */
+  overlapped: number
+  /** Index into colors.ts's attribution series. */
+  colorIndex: number
+  /** World-cell extent of the cells this group OWNS on screen, or null when it owns none --
+   * what `frameAttributionGroup` fits the camera to. Cells an earlier group already claimed are
+   * not in it, for the same reason they are not in this group's colour. */
+  bounds: CellBox | null
+}
+
+/** What a click on the preview turned out to have hit -- see `onPick`. */
+export interface PickedCell {
+  x: number
+  y: number
+  z: number
+  /** Flat cell index under the current volume's indexing, so a host can look the cell up in a
+   * profile/attribution table without redoing the arithmetic. */
+  cell: number
+  /** The palette id currently at that cell, and its name/kind. `name` is '' for an id the
+   * palette does not carry, which should not happen and is not worth throwing over. */
+  blockId: number
+  blockName: string
+  kind: BlockKind
+  /** Whether this run wrote this cell (`changed`), and whether it emptied it (`removed`) -- the
+   * difference between "the feature put this here", "the feature took something from here" and
+   * "this is the terrain it was placed into", which is the first thing anybody wants to know
+   * about a block they just clicked. */
+  placed: boolean
+  carved: boolean
+}
+
+/** What this viewer can currently say about block textures -- see `getTextureReport`. */
+export interface TextureReport {
+  /** Whether a usable atlas has been decoded (`setAtlas` succeeded). */
+  hasAtlas: boolean
+  /** Whether textures are actually being drawn right now: an atlas AND the host's switch on. */
+  enabled: boolean
+  /** How many palette entries the current result has. */
+  blocks: number
+  /** The block names the atlas could not fully texture, which are drawn as flat colour inside
+   * the textured pass -- see CompiledAtlas.unresolved. Empty in flat-colour mode, because
+   * nothing was asked of the atlas. */
+  unresolved: readonly string[]
+}
+
 const BACKGROUND_COLOR = 0x14161a
 const GHOST_OPACITY = 0.22
 
@@ -82,38 +150,17 @@ const GHOST_OPACITY = 0.22
 const CARVED_OPACITY = 0.35
 const CARVED_TINT = 0xff5a3c
 
-// Touch-count heatmap overlay: cool teal (touched once) through yellow to hot red (the
-// cell's own maximum touch count this run) -- see `heatColor` below. Rendered as its own
-// opaque mesh drawn after the feature/environment/carved passes (renderOrder) so a
-// heavily-rewritten cell reads unambiguously, rather than as a translucent tint blended with
-// whatever material happens to be under it.
-const HEAT_COLD: readonly [number, number, number] = [0.1, 0.55, 0.55]
-const HEAT_MID: readonly [number, number, number] = [0.95, 0.85, 0.15]
-const HEAT_HOT: readonly [number, number, number] = [0.85, 0.1, 0.1]
-
-// Out-of-bounds capture overlay (ViewerVolume.overflowBlocks -- see that field's own doc
-// comment): a vivid magenta/pink tint blended over each captured block's OWN real palette
-// colour (not a flat replacement -- see buildOverflowMesh, mesher.ts), so a captured block still
-// reads as roughly the material it is, while being unmistakably distinct from ordinary feature
-// geometry (its own real colour, untinted), the carved overlay (warm red/orange, CARVED_TINT
-// above) and the heatmap overlay (teal-to-red, HEAT_* above) -- three different overlays this
-// viewer already draws, none of which this one may be confused with. Opaque, like the heatmap
-// overlay, for the same reason: a block that escaped the bench should read unambiguously, not
-// blend translucently with whatever happens to be behind it.
-const OVERFLOW_TINT: readonly [number, number, number] = [1.0, 0.15, 0.85]
-const OVERFLOW_TINT_STRENGTH = 0.55
-
-// Write-attribution overlay (see `setAttributionCells`): the cells ONE named feature wrote,
+// The touch-count heatmap ramp and the out-of-bounds tint moved to remesh.ts, alongside the
+// passes they colour -- see that module's own header. What stays here is only what a three.js
+// MATERIAL needs (CARVED_TINT above, the highlight colours below).
+//
+// Write-attribution overlay (see `setAttributionGroups`): the cells each named feature wrote,
 // handed down by a host that has a profiled run and an AttributionIndex over it. Painted as a
 // flat, opaque colour rather than a tint blended over each cell's own material, for the same
 // "read unambiguously" reason the heatmap is: the question this answers is "which blocks are
-// this node's", and a blend would make the answer depend on what the block happened to be.
-//
-// The colour is chosen against the four overlays already here and must stay distinguishable
-// from every one of them: carved is warm orange, overflow is magenta/pink, the heatmap runs
-// teal -> yellow -> red, and highlightCell's marker is yellow. A vivid blue-violet is the one
-// corner of that space nothing else occupies.
-const ATTRIBUTION_COLOR: readonly [number, number, number] = [0.42, 0.45, 1.0]
+// this node's", and a blend would make the answer depend on what the block happened to be. The
+// colours themselves are colors.ts's ATTRIBUTION series -- one per writer, chosen against every
+// other overlay this viewer draws; see that table's own comment.
 
 // How far INTO a face pickCell steps before flooring to a cell. Half a block: the face it hit is
 // a cell boundary, so the point itself is exactly on the integer plane and floors either way
@@ -145,6 +192,47 @@ const HIGHLIGHT_FILL_COLOR = 0xffcc00
 const HIGHLIGHT_FILL_OPACITY = 0.55
 const HIGHLIGHT_EDGE_COLOR = 0xfff2b0
 const HIGHLIGHT_FRAME_PADDING = 6
+
+// ---- the canvas as a keyboard application ------------------------------------------------
+// role="application" tells a screen reader to stop interpreting keys and hand every one of them
+// to this element. The canvas claimed that and then handled nothing: the five keys it did have
+// (r, R, 1, 3, 7) were bound on WINDOW, so they worked from anywhere in the panel and the
+// canvas's own tab stop did literally nothing -- arrows, +, -, Home, PageUp, Enter and Space
+// were all measured as dead. The claim is now true instead of withdrawn: a 3D view is the one
+// control in this tool a screen reader's own navigation keys have nothing useful to do inside,
+// and the alternative (role="img") would have made the only way to move the camera a mouse.
+//
+// One press is 7.5 degrees -- 48 presses for a full turn, coarse enough to get somewhere and
+// fine enough to line a face up -- and one zoom press is 12%, about a sixth of a doubling.
+const KEY_ORBIT_RADIANS = Math.PI / 24
+const KEY_DOLLY_FACTOR = 1.12
+/** PageUp/PageDown are the same gesture, four presses' worth, for crossing a big bench. */
+const KEY_DOLLY_PAGE = KEY_DOLLY_FACTOR ** 4
+/** Keeps an orbit from reaching either pole, where the camera's up vector flips and the view
+ * rolls unpredictably -- the same guard OrbitControls' own min/maxPolarAngle provides. */
+const KEY_POLAR_EPSILON = 0.02
+
+/** How far outside the last framed box a fresh result's content may land before the camera
+ * follows it, as a fraction of that box's longest edge. A quarter of the view is the point at
+ * which "it grew a bit" stops being a fair description and "it is somewhere else now" starts:
+ * below it, a save-triggered regenerate must not move a camera the user placed; above it, the
+ * camera is pointed at empty space and the preview is lying about the run. */
+const REFRAME_SLACK_FRACTION = 0.25
+
+/** How far the bench outline may extend beyond the framed box and still be drawn, as a fraction
+ * of that box's longest edge -- see `syncBoundsBoxVisibility`. FRAME_MARGIN already leaves ~8%
+ * of slack around a fit, so a bench a hair larger than what was framed really is on screen;
+ * anything past this is not. */
+const OUTLINE_FIT_SLACK_FRACTION = 0.08
+
+/** How often the axis gizmo is redrawn, in milliseconds. The camera basis only has to be right
+ * enough to say which way is up; redrawing six SVG attributes at display rate would cost more
+ * layout work than the whole scene does. */
+const GIZMO_UPDATE_INTERVAL_MS = 100
+
+/** How often the busy pill's elapsed time ticks. Tenths are what the readout shows, so anything
+ * finer would be recomputing a string that cannot change. */
+const BUSY_TICK_MS = 100
 
 // --- textured rendering ---------------------------------------------------------------------
 //
@@ -288,14 +376,6 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
   throw new Error('cannot add a white cell to the block atlas (no canvas available) -- staying in flat-colour mode')
 }
 
-/** Maps a touch count's position within `[1, maxCount]` (t=0 at the coldest end) to an RGB
- * triple via a two-segment teal -> yellow -> red ramp -- see the constants above. */
-function heatColor(t: number): readonly [number, number, number] {
-  const clamped = Math.min(1, Math.max(0, t))
-  const [a, b, u] = clamped < 0.5 ? [HEAT_COLD, HEAT_MID, clamped / 0.5] : [HEAT_MID, HEAT_HOT, (clamped - 0.5) / 0.5]
-  return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u]
-}
-
 /** Copies `array` into an existing same-length attribute buffer, otherwise allocates a new one. */
 function setFloatAttribute(geometry: THREE.BufferGeometry, name: string, array: Float32Array, itemSize: number): void {
   const existing = geometry.getAttribute(name) as THREE.BufferAttribute | undefined
@@ -408,11 +488,6 @@ export class VoxelViewer {
    * excavation (baseline non-air -> result air) previews as if it did almost nothing, since
    * a plain air cell draws no geometry. */
   private showCarved = true
-  /** Highest `ViewerVolume.touchCounts` value in the current volume, computed once per
-   * `setVolume` (not per `remesh`, since slice/toggle changes don't change the data) -- the
-   * heatmap's colour ramp is normalized against this run's own maximum, not a fixed scale.
-   * 0 when the current volume has no `touchCounts`. */
-  private maxTouchCount = 0
   /** Toggles the touch-count heatmap overlay (see `ViewerVolume.touchCounts`'s doc comment
    * and `heatColor`). Defaults to off -- only meaningful once a profiled run exists. */
   private showHeatmap = false
@@ -422,16 +497,21 @@ export class VoxelViewer {
    * the moment a result carries any. */
   private showOverflow = true
 
-  /** One byte per cell of the CURRENT volume, 1 for a cell the attributed node wrote -- null
-   * whenever no host has asked for the overlay, which is the state this viewer starts in and
-   * returns to on every `setVolume` (a fresh run re-interns cell indices against fresh bounds,
-   * so last run's mask names other cells; the host re-sends one if it still has an answer).
-   * A mask rather than the cell list itself because `remesh` asks the question per cell index,
-   * and a list would mean a set lookup per cell of the whole volume. */
-  private attributionMask: Uint8Array | null = null
-  /** How many cells `attributionMask` marks -- reported by `getAttributionCellCount` so a host
-   * can say "1 284 blocks" without walking the mask itself. */
-  private attributionCells = 0
+  /** The write-attribution overlay's current answer: one byte per cell of the CURRENT volume
+   * naming which GROUP owns it (0 = none, n = `attributionGroups[n - 1]`), the total marked, and
+   * the box they sit in. Null mask whenever no host has asked for the overlay, which is the
+   * state this viewer starts in and returns to on every `setVolume` (a fresh run re-interns cell
+   * indices against fresh bounds, so last run's mask names other cells; the host re-sends one if
+   * it still has an answer). A mask rather than the cell lists themselves because the mesher
+   * asks the question per cell index, and a list would mean a set lookup per cell. */
+  private attribution: AttributionState = { mask: null, cells: 0, bounds: null }
+  /** What the current mask's group bytes MEAN: label and per-group cell count, in the order the
+   * host supplied them (which is the order the colours are assigned in). Empty whenever the
+   * overlay is off. */
+  private attributionGroups: AttributionGroupState[] = []
+  /** Everything about the current volume that a re-mesh needs and no re-mesh should recompute --
+   * see remesh.ts's VolumeSummary. Recomputed once per `setVolume`. */
+  private summary: VolumeSummary = { changedBounds: null, carvedBounds: null, touchedBounds: null, maxTouchCount: 0 }
   /** Reused by `pickCell`, which can be called on every click. */
   private readonly raycaster = new THREE.Raycaster()
 
@@ -455,22 +535,122 @@ export class VoxelViewer {
 
   private rafHandle = 0
 
+  // ---- framing memory ------------------------------------------------------------------------
+  /** The box the camera was last programmatically fitted to, or null before the first framing
+   * call ever. Two things read it: `resize()` (re-fit the SAME box to the new aspect, so widening
+   * the panel widens the view of the content rather than of the empty space beside it) and
+   * `setVolume()` (a fresh result whose content escapes this box is content the camera is no
+   * longer pointed at -- see `boxContains`). */
+  private lastFramedBox: Box3 | null = null
+  /** True once the user has orbited/panned/dollied since the last programmatic framing. This is
+   * what keeps "a regenerate never moves the camera" true while still allowing the automatic
+   * re-fits above: a camera the user placed by hand is a decision, and resizing the panel must
+   * not overrule it. Cleared by every frameToBox/setView, set by OrbitControls' own `start`. */
+  private cameraTouched = false
+
+  // ---- projection ----------------------------------------------------------------------------
+  /** The orthographic twin of `camera`. It is never driven by OrbitControls: the perspective
+   * camera stays the one source of position/target (so orbit, pan and dolly keep working exactly
+   * as they always have) and this one is re-derived from it every frame while active -- dolly
+   * distance becomes frustum height, which is what "zoom" means without a perspective divide. */
+  private readonly orthoCamera: THREE.OrthographicCamera
+  private projection: OverlayProjection = 'perspective'
+
+  /** The on-canvas controls/gizmo/busy pill. Null when the canvas has no parent to hang them off
+   * (a headless/test canvas) -- every call site below tolerates that rather than requiring a host
+   * to provide a container it may not have. */
+  private overlay: ViewportOverlayHandle | null = null
+  private busyStartedAt = 0
+  private busyTimer = 0
+  /** Set by a host that can actually stop an in-flight request (see `setCancelHandler`). */
+  private cancelHandler: (() => void) | null = null
+  /** False while the page is hidden -- the rAF loop is genuinely stopped, not just idling, so a
+   * preview in a background tab/panel stops costing a GPU frame every 16 ms. */
+  private running = false
+
+  /** Fired whenever something OTHER than the sidebar changes a view setting the sidebar also
+   * shows -- i.e. the on-canvas overlay. The panel assigns this so its own radio/checkbox rows
+   * follow along; a host that never assigns it simply gets an overlay that works on its own. */
+  onViewChange: ((state: { environmentMode: EnvironmentMode; showGrid: boolean; projection: OverlayProjection }) => void) | null = null
+
+  /** Fired whenever an atlas arrives or leaves, or the texture switch is flipped -- so a host
+   * that remembers a preference can apply it the moment textures become possible, instead of
+   * having to decide at the one instant `setAtlas` resolves. */
+  onTexturesChanged: ((report: TextureReport) => void) | null = null
+
+  /**
+   * Fired when the user CLICKS a block in the preview -- not merely when `pickCell` is called.
+   *
+   * This class used to bind no pointer handler at all and leave the gesture to each host, on the
+   * grounds that only the host knows what a click means. That was true of the MEANING and false
+   * of the GESTURE: every host has to reimplement the same press-and-release-without-orbiting
+   * test (the left button is also how OrbitControls rotates, so a plain `click` fires after a
+   * drag too), and the one host that did so armed it only in attribution mode -- which made
+   * clicking a block do nothing at all in an ordinary preview, in a tool whose entire subject is
+   * which blocks ended up where. The gesture lives here now; what a picked cell MEANS is still
+   * entirely the listener's business.
+   *
+   * Fires only for a click that actually hit a cell inside the bench. A click that hits nothing
+   * -- the background, or a captured out-of-bounds block, which has no cell index -- fires
+   * nothing rather than a null, because "I clicked past the model" is not a request to clear
+   * anything: the marker a listener may have put on screen could equally be a diagnostic's.
+   *
+   * The clicked cell is marked (`highlightCell` with `frame: false`) before this fires. It is
+   * under the pointer by definition, so moving the camera onto it would throw away the view the
+   * user chose in order to show them what they were already looking at.
+   */
+  onPick: ((pick: PickedCell) => void) | null = null
+
+  /** Where the current left-button press started, for the gesture above. Null between presses. */
+  private pressedAt: { x: number; y: number } | null = null
+
+  /** The OS "reduce motion" preference, watched live. Null in an environment with no matchMedia
+   * at all, which is treated as "no preference expressed" rather than as "reduce". */
+  private readonly reducedMotion: MediaQueryList | null = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+
+  /** Scratch vectors for the keyboard camera moves, so a held arrow key allocates nothing. */
+  private readonly keyOffset = new THREE.Vector3()
+  private readonly keySpherical = new THREE.Spherical()
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    // Reachable by keyboard, and announced: without a tabindex the 3D view is the one part of
+    // this tool a keyboard user cannot reach at all, which also means the 1/3/7/R shortcuts have
+    // nowhere to be focused from.
+    if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0
+    // The label now describes the keys that EXIST -- see KEY_ORBIT_RADIANS' comment for why the
+    // old one described a mouse to a keyboard user and then advertised an application that
+    // handled no keys at all.
+    if (!canvas.hasAttribute('aria-label')) {
+      canvas.setAttribute(
+        'aria-label',
+        'Feature preview, 3D. Arrow keys orbit, plus and minus zoom, Home frames the feature, End frames the bench, Enter identifies the block at the centre of the view. 1, 3 and 7 look from the front, the side and the top.',
+      )
+    }
+    if (!canvas.hasAttribute('role')) canvas.setAttribute('role', 'application')
 
     this.scene = new THREE.Scene()
     this.scene.background = new THREE.Color(BACKGROUND_COLOR)
 
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000)
     this.camera.position.set(28, 34, 28)
+    // Extents are placeholders; syncOrthoCamera() recomputes them from the perspective camera's
+    // own distance every frame the orthographic projection is active.
+    this.orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 2000)
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setClearColor(BACKGROUND_COLOR, 1)
 
     this.controls = new OrbitControls(this.camera, this.canvas)
-    this.controls.enableDamping = true
+    // Damping is a glide: the camera keeps moving for a few hundred milliseconds after the hand
+    // stops. That is motion the user did not ask for, so it is the one thing in this viewer
+    // `prefers-reduced-motion` has to switch off -- and nothing here called matchMedia at all,
+    // so it never did. Applied here and re-applied whenever the preference changes, because a
+    // preference set after the preview opened is still the preference.
     this.controls.dampingFactor = 0.08
+    this.applyMotionPreference()
+    this.reducedMotion?.addEventListener('change', this.handleMotionPreferenceChange)
     this.controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.PAN,
@@ -482,8 +662,12 @@ export class VoxelViewer {
     // itself starts to suffer; re-tightened once real content exists (setVolume below) to a
     // multiple of that content's own size, which stays generous without being unbounded.
     this.controls.maxDistance = 2000
-
-
+    // Every user-initiated camera move goes through here. `start` fires on the first orbit/pan/
+    // dolly gesture of an interaction, which is exactly the moment the camera stops being
+    // something this class chose and starts being something the user chose.
+    this.controls.addEventListener('start', () => {
+      this.cameraTouched = true
+    })
 
     // Lighting: hemisphere + directional, no shadows -- faces are already shaded
     // per-direction via baked vertex colours in the mesher.
@@ -581,10 +765,187 @@ export class VoxelViewer {
     this.rebuildGridAndBounds()
 
     window.addEventListener('keydown', this.handleKeyDown)
+    // The camera keys are bound on the CANVAS, not on window: they are what the canvas's own tab
+    // stop is for, and an arrow key pressed in the sidebar belongs to whatever control has focus
+    // there. (The five view-snap keys above stay on window, where they always were -- they are a
+    // shortcut for the whole preview, not a camera nudge.)
+    this.canvas.addEventListener('keydown', this.handleCanvasKeyDown)
+    this.canvas.addEventListener('pointerdown', this.handlePointerDown)
+    this.canvas.addEventListener('pointerup', this.handlePointerUp)
+
+    this.overlay = this.createOverlay()
+    this.syncOverlay()
+
+    document.addEventListener('visibilitychange', this.handleVisibilityChange)
 
     this.resize()
     this.controls.update()
+    this.start()
+  }
+
+  /** Builds the on-canvas overlay, or returns null when there is nowhere to put it. The canvas's
+   * own parent is the anchor (both app shells give it a `position: relative` flex row -- see
+   * previewPanel.ts's `#fl-root`), so no shell HTML has to change for this to appear. */
+  private createOverlay(): ViewportOverlayHandle | null {
+    const host = this.canvas.parentElement
+    if (host === null) return null
+    try {
+      const overlay = createViewportOverlay(host, {
+        // Immediately after the canvas, which in both shells puts it BEFORE #fl-sidebar -- see
+        // ViewportOverlayOptions.anchor. Appended (the old behaviour) it landed after the
+        // sidebar, and its toolbar became tab stops 51-55 of 56.
+        anchor: this.canvas,
+        onFrame: () => this.frameContent(),
+        onCycleEnvironment: () => {
+          const next: EnvironmentMode = this.environmentMode === 'solid' ? 'ghost' : this.environmentMode === 'ghost' ? 'hidden' : 'solid'
+          this.setEnvironmentMode(next)
+          this.emitViewChange()
+        },
+        onToggleGrid: () => {
+          this.setShowGrid(!this.showGrid)
+          this.emitViewChange()
+        },
+        onToggleProjection: () => {
+          this.setProjection(this.projection === 'perspective' ? 'orthographic' : 'perspective')
+          this.emitViewChange()
+        },
+        // Textures are the one thing on this toolbar whose control used to live nowhere a person
+        // looking at flat colours would find it -- see panel.ts's own texture row, which this
+        // mirrors. Inert (and says why) until an atlas exists, like every other control here.
+        onToggleTextures: () => {
+          if (!this.hasAtlas()) return
+          this.setTexturesEnabled(!this.texturesActive())
+          this.syncOverlay()
+        },
+      })
+      return overlay
+    } catch {
+      // An overlay is an affordance, never a requirement: a host whose DOM cannot take one still
+      // gets the preview it always had.
+      return null
+    }
+  }
+
+  private emitViewChange(): void {
+    this.onViewChange?.({ environmentMode: this.environmentMode, showGrid: this.showGrid, projection: this.projection })
+  }
+
+  private syncOverlay(): void {
+    this.overlay?.sync({
+      environmentMode: this.environmentMode,
+      showGrid: this.showGrid,
+      projection: this.projection,
+      texturesEnabled: this.texturesActive(),
+      texturesAvailable: this.hasAtlas(),
+    })
+  }
+
+  /** Rebuilds the on-canvas legend from what is ACTUALLY being drawn right now.
+   *
+   * The rule that keeps this from becoming a permanent block of furniture over the scene: an
+   * entry exists only while its overlay has geometry on screen. The carved overlay is listed
+   * when this run carved something, the overflow overlay when something spilled, the heatmap
+   * when it is on, and one row per attribution writer when a host has asked that question. A
+   * default preview of a feature that only places blocks therefore has no legend at all, which
+   * is right -- nothing on screen is in a colour that needs explaining. */
+  private syncLegend(): void {
+    const overlay = this.overlay
+    if (overlay === null) return
+    overlay.setLegend(
+      describeLegend({
+        onSelectWriter: (index) => this.frameAttributionGroup(index),
+        attributionGroups: this.attributionGroups,
+        showCarved: this.showCarved,
+        hasCarved: this.summary.carvedBounds !== null,
+        showOverflow: this.showOverflow,
+        overflowCount: this.currentVolume?.overflowBlocks?.length ?? 0,
+        showHeatmap: this.showHeatmap,
+        maxTouchCount: this.summary.maxTouchCount,
+        carvedTint: CARVED_TINT,
+      }),
+    )
+  }
+
+  /** Puts one short line on the viewport itself -- the answer to "what did this run do", where
+   * the run is. Null clears it. The panel is what decides there IS an answer worth promoting
+   * (see panel.ts's renderEmptyResult); this class only carries it to the overlay, so a host
+   * without a panel still gets a preview and no empty banner. */
+  setNotice(notice: OverlayNotice | null): void {
+    this.overlay?.setNotice(notice)
+  }
+
+  /** Moves a status line the HOST owns into the viewport overlay's own flex column, so it stacks
+   * with the pill, the notice and the legend instead of floating over them -- see
+   * ViewportOverlayHandle.adoptStatus for the collision this exists to end. A no-op when there
+   * is no overlay (a host whose DOM could not take one), which leaves the element exactly where
+   * the host put it. */
+  adoptOverlayStatus(el: HTMLElement): void {
+    this.overlay?.adoptStatus(el)
+  }
+
+  /** Perspective or orthographic. Orthographic is what makes two equal runs of blocks measure
+   * equal on screen, which is the whole reason a voxel tool offers it -- judging "is this trunk
+   * five or six tall" under perspective is guesswork at any distance. */
+  setProjection(projection: OverlayProjection): void {
+    if (this.projection === projection) return
+    this.projection = projection
+    this.syncOrthoCamera()
+    this.syncOverlay()
+  }
+
+  getProjection(): OverlayProjection {
+    return this.projection
+  }
+
+  /** The camera actually rendered/picked against this frame. */
+  private activeCamera(): THREE.Camera {
+    return this.projection === 'orthographic' ? this.orthoCamera : this.camera
+  }
+
+  /** Re-derives the orthographic frustum from the perspective camera's current position, target
+   * and aspect. Cheap enough to run every frame, and running it every frame is what keeps the two
+   * cameras from ever disagreeing after an orbit or a dolly. */
+  private syncOrthoCamera(): void {
+    if (this.projection !== 'orthographic') return
+    const distance = this.camera.position.distanceTo(this.controls.target)
+    // The height the perspective camera sees at the orbit target's depth -- matching it is what
+    // makes toggling projection look like a lens change rather than a jump cut.
+    const height = 2 * distance * Math.tan(((this.camera.fov / 2) * Math.PI) / 180)
+    const width = height * this.camera.aspect
+    this.orthoCamera.position.copy(this.camera.position)
+    this.orthoCamera.quaternion.copy(this.camera.quaternion)
+    this.orthoCamera.left = -width / 2
+    this.orthoCamera.right = width / 2
+    this.orthoCamera.top = height / 2
+    this.orthoCamera.bottom = -height / 2
+    const { radius } = this.computeBounds()
+    // An orthographic frustum has no perspective divide, so `near` can sit close without costing
+    // depth precision the way it would on the perspective camera (see computeClipPlanes).
+    this.orthoCamera.near = 0.1
+    this.orthoCamera.far = distance + radius * 4 + 200
+    this.orthoCamera.updateProjectionMatrix()
+  }
+
+  private readonly handleVisibilityChange = (): void => {
+    if (document.hidden) this.stop()
+    else this.start()
+  }
+
+  /** Starts the render loop if it is not already running. */
+  private start(): void {
+    if (this.running) return
+    this.running = true
     this.rafHandle = requestAnimationFrame(this.animate)
+  }
+
+  /** Stops the render loop outright. The previous loop ran forever, including while the whole
+   * webview was hidden behind another editor tab -- a frame every 16 ms rendering something
+   * nobody can see. */
+  private stop(): void {
+    if (!this.running) return
+    this.running = false
+    cancelAnimationFrame(this.rafHandle)
+    this.rafHandle = 0
   }
 
   /** Replaces the displayed volume. Camera/controls are untouched -- a caller iterating on a
@@ -602,30 +963,82 @@ export class VoxelViewer {
     // A fresh run re-interns cell indices against fresh bounds, so a mask built for the last
     // one names other cells. Dropped rather than remapped: only the host knows whether it still
     // has an attributed node, and it re-sends whenever it does.
-    this.attributionMask = null
-    this.attributionCells = 0
+    this.attribution = { mask: null, cells: 0, bounds: null }
+    this.attributionGroups = []
     this.attributionMesh.visible = false
-    this.maxTouchCount = 0
-    if (volume.touchCounts) {
-      for (let i = 0; i < volume.touchCounts.length; i++) {
-        const v = volume.touchCounts[i] as number
-        if (v > this.maxTouchCount) this.maxTouchCount = v
-      }
-    }
+    // ONCE per result, not once per re-mesh: which overlays have anything to draw, where they
+    // would draw it, and how hot the hottest cell is are all facts about the DATA, and a slice
+    // drag changes none of them. See remesh.ts's own header for what that buys.
+    this.summary = summarizeVolume(volume)
     this.remesh()
     this.rebuildGridAndBounds()
     // Re-tighten the dolly limit (see the constructor's own comment) to this specific volume's
     // own size now that one exists -- generous enough that framing/highlighting never bumps
     // into it, but no longer the constructor's unconditional 2000 for a volume much smaller
-    // (or larger) than that.
+    // (or larger) than that. See maxDollyDistance for why this is no longer forty radii.
     const { radius } = this.computeBounds()
-    this.controls.maxDistance = Math.max(500, radius * 40)
+    this.controls.maxDistance = maxDollyDistance(radius)
+    this.overlay?.setScale(`${volume.sizeX}×${volume.sizeY}×${volume.sizeZ}`)
+    this.reframeIfContentEscaped()
   }
 
+  /** Re-frames when the result that just arrived put its content outside the box the camera was
+   * last fitted to.
+   *
+   * The rule this replaces framed the first result and then never again, so a run that placed
+   * somewhere else -- a changed origin, a taller preset, a feature that moved -- left the camera
+   * staring at where the LAST result used to be. On screen that is indistinguishable from a run
+   * that placed nothing, which is the one thing this preview must never be ambiguous about.
+   *
+   * Deliberately narrow: only content that genuinely escaped the framed box counts (see
+   * `boxContains`'s slack), and a result still inside it never moves the camera, which is what
+   * keeps "regenerate on save without losing camera position" true for the ordinary case. */
+  private reframeIfContentEscaped(): void {
+    const framed = this.lastFramedBox
+    if (framed === null) return
+    // The same box frameContent() would fit, so "the content escaped what we framed" is asked
+    // about the thing that was framed -- not about the terrain, which never moves.
+    const content = this.computeContentBounds({ includeEnvironment: false }) ?? this.computeContentBounds({ includeEnvironment: true })
+    if (content === null) return
+    const slack = Math.max(framed.maxX - framed.minX, framed.maxY - framed.minY, framed.maxZ - framed.minZ) * REFRAME_SLACK_FRACTION
+    if (boxContains(framed, content, slack)) return
+    this.frameToBox(content)
+  }
+
+  /** Whether the camera has ever been framed at all -- a host uses this instead of its own
+   * "framed once" latch, so the LATCH is gone while the "first result frames itself" behaviour
+   * it was there for stays. */
+  hasFramed(): boolean {
+    return this.lastFramedBox !== null
+  }
+
+  /** Sets the Y cut. The VALUES land immediately (getSlice is never stale), the re-mesh they
+   * imply is coalesced to one per animation frame.
+   *
+   * A slider drag fires `input` on every pixel of travel, and each one used to walk the whole
+   * volume and rebuild every buffer -- work the display could not show more than once per frame
+   * anyway. Coalescing belongs here rather than in each caller: this is the only place that knows
+   * the cost is a re-mesh, and a host should not have to schedule around a method's internals. */
   setSlice(minY: number, maxY: number): void {
     this.sliceMinY = minY
     this.sliceMaxY = maxY
-    this.remesh()
+    this.scheduleRemesh()
+  }
+
+  /** Coalescing wrapper around remesh(). Falls back to an immediate re-mesh where there is no
+   * requestAnimationFrame at all, so a non-browser host still gets correct geometry rather than
+   * none. */
+  private remeshHandle = 0
+  private scheduleRemesh(): void {
+    if (typeof requestAnimationFrame !== 'function') {
+      this.remesh()
+      return
+    }
+    if (this.remeshHandle !== 0) return
+    this.remeshHandle = requestAnimationFrame(() => {
+      this.remeshHandle = 0
+      this.remesh()
+    })
   }
 
   getSlice(): { minY: number; maxY: number } {
@@ -633,8 +1046,18 @@ export class VoxelViewer {
   }
 
   setEnvironmentMode(mode: EnvironmentMode): void {
+    const before = this.environmentMode
     this.environmentMode = mode
     this.applyMaterials()
+    // The environment pass is only BUILT while the environment is drawn (see remesh.ts), so
+    // entering or leaving 'hidden' is the one mode change that has to re-mesh rather than just
+    // re-point a material. Ghost <-> solid still does not: the same geometry is drawn either way.
+    // Textured mode splits the environment's translucent blocks out of it except under ghost, so
+    // that transition re-meshes too, exactly as it did before.
+    if (before !== mode && (before === 'hidden' || mode === 'hidden' || ((before === 'ghost' || mode === 'ghost') && this.texturesActive()))) {
+      this.remesh()
+    }
+    this.syncOverlay()
   }
 
   /** Points every mesh at the right material for the current (environment mode, textures
@@ -695,6 +1118,10 @@ export class VoxelViewer {
       this.compiledAtlas = null
       this.applyMaterials()
       this.remesh()
+      // THE BUTTON IS PART OF THE STATE, not a separate opinion about it -- see the syncOverlay
+      // call at the end of this method.
+      this.syncOverlay()
+      this.emitTexturesChanged()
       return
     }
 
@@ -713,6 +1140,17 @@ export class VoxelViewer {
     this.compiledAtlas = compileAtlas(prepared.table, this.currentPalette, prepared.white, compileShapes(prepared.table, this.currentPalette))
     this.applyMaterials()
     this.remesh()
+    // THE OVERLAY'S TEXTURE BUTTON IS A READOUT OF hasAtlas()/texturesActive(), so every path
+    // that changes either has to push the new answer at it. Leaving this out is what made the
+    // button keep saying "Block textures are not available: no texture atlas has been built for
+    // this machine" over a visibly textured preview, until an unrelated click on Grid (which
+    // does call syncOverlay) corrected it -- an overlay that only tells the truth after you
+    // press something else is worse than one that says nothing.
+    this.syncOverlay()
+    // A host whose only signal that textures became POSSIBLE was this promise resolving had to
+    // decide on the spot whether to turn them on; one that listens here can instead keep its own
+    // remembered preference and apply it whenever an atlas turns up. See panel.ts's texture row.
+    this.emitTexturesChanged()
   }
 
   /** Whether an atlas has been supplied and decoded -- i.e. whether `setTexturesEnabled(true)`
@@ -728,10 +1166,35 @@ export class VoxelViewer {
     this.texturesRequested = enabled
     this.applyMaterials()
     this.remesh()
+    // Same rule as setAtlas above: the overlay button shows what is being drawn, so it is told.
+    this.syncOverlay()
+    this.emitTexturesChanged()
   }
 
   getTexturesEnabled(): boolean {
     return this.texturesActive()
+  }
+
+  /** What this viewer can currently say about textures -- whether it has an atlas, whether it is
+   * drawing with it, and which blocks that atlas could not answer for.
+   *
+   * THE UNRESOLVED LIST IS THE HONEST HALF, and it is measured against THIS result's palette
+   * rather than against the pack as a whole: a block the atlas has never heard of still draws,
+   * in its flat palette colour, inside the textured pass (see compileAtlas), so nothing on
+   * screen distinguishes "this block's texture is a flat colour" from "we could not find this
+   * block's texture". A preview that quietly mixes the two is the one way turning textures on
+   * can mislead, and this is what lets a panel say so in one line instead. */
+  getTextureReport(): TextureReport {
+    return {
+      hasAtlas: this.hasAtlas(),
+      enabled: this.texturesActive(),
+      blocks: this.currentPalette.length,
+      unresolved: this.texturesActive() ? (this.compiledAtlas?.unresolved ?? []) : [],
+    }
+  }
+
+  private emitTexturesChanged(): void {
+    this.onTexturesChanged?.(this.getTextureReport())
   }
 
   getEnvironmentMode(): EnvironmentMode {
@@ -741,7 +1204,35 @@ export class VoxelViewer {
   setShowGrid(show: boolean): void {
     this.showGrid = show
     this.gridHelper.visible = show
-    this.boundsBox.visible = show
+    this.syncBoundsBoxVisibility()
+    this.syncOverlay()
+  }
+
+  /** Draws the bench outline only when the current framing actually contains the bench.
+   *
+   * Two white edges ran off the top of every preview: the camera fits the CONTENT and the
+   * outline spans the whole bench, so its far corners were always outside the frame. A wireframe
+   * box with two sides missing does not read as a box that continues past the viewport; it reads
+   * as a rendering fault, and it is the first thing in the picture. Now framing the feature hides
+   * it and framing the bench (Shift+R, "Frame bench") brings it back -- which also makes the
+   * outline a readout of which of the two framings is in effect.
+   *
+   * `showGrid` still has the last word: this can only take the outline away, never put it back
+   * when the user asked for no grid. The floor grid itself is untouched -- a grid running off the
+   * edge of the view is what a grid does. */
+  private syncBoundsBoxVisibility(): void {
+    this.boundsBox.visible = this.showGrid && this.benchFitsFraming()
+  }
+
+  /** Whether the whole bench is inside the box the camera was last fitted to. True when there is
+   * no volume or nothing has been framed yet -- neither is a reason to hide anything. */
+  private benchFitsFraming(): boolean {
+    const framed = this.lastFramedBox
+    const v = this.currentVolume
+    if (framed === null || !v) return true
+    const slack = Math.max(framed.maxX - framed.minX, framed.maxY - framed.minY, framed.maxZ - framed.minZ) * OUTLINE_FIT_SLACK_FRACTION
+    const bench: Box3 = { minX: v.minX, minY: v.minY, minZ: v.minZ, maxX: v.minX + v.sizeX, maxY: v.minY + v.sizeY, maxZ: v.minZ + v.sizeZ }
+    return boxContains(framed, bench, slack)
   }
 
   /** Toggles the translucent "carved" overlay for cells the feature removed (baseline
@@ -782,17 +1273,46 @@ export class VoxelViewer {
    * heatmap's colour ramp is normalized against. Exposed for a host UI to show alongside the
    * `setShowHeatmap` toggle (e.g. "hottest cell: N touches"). */
   getMaxTouchCount(): number {
-    return this.maxTouchCount
+    return this.summary.maxTouchCount
   }
 
-  /** Toggles a "pending" visual treatment on the canvas itself (a CSS class -- see panel.css's
-   * `.fl-canvas-busy` rule) -- the preview half of this repo's "no indication that anything is
-   * happening" fix (panel.ts's own setBusy dims the stat tiles/readout, this is its counterpart
-   * for the 3D view). Never touches geometry, camera, or any THREE.js scene state -- purely a
-   * host-visible affordance so a slow generate reads as "still working" rather than looking
-   * identical to an already-finished, empty result. */
+  /** Marks a request as in flight.
+   *
+   * The LAST FRAME STAYS AT FULL OPACITY. This used to drop the canvas to 0.45, which let the
+   * page show through the preview and made a working tool read as a broken one -- a result
+   * already on screen is still a true result while the next one is computed, and greying it out
+   * says the opposite. What changes instead is the corner pill: what is happening, how long it
+   * has been happening (`BUSY_TICK_MS`), and -- when a host has armed one, see
+   * `setCancelHandler` -- the way out.
+   *
+   * Never touches geometry, camera, or any THREE.js scene state. */
   setBusy(busy: boolean): void {
     this.canvas.classList.toggle('fl-canvas-busy', busy)
+    if (this.busyTimer !== 0) {
+      clearInterval(this.busyTimer)
+      this.busyTimer = 0
+    }
+    this.overlay?.setBusy(busy)
+    if (!busy) return
+    this.busyStartedAt = Date.now()
+    this.overlay?.setElapsed(0)
+    this.busyTimer = setInterval(() => this.overlay?.setElapsed(Date.now() - this.busyStartedAt), BUSY_TICK_MS) as unknown as number
+  }
+
+  /** Arms the busy pill's Cancel button with `fn`, or disarms it with null.
+   *
+   * A HOST DECIDES WHETHER THIS EXISTS, and its absence is meaningful: a preview host with no way
+   * to stop an in-flight request shows no Cancel at all, rather than a button that looks live and
+   * silently does nothing -- the same rule panel.ts's own `onGrowRegenerate`/`onReloadFiles`
+   * already follow. */
+  setCancelHandler(fn: (() => void) | null): void {
+    this.cancelHandler = fn
+    this.overlay?.setCancelHandler(fn)
+  }
+
+  /** Whether a cancel path is currently armed -- for a host that wants to say so elsewhere. */
+  canCancel(): boolean {
+    return this.cancelHandler !== null
   }
 
   /** Frames the camera to the full VOLUME bounds -- the wireframe box (see `boundsBox` /
@@ -810,18 +1330,21 @@ export class VoxelViewer {
     this.frameToBox(box)
   }
 
-  /** Frames the camera to what is actually occupied right now -- the feature's own changed
-   * cells, plus whatever environment/carved geometry is currently visible (see
-   * `computeContentBounds`) -- instead of the full volume bounds `frameAll()` uses. This is
-   * the fix for the reported bug: a typical volume is 32x48x32 with terrain only in the lower
-   * part, so framing the whole box left ~40% empty wireframe above the terrain. Falls back to
-   * `frameAll()` when nothing is currently visible (e.g. a placement refusal with the
-   * environment hidden and carved overlay off) so the view is never left pointed at nothing.
-   * This is what the default "R" key and the panel's "Frame view (R)" button call now --
-   * `frameAll()` (whole volume, air included) is still reachable via Shift+R / the secondary
-   * button for understanding where a feature sits relative to its volume. */
+  /** Frames the camera to THE FEATURE -- the cells this run placed, carved or overwrote, plus
+   * any out-of-bounds writes currently drawn -- respecting the Y cut.
+   *
+   * This used to frame "everything occupied", which with the default solid environment means
+   * every terrain cell: the occupied box WAS the bench, so a 53-block feature was framed as a
+   * postage stamp in the middle of it and this method and `frameAll()` produced the same picture
+   * until the terrain was hidden -- which the overlay button's own tooltip advertised as the
+   * difference between them. Framing the feature is what "frame view" was always taken to mean.
+   *
+   * Two fallbacks, in order, so the camera is never left pointed at nothing: the visible
+   * terrain when this run touched nothing at all (a refusal, a filter), then `frameAll()` when
+   * even that is empty (terrain hidden, carved overlay off). `frameAll()` -- the whole bench,
+   * air included -- stays on Shift+R and the panel's second button. */
   frameContent(): void {
-    const bounds = this.computeContentBounds()
+    const bounds = this.computeContentBounds({ includeEnvironment: false }) ?? this.computeContentBounds({ includeEnvironment: true })
     if (!bounds) {
       this.frameAll()
       return
@@ -843,6 +1366,10 @@ export class VoxelViewer {
     const cz = z + 0.5
     this.highlightMesh.position.set(cx, cy, cz)
     this.highlightEdges.position.set(cx, cy, cz)
+    // Back to one cell, whatever size the last selection box left behind -- see
+    // `frameAttributionGroup`.
+    this.highlightMesh.scale.set(1, 1, 1)
+    this.highlightEdges.scale.set(1, 1, 1)
     this.highlightMesh.visible = true
     this.highlightEdges.visible = true
 
@@ -854,6 +1381,34 @@ export class VoxelViewer {
     if (options.frame === false) return
     const p = HIGHLIGHT_FRAME_PADDING
     this.frameToBox({ minX: cx - p, minY: cy - p, minZ: cz - p, maxX: cx + p, maxY: cy + p, maxZ: cz + p })
+  }
+
+  /** Frames AND SELECTS one writer's own cells -- what a legend row does when it is activated
+   * (see viewportOverlay.ts's LegendEntry.onActivate, and describeLegend's `onSelectWriter`).
+   *
+   * Until this existed, "which of these writers put that block there" could only be asked with a
+   * mouse, by clicking the block: the legend named every writer and counted its blocks in plain
+   * text, but as list items no tab stop could reach. This is the same answer from the other
+   * direction -- pick the writer, and the camera goes to its cells and outlines them.
+   *
+   * The marker is the WIREFRAME only, not highlightCell's translucent fill: a fill scaled over a
+   * writer's whole extent would paint out the very geometry it is pointing at. Returns false
+   * when the index names no group, or a group that owns no cells on screen -- there is nothing
+   * to frame, and moving the camera anyway would be worse than doing nothing.
+   */
+  frameAttributionGroup(index: number): boolean {
+    const bounds = this.attributionGroups[index]?.bounds ?? null
+    if (bounds === null) return false
+    const sizeX = bounds.maxX - bounds.minX + 1
+    const sizeY = bounds.maxY - bounds.minY + 1
+    const sizeZ = bounds.maxZ - bounds.minZ + 1
+    const box: Box3 = { minX: bounds.minX, minY: bounds.minY, minZ: bounds.minZ, maxX: bounds.minX + sizeX, maxY: bounds.minY + sizeY, maxZ: bounds.minZ + sizeZ }
+    this.highlightMesh.visible = false
+    this.highlightEdges.position.set(bounds.minX + sizeX / 2, bounds.minY + sizeY / 2, bounds.minZ + sizeZ / 2)
+    this.highlightEdges.scale.set(sizeX, sizeY, sizeZ)
+    this.highlightEdges.visible = true
+    this.frameToBox(box)
+    return true
   }
 
   /** Hides highlightCell()'s marker without otherwise touching the camera. */
@@ -879,35 +1434,75 @@ export class VoxelViewer {
    * two messages can legitimately race a regenerate -- a stale index landing on a fresh volume
    * should paint nothing, not take the preview down. */
   setAttributionCells(cells: Uint32Array | readonly number[] | null): void {
-    const volume = this.currentVolume
-    if (cells === null || volume === null) {
-      this.attributionMask = null
-      this.attributionCells = 0
-      this.attributionMesh.visible = false
-      this.remesh()
-      return
-    }
-    const total = volume.sizeX * volume.sizeY * volume.sizeZ
-    const mask = new Uint8Array(total)
-    let marked = 0
-    for (let i = 0; i < cells.length; i++) {
-      const cell = cells[i] as number
-      if (cell < 0 || cell >= total) continue
-      if (mask[cell] === 1) continue
-      mask[cell] = 1
-      marked++
-    }
-    this.attributionMask = mask
-    this.attributionCells = marked
-    this.attributionMesh.visible = marked > 0
-    this.remesh()
+    this.setAttributionGroups(cells === null ? null : [{ id: 'attributed', label: '', cells }])
   }
 
-  /** How many distinct in-range cells the current attribution overlay marks. 0 both for "no
-   * host has asked" and for "the node wrote nothing"; see setAttributionCells on why this class
-   * does not pretend to tell those apart. */
+  /**
+   * Paints the cells SEVERAL features wrote, one colour per feature.
+   *
+   * The multi-writer form of `setAttributionCells`, and the reason the overlay grew a legend.
+   * One colour could only ever answer "is this block one of that node's" -- but the question a
+   * person actually has in front of a preview is "which of these is whose", and the interesting
+   * answer to it is almost always more than one node: a scatter and the tree it delegates to, two
+   * features fighting over the same column. Handing over several groups says that; handing over
+   * the winner of an argument the engine's own table does not record would not (see
+   * graph/attribution.ts's own header on why no single writer can honestly be called the placer).
+   *
+   * Each group's `cells` are flat cell indices under this volume's OWN indexing -- the same
+   * scheme `ViewerVolume.data`/`changed`/`touchCounts` use, and the same one
+   * profiler.CellAttribution emits -- so a host hands over an AttributionIndex's result unchanged.
+   *
+   * COLOURS ARE ASSIGNED BY POSITION, from colors.ts's ATTRIBUTION series, so the host controls
+   * them by controlling the order (most writes first is the obvious one) and the legend and the
+   * geometry can never disagree about which colour is whose. Past the end of the series they
+   * repeat; a host with more writers than that should group the tail rather than show a seventh
+   * that looks like the first.
+   *
+   * OVERLAP GOES TO THE FIRST GROUP THAT CLAIMS IT, and the legend says how many cells that cost
+   * each later group (`getAttributionGroups().overlapped`). A cell cannot be painted twice, and
+   * quietly letting the last writer win would make the picture depend on list order without
+   * saying so.
+   *
+   * `null` clears the overlay. So does an EMPTY list, and so does a list whose groups are all
+   * empty -- but the three mean different things to the host and this method deliberately does
+   * not collapse them: a node that ran and wrote nothing has an empty answer, which is an answer,
+   * and `getAttributionGroups()` reporting a group with 0 cells is how a host tells that apart
+   * from never having asked.
+   *
+   * Out-of-range indices are skipped rather than throwing. A cell index is only meaningful
+   * against the bounds it was computed for, and a host posting a result and its attribution as
+   * two messages can legitimately race a regenerate -- a stale index landing on a fresh volume
+   * should paint nothing, not take the preview down.
+   */
+  setAttributionGroups(groups: readonly AttributionGroup[] | null): void {
+    const volume = this.currentVolume
+    if (groups === null || volume === null) {
+      this.attribution = { mask: null, cells: 0, bounds: null }
+      this.attributionGroups = []
+      this.attributionMesh.visible = false
+      this.remesh()
+      this.syncLegend()
+      return
+    }
+    const interned = internAttributionGroups(volume, groups)
+    this.attribution = interned.attribution
+    this.attributionGroups = interned.groups
+    this.attributionMesh.visible = interned.attribution.cells > 0
+    this.remesh()
+    this.syncLegend()
+  }
+
+  /** How many distinct in-range cells the current attribution overlay marks, across every group.
+   * 0 both for "no host has asked" and for "the node wrote nothing"; see setAttributionGroups on
+   * why this class does not pretend to tell those apart. */
   getAttributionCellCount(): number {
-    return this.attributionCells
+    return this.attribution.cells
+  }
+
+  /** What the overlay is currently painting, per writer, in the order the host supplied -- the
+   * same order the colours and the legend are in. Empty when the overlay is off. */
+  getAttributionGroups(): readonly AttributionGroupState[] {
+    return this.attributionGroups
   }
 
   /** The world cell under a screen point, or null when the ray hits nothing drawn.
@@ -936,7 +1531,7 @@ export class VoxelViewer {
     const box = this.canvas.getBoundingClientRect()
     if (box.width <= 0 || box.height <= 0) return null
     const ndc = new THREE.Vector2(((clientX - box.left) / box.width) * 2 - 1, -(((clientY - box.top) / box.height) * 2 - 1))
-    this.raycaster.setFromCamera(ndc, this.camera)
+    this.raycaster.setFromCamera(ndc, this.activeCamera())
     // Every pass that can be on screen, ghosted environment included: a person clicking a block
     // they can see expects an answer regardless of which overlay happens to be drawing it.
     const targets = [
@@ -963,6 +1558,38 @@ export class VoxelViewer {
     return null
   }
 
+  /** Describes the cell at (x, y, z) from the current volume and palette -- what `onPick` hands
+   * a listener. Null when the cell is outside the bench, which `pickCell` has already excluded
+   * but a direct caller might not have. */
+  describeCell(x: number, y: number, z: number): PickedCell | null {
+    const v = this.currentVolume
+    if (v === null) return null
+    return describeCellAt(v, this.paletteById, x, y, z)
+  }
+
+  // The pick gesture -- see `onPick`. A pick is a press and a release within a few pixels of each
+  // other, which is what "a click" means to a hand and what no single DOM event can report on its
+  // own.
+  private static readonly PICK_SLOP_PX = 4
+
+  private readonly handlePointerDown = (event: PointerEvent): void => {
+    this.pressedAt = event.button === 0 ? { x: event.clientX, y: event.clientY } : null
+  }
+
+  private readonly handlePointerUp = (event: PointerEvent): void => {
+    const down = this.pressedAt
+    this.pressedAt = null
+    if (this.onPick === null || down === null || event.button !== 0) return
+    const slop = VoxelViewer.PICK_SLOP_PX
+    if (Math.abs(event.clientX - down.x) > slop || Math.abs(event.clientY - down.y) > slop) return
+    const cell = this.pickCell(event.clientX, event.clientY)
+    if (cell === null) return
+    const described = this.describeCell(cell.x, cell.y, cell.z)
+    if (described === null) return
+    this.highlightCell(cell.x, cell.y, cell.z, { frame: false })
+    this.onPick(described)
+  }
+
   /** Shared by frameAll/frameContent/highlightCell -- fits the camera to `box` along the fixed
    * diagonal DEFAULT_FRAME_DIR via fitBoxToView (see cameraFit.ts), replacing the old bounding-
    * sphere-at-a-fixed-multiplier math that clipped an elongated box's far corners (see that
@@ -986,19 +1613,52 @@ export class VoxelViewer {
     this.camera.updateProjectionMatrix()
     this.controls.target.set(fit.center.x, fit.center.y, fit.center.z)
     this.controls.update()
+    // Remembered for resize() and reframeIfContentEscaped(); `cameraTouched` goes back to false
+    // because THIS class just chose where the camera is, so nothing here is overruling a user.
+    this.lastFramedBox = { ...box }
+    this.cameraTouched = false
+    this.syncBoundsBoxVisibility()
+    this.syncOrthoCamera()
   }
 
+  /** Re-fits the renderer, both cameras and -- when the user has not moved the camera since the
+   * last framing -- the framed box itself to the new aspect.
+   *
+   * The re-fit is the point. `resize()` used to change only `camera.aspect`, which for a
+   * PerspectiveCamera keeps the VERTICAL field of view fixed and widens horizontally: dragging
+   * the sidebar narrower gave the preview more empty space on either side of content that stayed
+   * exactly the size it was. Re-running the fit uses the extra width on the content instead.
+   *
+   * Gated on `cameraTouched` for the reason that flag exists: a camera the user placed by hand is
+   * a decision, and a panel resize is not a reason to overrule it. */
   resize(): void {
     const width = Math.max(1, this.canvas.clientWidth)
     const height = Math.max(1, this.canvas.clientHeight)
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height, false)
+    if (!this.cameraTouched && this.lastFramedBox !== null) this.frameToBox(this.lastFramedBox)
+    else this.syncOrthoCamera()
   }
 
   dispose(): void {
-    cancelAnimationFrame(this.rafHandle)
+    this.stop()
+    if (this.remeshHandle !== 0) {
+      cancelAnimationFrame(this.remeshHandle)
+      this.remeshHandle = 0
+    }
+    if (this.busyTimer !== 0) {
+      clearInterval(this.busyTimer)
+      this.busyTimer = 0
+    }
+    this.overlay?.dispose()
+    this.overlay = null
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('keydown', this.handleKeyDown)
+    this.canvas.removeEventListener('keydown', this.handleCanvasKeyDown)
+    this.reducedMotion?.removeEventListener('change', this.handleMotionPreferenceChange)
+    this.canvas.removeEventListener('pointerdown', this.handlePointerDown)
+    this.canvas.removeEventListener('pointerup', this.handlePointerUp)
     this.controls.dispose()
 
     this.featureGeometry.dispose()
@@ -1050,13 +1710,14 @@ export class VoxelViewer {
    * directly (not a center/radius sphere) -- frameToBox's exact corner-fit needs the box's own
    * shape, not a sphere that circumscribes it (see cameraFit.ts's header comment for why that
    * distinction is exactly what fixed the reported clipping bug). */
-  private computeContentBounds(): Box3 | null {
+  private computeContentBounds(opts: { includeEnvironment: boolean }): Box3 | null {
     const v = this.currentVolume
     if (!v) return null
     const bounds = computeOccupiedBounds(v, this.currentPalette, {
       sliceMinY: this.sliceMinY,
       sliceMaxY: this.sliceMaxY,
       environmentVisible: this.environmentMode !== 'hidden',
+      includeEnvironment: opts.includeEnvironment,
       showCarved: this.showCarved,
       showOverflow: this.showOverflow,
       overflowBlocks: v.overflowBlocks,
@@ -1084,157 +1745,42 @@ export class VoxelViewer {
     this.camera.updateProjectionMatrix()
     this.controls.target.copy(center)
     this.controls.update()
+    // A snap is a framing like any other -- see frameToBox's own comment on these two lines.
+    this.lastFramedBox = { minX: center.x - radius, minY: center.y - radius, minZ: center.z - radius, maxX: center.x + radius, maxY: center.y + radius, maxZ: center.z + radius }
+    this.cameraTouched = false
+    this.syncBoundsBoxVisibility()
+    this.syncOrthoCamera()
   }
 
   private remesh(): void {
     const volume = this.currentVolume
     if (!volume) return
-    const palette = this.currentPalette
-    const changed = volume.changed
-
-    // Flat mode meshes exactly two passes, as it always has. Textured mode splits each of them
-    // in two by the atlas' per-block render mode: everything opaque or cutout into the
-    // alpha-tested pass, everything translucent into its own blended pass drawn afterwards.
-    // The split is done through `accept` alone, so face CULLING is unaffected -- buildMesh
-    // always occludes against the true neighbour data regardless of which pass is being built,
-    // which is what keeps the inside of a lake unmeshed rather than turning into a stack of
-    // overlapping water quads the moment water gets its own pass.
-    const compiled = this.texturesActive() ? this.compiledAtlas : null
-    const atlas = compiled?.mesher
-    const translucentPass = compiled?.pass
-    const isTranslucent = (id: number): boolean => translucentPass !== undefined && translucentPass[id] === PASS_TRANSLUCENT
-    // A ghosted environment draws everything through one blended material, so routing its water
-    // into a second blended pass would double-blend it -- see applyMaterials.
-    const splitEnvironment = compiled !== null && this.environmentMode !== 'ghost'
-
-    const featureBuf = buildMesh(volume, palette, {
-      minY: this.sliceMinY,
-      maxY: this.sliceMaxY,
-      accept: (index: number, id: number) => changed[index] === 1 && !isTranslucent(id),
-      atlas,
+    // WHAT to mesh is remesh.ts's decision and nothing here second-guesses it; what is left for
+    // this method is the three.js half -- pushing eight buffers into eight geometries.
+    const passes = buildScenePasses({
+      volume,
+      palette: this.currentPalette,
+      summary: this.summary,
+      sliceMinY: this.sliceMinY,
+      sliceMaxY: this.sliceMaxY,
+      environmentMode: this.environmentMode,
+      showCarved: this.showCarved,
+      showHeatmap: this.showHeatmap,
+      showOverflow: this.showOverflow,
+      attribution: this.attribution,
+      atlas: this.texturesActive() ? this.compiledAtlas : null,
     })
-    const envBuf = buildMesh(volume, palette, {
-      minY: this.sliceMinY,
-      maxY: this.sliceMaxY,
-      accept: (index: number, id: number) => changed[index] !== 1 && (!splitEnvironment || !isTranslucent(id)),
-      atlas,
-    })
-
-    updateGeometry(this.featureGeometry, featureBuf)
-    updateGeometry(this.environmentGeometry, envBuf)
-
-    if (compiled !== null) {
-      updateGeometry(
-        this.featureTranslucentGeometry,
-        buildMesh(volume, palette, {
-          minY: this.sliceMinY,
-          maxY: this.sliceMaxY,
-          accept: (index: number, id: number) => changed[index] === 1 && isTranslucent(id),
-          atlas,
-        }),
-      )
-      updateGeometry(
-        this.environmentTranslucentGeometry,
-        splitEnvironment
-          ? buildMesh(volume, palette, {
-              minY: this.sliceMinY,
-              maxY: this.sliceMaxY,
-              accept: (index: number, id: number) => changed[index] !== 1 && isTranslucent(id),
-              atlas,
-            })
-          : EMPTY_MESH_BUFFERS,
-      )
-    } else {
-      updateGeometry(this.featureTranslucentGeometry, EMPTY_MESH_BUFFERS)
-      updateGeometry(this.environmentTranslucentGeometry, EMPTY_MESH_BUFFERS)
-    }
-
-    const removed = volume.removed
-    const baseline = volume.baseline
-    if (this.showCarved && removed.length > 0) {
-      // Mesh the BASELINE volume (not the current one -- the current id at every removed
-      // cell is air and carries no shape), restricted to cells `removed` marks. Neighbour
-      // occlusion is therefore also evaluated against the baseline, which is what keeps
-      // this cheap for a large contiguous carved region: two adjacent removed cells occlude
-      // each other's shared face exactly like two adjacent solid blocks normally would, so
-      // only the carved region's outer boundary is meshed, not its full interior.
-      const baselineVolume: ViewerVolume = { ...volume, data: baseline }
-      const carvedBuf = buildMesh(baselineVolume, palette, {
-        minY: this.sliceMinY,
-        maxY: this.sliceMaxY,
-        accept: (index: number) => removed[index] === 1,
-      })
-      updateGeometry(this.carvedGeometry, carvedBuf)
-    } else {
-      updateGeometry(this.carvedGeometry, EMPTY_MESH_BUFFERS)
-    }
-
-    const touchCounts = volume.touchCounts
-    if (this.showHeatmap && touchCounts !== undefined && this.maxTouchCount > 0) {
-      const denom = Math.max(1, this.maxTouchCount - 1)
-      const colorOverride = (index: number): readonly [number, number, number] => heatColor(((touchCounts[index] ?? 0) - 1) / denom)
-      // Pass 1: cells whose CURRENT id is non-air -- buildMesh already skips air cells on
-      // its own before calling `accept` (see mesher.ts), so this pass needs no extra air
-      // check of its own.
-      const currentBuf = buildMesh(volume, palette, {
-        minY: this.sliceMinY,
-        maxY: this.sliceMaxY,
-        accept: (index: number) => (touchCounts[index] ?? 0) > 0,
-        colorOverride,
-      })
-      // Pass 2: cells a feature touched but that ended up air in the CURRENT result
-      // (written, then carved away again) -- meshed against baseline for shape, exactly
-      // like the carved-volume overlay above, so a heavily-rewritten column that happens to
-      // net out to "nothing here" doesn't silently vanish from the heatmap, which would
-      // defeat its whole purpose.
-      const isCurrentlyAir = (index: number): boolean => (this.paletteById.get(volume.data[index] as number)?.kind ?? 'air') === 'air'
-      const baselineVolume: ViewerVolume = { ...volume, data: baseline }
-      const baselineBuf = buildMesh(baselineVolume, palette, {
-        minY: this.sliceMinY,
-        maxY: this.sliceMaxY,
-        accept: (index: number) => (touchCounts[index] ?? 0) > 0 && isCurrentlyAir(index),
-        colorOverride,
-      })
-      updateGeometry(this.heatmapGeometry, concatMeshBuffers(currentBuf, baselineBuf))
-    } else {
-      updateGeometry(this.heatmapGeometry, EMPTY_MESH_BUFFERS)
-    }
-
-    const attributionMask = this.attributionMask
-    if (attributionMask !== null && this.attributionCells > 0) {
-      const attributionColor = (): readonly [number, number, number] => ATTRIBUTION_COLOR
-      // Two passes, exactly as the heatmap above and for exactly the same reason: a feature that
-      // wrote a cell and then had it carved away again ends up air in the CURRENT result, and
-      // buildMesh skips air before it ever calls `accept`. Meshing the baseline for those cells
-      // is what keeps "this node wrote here" visible for a node whose work was later undone --
-      // which is precisely the case somebody is clicking a node to understand.
-      const currentBuf = buildMesh(volume, palette, {
-        minY: this.sliceMinY,
-        maxY: this.sliceMaxY,
-        accept: (index: number) => attributionMask[index] === 1,
-        colorOverride: attributionColor,
-      })
-      const isCurrentlyAir = (index: number): boolean => (this.paletteById.get(volume.data[index] as number)?.kind ?? 'air') === 'air'
-      const baselineVolume: ViewerVolume = { ...volume, data: baseline }
-      const baselineBuf = buildMesh(baselineVolume, palette, {
-        minY: this.sliceMinY,
-        maxY: this.sliceMaxY,
-        accept: (index: number) => attributionMask[index] === 1 && isCurrentlyAir(index),
-        colorOverride: attributionColor,
-      })
-      updateGeometry(this.attributionGeometry, concatMeshBuffers(currentBuf, baselineBuf))
-    } else {
-      updateGeometry(this.attributionGeometry, EMPTY_MESH_BUFFERS)
-    }
-
-    const overflowBlocks = volume.overflowBlocks
-    if (this.showOverflow && overflowBlocks !== undefined && overflowBlocks.length > 0) {
-      const overflowBuf = buildOverflowMesh(overflowBlocks, palette, OVERFLOW_TINT, OVERFLOW_TINT_STRENGTH)
-      updateGeometry(this.overflowGeometry, overflowBuf)
-    } else {
-      updateGeometry(this.overflowGeometry, EMPTY_MESH_BUFFERS)
-    }
+    updateGeometry(this.featureGeometry, passes.feature)
+    updateGeometry(this.featureTranslucentGeometry, passes.featureTranslucent)
+    updateGeometry(this.environmentGeometry, passes.environment)
+    updateGeometry(this.environmentTranslucentGeometry, passes.environmentTranslucent)
+    updateGeometry(this.carvedGeometry, passes.carved)
+    updateGeometry(this.heatmapGeometry, passes.heatmap)
+    updateGeometry(this.attributionGeometry, passes.attribution)
+    updateGeometry(this.overflowGeometry, passes.overflow)
+    this.syncLegend()
   }
+
 
   private rebuildGridAndBounds(): void {
     this.scene.remove(this.gridHelper)
@@ -1264,8 +1810,118 @@ export class VoxelViewer {
     boxGeom.dispose()
     this.boundsBox = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x7d8896 }))
     this.boundsBox.position.set(minX + sizeX / 2, minY + sizeY / 2, minZ + sizeZ / 2)
-    this.boundsBox.visible = this.showGrid
     this.scene.add(this.boundsBox)
+    this.syncBoundsBoxVisibility()
+  }
+
+  /** Turns damping on or off from the current `prefers-reduced-motion` value. */
+  private applyMotionPreference(): void {
+    this.controls.enableDamping = this.reducedMotion?.matches !== true
+  }
+
+  private readonly handleMotionPreferenceChange = (): void => {
+    this.applyMotionPreference()
+  }
+
+  /** Whether the camera glides after an input -- what `prefers-reduced-motion` switches off.
+   * Exposed so the browser harness can assert the preference is actually honoured. */
+  getDampingEnabled(): boolean {
+    return this.controls.enableDamping
+  }
+
+  /** Orbits the camera around `controls.target` by whole radians, the keyboard's equivalent of a
+   * drag. Clamped short of both poles (see KEY_POLAR_EPSILON) and marked as a camera the USER
+   * chose, exactly as a drag is -- a resize must not undo it. */
+  private orbitBy(dTheta: number, dPhi: number): void {
+    const target = this.controls.target
+    this.keyOffset.copy(this.camera.position).sub(target)
+    this.keySpherical.setFromVector3(this.keyOffset)
+    this.keySpherical.theta += dTheta
+    this.keySpherical.phi = Math.min(Math.max(this.keySpherical.phi + dPhi, KEY_POLAR_EPSILON), Math.PI - KEY_POLAR_EPSILON)
+    this.keyOffset.setFromSpherical(this.keySpherical)
+    this.camera.position.copy(target).add(this.keyOffset)
+    this.cameraTouched = true
+    this.controls.update()
+  }
+
+  /** Dollies in (factor < 1) or out (factor > 1), within the same distance limits a scroll
+   * gesture obeys -- including the maxDistance setVolume re-tightens to the content's own size. */
+  private dollyBy(factor: number): void {
+    const target = this.controls.target
+    this.keyOffset.copy(this.camera.position).sub(target)
+    const length = this.keyOffset.length()
+    if (length === 0) return
+    this.keyOffset.setLength(Math.min(Math.max(length * factor, this.controls.minDistance), this.controls.maxDistance))
+    this.camera.position.copy(target).add(this.keyOffset)
+    this.cameraTouched = true
+    this.controls.update()
+  }
+
+  /** Enter/Space: the keyboard's pick. Answers the same question a click answers -- "what is
+   * this block and did this run put it there" -- about the cell in the middle of the view, which
+   * is the only cell a keyboard user can aim at. Silent when the centre of the view is empty
+   * sky, exactly as a click on empty sky is. */
+  private pickCenter(): void {
+    if (this.onPick === null) return
+    const box = this.canvas.getBoundingClientRect()
+    if (box.width <= 0 || box.height <= 0) return
+    const cell = this.pickCell(box.left + box.width / 2, box.top + box.height / 2)
+    if (cell === null) return
+    const described = this.describeCell(cell.x, cell.y, cell.z)
+    if (described === null) return
+    this.highlightCell(cell.x, cell.y, cell.z, { frame: false })
+    this.onPick(described)
+  }
+
+  /** The canvas's own keys -- see KEY_ORBIT_RADIANS' comment for why `role="application"` had to
+   * either grow these or be given up. */
+  private readonly handleCanvasKeyDown = (ev: KeyboardEvent): void => {
+    if (ev.altKey || ev.ctrlKey || ev.metaKey) return
+    switch (ev.key) {
+      case 'ArrowLeft':
+        this.orbitBy(-KEY_ORBIT_RADIANS, 0)
+        break
+      case 'ArrowRight':
+        this.orbitBy(KEY_ORBIT_RADIANS, 0)
+        break
+      case 'ArrowUp':
+        this.orbitBy(0, -KEY_ORBIT_RADIANS)
+        break
+      case 'ArrowDown':
+        this.orbitBy(0, KEY_ORBIT_RADIANS)
+        break
+      // '=' is the unshifted key '+' lives on, and every 3D tool accepts it as zoom-in.
+      case '+':
+      case '=':
+        this.dollyBy(1 / KEY_DOLLY_FACTOR)
+        break
+      case '-':
+      case '_':
+        this.dollyBy(KEY_DOLLY_FACTOR)
+        break
+      case 'PageUp':
+        this.dollyBy(1 / KEY_DOLLY_PAGE)
+        break
+      case 'PageDown':
+        this.dollyBy(KEY_DOLLY_PAGE)
+        break
+      case 'Home':
+        this.frameContent()
+        break
+      case 'End':
+        this.frameAll()
+        break
+      case 'Enter':
+      case ' ':
+        this.pickCenter()
+        break
+      default:
+        return
+    }
+    // Only for a key this actually handled: Tab, Escape and everything else must still reach the
+    // page, or the canvas becomes a keyboard trap.
+    ev.preventDefault()
+    ev.stopPropagation()
   }
 
   private readonly handleKeyDown = (ev: KeyboardEvent): void => {
@@ -1274,10 +1930,11 @@ export class VoxelViewer {
       return
     }
     switch (ev.key) {
-      // Plain 'r' tightly frames what's actually occupied (see frameContent's doc comment);
-      // Shift+R ('R' -- the browser already folds the modifier into ev.key for a letter, no
-      // separate ev.shiftKey check needed) frames the full volume bounds instead, for seeing
-      // where a feature sits relative to the box it was asked to fill.
+      // Plain 'r' frames THE FEATURE -- the cells this run touched (see frameContent's doc
+      // comment); Shift+R ('R' -- the browser already folds the modifier into ev.key for a
+      // letter, no separate ev.shiftKey check needed) frames the full volume bounds instead, for
+      // seeing where a feature sits relative to the box it was asked to fill. The two used to
+      // land in the same place whenever the environment was solid, which is the default.
       case 'r':
         this.frameContent()
         break
@@ -1321,9 +1978,36 @@ export class VoxelViewer {
   }
 
   private readonly animate = (): void => {
+    if (!this.running) return
     this.rafHandle = requestAnimationFrame(this.animate)
     this.controls.update()
     this.updateClipPlanes()
-    this.renderer.render(this.scene, this.camera)
+    this.syncOrthoCamera()
+    this.updateGizmo()
+    this.renderer.render(this.scene, this.activeCamera())
+  }
+
+  private lastGizmoAt = 0
+
+  /** Projects the three world axes into screen directions for the overlay's compass. Rate-limited
+   * (GIZMO_UPDATE_INTERVAL_MS) because six SVG attribute writes per frame is more DOM work than
+   * the scene itself costs, and the gizmo only has to be right, not smooth. */
+  private updateGizmo(): void {
+    const overlay = this.overlay
+    if (overlay === null) return
+    const now = Date.now()
+    if (now - this.lastGizmoAt < GIZMO_UPDATE_INTERVAL_MS) return
+    this.lastGizmoAt = now
+    const cam = this.camera
+    // The camera's own basis, inverted: a world axis's screen direction is its projection onto
+    // the camera right/up vectors. Screen y grows DOWNWARD, hence the negation on the up term.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion)
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion)
+    const project = (axis: THREE.Vector3): { x: number; y: number } => ({ x: axis.dot(right), y: -axis.dot(up) })
+    overlay.setAxes({
+      x: project(new THREE.Vector3(1, 0, 0)),
+      y: project(new THREE.Vector3(0, 1, 0)),
+      z: project(new THREE.Vector3(0, 0, 1)),
+    })
   }
 }

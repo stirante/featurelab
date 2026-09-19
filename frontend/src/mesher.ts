@@ -83,6 +83,17 @@ export interface CompiledAtlas {
   mesher: MesherAtlas
   /** `pass[id]` -- PASS_ALPHA_TESTED or PASS_TRANSLUCENT. */
   pass: Uint8Array
+  /** Every block NAME in this palette the atlas could not fully texture -- no row at all, or a
+   * row missing at least one face -- in palette order, each named once.
+   *
+   * Recorded because "textures are on" and "this block is textured" are different claims, and
+   * only the second one is worth a sentence. An unresolved block still draws (its flat palette
+   * colour, through the white cell -- see this function's own doc comment), so nothing on screen
+   * distinguishes it from a block whose texture genuinely is a flat colour. A preview that
+   * silently mixes the two is the one way "textures on" can mislead, so the renderer counts
+   * them and lets a host say so once (viewer.ts's `getTextureReport`). Air is excluded: it is
+   * never drawn, so an atlas having nothing to say about it is not a gap. */
+  unresolved: readonly string[]
 }
 
 /** Per-cell UV rectangles, as `u0, v0, u1, v1` quadruples with `v0` the cell's TOP edge (the
@@ -161,12 +172,20 @@ export function compileAtlas(
   const pass = new Uint8Array(maxId + 1)
   const cellCount = table.cells.length
   const stated = indexStatedAtlasBlocks(table)
+  const unresolved: string[] = []
+  const seenUnresolved = new Set<string>()
+  const noteUnresolved = (entry: ViewerPaletteEntry): void => {
+    if (entry.kind === 'air' || seenUnresolved.has(entry.name)) return
+    seenUnresolved.add(entry.name)
+    unresolved.push(entry.name)
+  }
 
   for (const entry of palette) {
     const block = lookupAtlasBlock(table, stated, entry.name, entry.states)
     const base = entry.id * FACE_COUNT
     if (block === undefined) {
       for (let f = 0; f < FACE_COUNT; f++) tintForFace[base + f] = entry.color
+      noteUnresolved(entry)
       continue
     }
     pass[entry.id] = block.render === 'translucent' ? PASS_TRANSLUCENT : PASS_ALPHA_TESTED
@@ -179,13 +198,14 @@ export function compileAtlas(
       if (cell === undefined || !Number.isInteger(cell) || cell < 0 || cell >= cellCount) {
         cellForFace[base + f] = white
         tintForFace[base + f] = entry.color
+        noteUnresolved(entry)
         continue
       }
       cellForFace[base + f] = cell
       tintForFace[base + f] = tintForChannel(table, block, key)
     }
   }
-  return { mesher: { cellUV: buildCellUV(table), cellForFace, tintForFace, shapes }, pass }
+  return { mesher: { cellUV: buildCellUV(table), cellForFace, tintForFace, shapes }, pass, unresolved }
 }
 
 interface MesherOpts {
@@ -201,6 +221,21 @@ interface MesherOpts {
    * means flat-colour mode: no `uvs` are emitted at all and the vertex colour is the palette
    * colour times the per-face shade, exactly as before this file learned about textures. */
   atlas?: MesherAtlas
+  /** An inclusive WORLD-space box the walk is restricted to, on top of the `[minY, maxY]` slice.
+   *
+   * Purely a cost control, never a visual one: a pass whose `accept` can only ever be true inside
+   * a known box (the feature pass, whose cells are the run's own writes; the carved and
+   * attribution overlays, likewise) has no reason to visit the rest of the bench, and on a
+   * 48x48x48 bench that is the difference between visiting 110 000 cells and visiting the two
+   * thousand that can answer. The geometry is IDENTICAL either way, because face culling still
+   * reads neighbours straight out of `volume.data` and is bounded by the VOLUME, not by this --
+   * so a face on the box's own edge is still hidden by the block outside it, exactly as before.
+   *
+   * Callers pass a box that genuinely contains every cell their `accept` can admit; a box that
+   * is too small silently drops geometry, which is why nothing here derives one on its own (see
+   * remesh.ts's `summarizeVolume`, which computes them once per result from the same arrays
+   * `accept` tests). */
+  bounds?: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }
 }
 
 interface FaceDef {
@@ -296,7 +331,7 @@ function occludes(neighborKind: BlockKind, currentKind: BlockKind): boolean {
  */
 export function buildMesh(volume: ViewerVolume, palette: readonly ViewerPaletteEntry[], opts: MesherOpts): MeshBuffers {
   const { minX, minY: volMinY, minZ, sizeX, sizeY, sizeZ, data } = volume
-  const { minY: sliceMinY, maxY: sliceMaxY, accept, colorOverride, atlas } = opts
+  const { minY: sliceMinY, maxY: sliceMaxY, accept, colorOverride, atlas, bounds } = opts
 
   let maxId = 0
   for (const entry of palette) if (entry.id > maxId) maxId = entry.id
@@ -371,15 +406,22 @@ export function buildMesh(volume: ViewerVolume, palette: readonly ViewerPaletteE
     indices = i
   }
 
-  const loY = Math.max(sliceMinY, volMinY)
-  const hiY = Math.min(sliceMaxY, volMinY + sizeY - 1)
+  // The walked window: the slice, the volume, and -- when the caller named one -- `opts.bounds`,
+  // all intersected. Every one of the three is inclusive in world coordinates, and the result is
+  // converted to local indices once here rather than tested per cell.
+  const loY = Math.max(sliceMinY, volMinY, bounds ? bounds.minY : -Infinity)
+  const hiY = Math.min(sliceMaxY, volMinY + sizeY - 1, bounds ? bounds.maxY : Infinity)
+  const loZ = Math.max(0, bounds ? bounds.minZ - minZ : 0)
+  const hiZ = Math.min(sizeZ - 1, bounds ? bounds.maxZ - minZ : sizeZ - 1)
+  const loX = Math.max(0, bounds ? bounds.minX - minX : 0)
+  const hiX = Math.min(sizeX - 1, bounds ? bounds.maxX - minX : sizeX - 1)
 
   for (let ly = loY - volMinY; ly <= hiY - volMinY; ly++) {
     const wy = volMinY + ly
-    for (let lz = 0; lz < sizeZ; lz++) {
+    for (let lz = loZ; lz <= hiZ; lz++) {
       const wz = minZ + lz
       const rowBase = ly * layerStride + lz * sizeX
-      for (let lx = 0; lx < sizeX; lx++) {
+      for (let lx = loX; lx <= hiX; lx++) {
         const wx = minX + lx
         const index = rowBase + lx
         const id = data[index] as number

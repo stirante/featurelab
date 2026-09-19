@@ -42,7 +42,7 @@ async function loadPanelModuleFor(id: string | null) {
  * imported from panel.test.ts: that file's stub belongs to its own tests, and a shared one would
  * couple two suites that assert on completely different things. */
 function makeViewerStub(): VoxelViewer {
-  const state = { environmentMode: 'solid' as EnvironmentMode, showCarved: true, showHeatmap: false, showOverflow: true }
+  const state = { environmentMode: 'solid' as EnvironmentMode, showCarved: true, showHeatmap: false, showOverflow: true, hasAtlas: false, texturesEnabled: false }
   return {
     setVolume: vi.fn(),
     setSlice: vi.fn(),
@@ -66,6 +66,29 @@ function makeViewerStub(): VoxelViewer {
     resize: vi.fn(),
     dispose: vi.fn(),
     setBusy: vi.fn(),
+    // Cancel wiring: panel.ts arms (or explicitly disarms) the viewport pill's Cancel button on
+    // every panel, so this stub needs the method even in tests that never pass an onCancel.
+    setCancelHandler: vi.fn(),
+    canCancel: vi.fn(() => false),
+    hasFramed: vi.fn(() => false),
+    setProjection: vi.fn(),
+    getProjection: vi.fn(() => 'perspective' as const),
+    // Textures: panel.ts applies its remembered preference on construction and asks the viewer
+    // what it is ACTUALLY drawing whenever it renders the texture row, so both are needed even by
+    // a test that never touches textures. The stub answers "no atlas", which is every host that
+    // has not fetched one -- the state the row is inert in.
+    setTexturesEnabled: vi.fn((v: boolean) => {
+      state.texturesEnabled = v
+    }),
+    getTexturesEnabled: vi.fn(() => state.hasAtlas && state.texturesEnabled),
+    getTextureReport: vi.fn(() => ({ hasAtlas: state.hasAtlas, enabled: state.hasAtlas && state.texturesEnabled, blocks: 0, unresolved: [] as string[] })),
+    hasAtlas: vi.fn(() => state.hasAtlas),
+    setNotice: vi.fn(),
+    setAttributionCells: vi.fn(),
+    setAttributionGroups: vi.fn(),
+    onTexturesChanged: null,
+    onPick: null,
+    onViewChange: null,
   } as unknown as VoxelViewer
 }
 

@@ -43,12 +43,14 @@
 // blocksWritten / delegations) go back to the graph so it can put them on its node cards, which
 // is graph/nodeStats.ts's job. Same gate, same message, same run -- nothing about that widens
 // who asks the engine for a profile.
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
-import { EngineCrashedError, MalformedResponseError, RequestTimeoutError, RpcError } from './engineProcess.js'
+import { EngineCrashedError, MalformedResponseError, RequestCancelledError, RequestTimeoutError, RpcError } from './engineProcess.js'
 import { DocumentParseError, PackRootError, isEngineLoadedPackFile, parseDocumentIdentifier, resolvePackRoot } from './identifier.js'
-import type { PreviewController } from './previewController.js'
+import { EngineDisposedError, type PreviewController } from './previewController.js'
 import { updateDiagnostics, type DiagnosticWireLike } from './diagnostics.js'
+import { brokenFiles, describeBrokenFiles, describePackContents, diagnosticLocation, scopedForPreview } from './packContents.js'
 import {
   AttributionIndex,
   createAttributionBridge,
@@ -58,8 +60,21 @@ import {
   type ProfileWire,
 } from './graph/attribution.js'
 import type { RunStatsWire } from './graphPanel.js'
-import { TextureBuilder, notesForPalette, notesFromAtlas, type TextureStatusWire } from './textures.js'
-import { ENGINE_DEFAULT_PLACEMENT_TIME_LIMIT_MS } from 'featurelab-frontend'
+import {
+  TextureBuilder,
+  TextureCommandError,
+  notesForPalette,
+  notesFromAtlas,
+  summarizeUnresolved,
+  unresolvedFromAtlas,
+  unresolvedRows,
+  unresolvedTotal,
+  type TextureStatusWire,
+  type UnresolvedTextureWire,
+} from './textures.js'
+import { describeError, fail, log, output, warn } from './log.js'
+import { showBusy } from './progress.js'
+import { ATTRIBUTION_SERIES_LENGTH, ENGINE_DEFAULT_PLACEMENT_TIME_LIMIT_MS } from 'featurelab-frontend'
 import type { EnvironmentOptionWire, GenerateParamsWire } from 'featurelab-frontend'
 
 // How much headroom to add above whatever placement time limit a `generate` request will
@@ -89,10 +104,53 @@ const REQUEST_TIMEOUT_MARGIN_MS = 10_000
  * webview shows is the REAL total, with the shortfall named. */
 const ATTRIBUTION_CELL_LIMIT = 250_000
 
-/** One "Feature Lab" output channel for the whole extension session, shared by every panel --
- * three previews open on three files should not mean three channels with the same name in the
- * Output dropdown. Created lazily; see PreviewPanel.textureOutput. */
-let outputChannel: vscode.OutputChannel | undefined
+/** How many writers this panel gives a colour of their own before it groups the rest.
+ *
+ * The viewer's own ceiling, imported rather than retyped (frontend/src/colors.ts's attribution
+ * series): past the end of that series the colours repeat, and a seventh writer drawn in the
+ * first one's colour is a legend that lies. So the largest few get a colour each and everything
+ * behind them becomes one honest "+N more features" band -- see attributionGroupsFor. */
+const ATTRIBUTION_GROUP_LIMIT = ATTRIBUTION_SERIES_LENGTH
+
+/** The id of the "everything past the palette" band -- see attributionGroupsFor. Deliberately
+ * not a node id, and deliberately not spellable as one: a host reading getAttributionGroups()
+ * back must not be able to mistake the band for a feature it can select. */
+export const ATTRIBUTION_TAIL_GROUP_ID = 'featurelab.attribution.more'
+
+/** What the host tells the panel when block textures are switched off in settings.
+ *
+ * The row in the sidebar is otherwise inert with no explanation, which is the one shape a
+ * setting must never take: a control that cannot be turned on and does not say why. Exported
+ * because it is a sentence somebody reads. */
+export const TEXTURES_DISABLED_REASON =
+  'Block textures are switched off by the featurelab.blockTextures setting, so the preview draws one flat colour per block. Turn that setting on to have Feature Lab prepare an atlas.'
+
+/** What the host tells the panel (and says once in a notification) after "Never". */
+export const TEXTURES_DECLINED_REASON =
+  'Block textures were declined on this machine, so the preview draws flat block colours. Run "Feature Lab: Refresh Block Textures" from the Command Palette to be asked again.'
+
+/** The one gesture that undoes a decline from inside the editor -- named here rather than in
+ * extension.ts because this file is what has to TELL somebody about it (see
+ * TEXTURES_DECLINED_REASON), and a command id spelled twice is a sentence that goes stale the
+ * first time the id moves. Registered in extension.ts; contributed in package.json. */
+export const REFRESH_TEXTURES_COMMAND = 'featurelab.refreshBlockTextures'
+
+/** Which of the three reasons a panel is asking about block textures.
+ *
+ * They differ in exactly two things -- whether the user may be INTERRUPTED with the download
+ * question, and whether a recorded "no" is taken as final -- and both of those are decisions
+ * only the caller can make:
+ *
+ *   - 'initial': the webview just came up. One question at most, and a decline is respected in
+ *     silence.
+ *   - 'refresh': a regenerate just finished. NEVER asks anything and never reaches the network;
+ *     it exists so that an atlas that went stale while this panel was open (a texture repainted,
+ *     a block file edited -- the engine detects both by content hash) is rebuilt from assets
+ *     already on the machine instead of the panel drawing last week's sheet for the rest of the
+ *     session. Says nothing at all when nothing changed.
+ *   - 'user': somebody ran the refresh command. This is the ONLY mode that reopens a recorded
+ *     decline, because it is the only one where the user asked. */
+type TextureCheckMode = 'initial' | 'refresh' | 'user'
 
 /** The wait THIS extension should actually use for a `generate` request carrying `params`,
  * given the user's configured featurelab.requestTimeoutMs -- comfortably above whatever
@@ -107,9 +165,118 @@ export function effectiveGenerateTimeoutMs(configuredTimeoutMs: number, params: 
   return Math.max(configuredTimeoutMs, placementBudget + REQUEST_TIMEOUT_MARGIN_MS)
 }
 
+/** What the webview posts when the user clicks Cancel on the viewport's busy pill.
+ *
+ * The other half of webview/main.ts's CANCEL_MESSAGE_TYPE, spelled here rather than imported
+ * because the two halves are a PROTOCOL: this file is bundled for Node and that one for the
+ * browser, and a shared constant would be a build-time dependency between them where what
+ * actually exists is a message on a wire. Named so both sides are greppable from either. */
+export const CANCEL_MESSAGE_TYPE = 'cancelGenerate'
+
+/** Where the webview's own view state is kept between one panel and the next -- the 3D camera
+ * above all, and whatever else panel.ts decides is worth keeping that this class does not already
+ * hold in `lastParams`.
+ *
+ * Per DOCUMENT, because a preview is about a file. Opaque to this host: the webview hands a blob
+ * over (`persistState`) and is handed it back (`restoreState`), so the side that knows what a
+ * camera is decides what is worth keeping. Exported so the tests name the same key. */
+export function previewViewStateKey(documentUri: string): string {
+  return `featurelab.preview.viewState:${documentUri}`
+}
+
+/** Where THIS class's own state is kept -- the generation params (which is the seed, the origin,
+ * the repeat count, the environment preset and the sizes, all of them already fields of
+ * GenerateParamsWire) plus whether the last request was a grown one.
+ *
+ * Deliberately separate from previewViewStateKey: this half is the host's, it is read by the host
+ * on revival, and folding it into an opaque webview blob would mean the host could only recover
+ * its own state by parsing something it does not own. */
+export function previewParamsKey(documentUri: string): string {
+  return `featurelab.preview.params:${documentUri}`
+}
+
+/** The shape stamp on what previewParamsKey holds. Bump it whenever the blob's meaning changes;
+ * a blob of any other version is discarded rather than interpreted, which is the whole point of
+ * having one -- workspaceState survives an extension update, so the code that reads this is
+ * routinely NOT the code that wrote it. */
+export const PREVIEW_PARAMS_VERSION = 1
+
+/** What previewParamsKey holds. Every field optional because this is read off disk: a blob
+ * written by an older build, by a newer one, or by a hand-edited workspace file is an ordinary
+ * thing to find here, not an error. */
+export interface RememberedPreviewParams {
+  version?: number
+  /** The identifier the previewed document declared WHEN THESE PARAMS WERE SAVED. The freshness
+   * check -- see freshPreviewParams. */
+  identifier?: string | null
+  params?: GenerateParamsWire | null
+  grown?: boolean
+}
+
+/** What a revived tab should actually generate, from what was remembered and what the file says
+ * NOW.
+ *
+ * # The freshness question, and what was decided
+ *
+ * A reload replayed `{feature, seed, originX, repeat, sizeX}` verbatim with nothing checked at
+ * all: no version, no hash, no mtime. Between the two windows a feature can be renamed, deleted,
+ * or replaced by a different one at the same path, and the tab would come back confidently
+ * previewing a name the pack no longer has.
+ *
+ * NO mtime AND NO CONTENT HASH. Both would answer a question nobody asked. The bench settings --
+ * the seed, the origin, the sizes, the repeat count, the preset -- are the author's deliberate
+ * setup, they are expensive to retype, and they do not go stale when a file is edited: a run at
+ * seed 42 in a 64-wide bench is exactly as meaningful against the new bytes as against the old.
+ * Throwing them away on every edit (which is what an mtime check does -- the previewed file is
+ * saved constantly) would be a reload that silently reset the author's work, traded for nothing.
+ *
+ * WHAT CAN GO STALE IS THE NAME, and only the name. So this checks the ONE field that can be
+ * wrong -- the identifier the params name -- against the one authority on it, the file itself,
+ * remembered alongside the params so the comparison needs no filesystem, no clock and no engine.
+ * A file that still declares what it declared keeps everything. A file that now declares
+ * something else keeps its bench and loses its feature/rule, dropping back to the file-derived
+ * fallback this panel opens with -- which is "preview what this file is about", the correct
+ * answer for a tab whose file was renamed underneath it.
+ *
+ * A blob with no version is a pre-stamp one: its params are dropped whole, because it carries no
+ * identifier to check them against and guessing is what this function exists to stop. */
+export function freshPreviewParams(
+  remembered: RememberedPreviewParams | null | undefined,
+  currentIdentifier: string | null,
+): { params: GenerateParamsWire | null; grown: boolean } {
+  const grown = remembered?.grown === true
+  if (remembered?.version !== PREVIEW_PARAMS_VERSION) return { params: null, grown: false }
+  const params = remembered.params
+  if (params === null || params === undefined || typeof params !== 'object') return { params: null, grown }
+  const was = remembered.identifier
+  // Nothing was remembered to compare against (the file did not parse when the params were
+  // saved), or it still says the same thing. Either way there is no evidence of a rename.
+  if (typeof was !== 'string' || was.length === 0 || currentIdentifier === null || was === currentIdentifier) {
+    return { params, grown }
+  }
+  const { feature: _feature, rule: _rule, ...bench } = params as GenerateParamsWire & { rule?: string }
+  return { params: bench as GenerateParamsWire, grown }
+}
+
+/** What a preview panel needs handed back when VS Code revives its tab after a window reload --
+ * see extension.ts's serializer, and PreviewPanel's own constructor.
+ *
+ * The panel is ALREADY THERE: VS Code recreated the tab, in the group the author had put it in,
+ * before this extension was activated. So there is nothing to create and nothing to place, and
+ * the constructor takes this one over instead of making its own. */
+export interface RevivedPreview {
+  readonly panel: vscode.WebviewPanel
+  /** The params the panel was last generating with, off previewParamsKey. Null restores the
+   * ordinary "preview the open file's own identifier" fallback. */
+  readonly params?: GenerateParamsWire | null
+  readonly grown?: boolean
+}
+
 interface WebviewToHostMessage {
-  type: 'ready' | 'generate' | 'reloadFiles' | 'growRegenerate' | 'pickCell'
+  type: 'ready' | 'generate' | 'reloadFiles' | 'growRegenerate' | 'pickCell' | 'cancelGenerate' | 'persistState'
   params?: GenerateParamsWire
+  /** 'persistState' only -- the webview's own opaque blob. See previewViewStateKey. */
+  state?: unknown
   /** 'pickCell' only -- a WORLD POSITION the user clicked in the 3D view, which this host turns
    * into a cell index and then into the node(s) that wrote it.
    *
@@ -134,7 +301,7 @@ interface WebviewToHostMessage {
  * cast in growRegenerate() below resolves to exactly what it already reads: a plain method
  * call -- nothing else needs to change on this side. */
 interface GrowCapablePreviewController {
-  generateGrown(packRoot: string, params: GenerateParamsWire, timeoutMs: number): Promise<unknown>
+  generateGrown(packRoot: string, params: GenerateParamsWire, timeoutMs: number, signal?: AbortSignal): Promise<unknown>
 }
 
 function getNonce(): string {
@@ -143,6 +310,33 @@ function getNonce(): string {
   for (let i = 0; i < 32; i++) out += chars[Math.floor(Math.random() * chars.length)]
   return out
 }
+
+/** What the preview says before its own script has run a single line.
+ *
+ * SHIPPED IN THE STATIC HTML, and the only sentence in this panel that is. Every other thing a
+ * preview ever says -- the error slot, the stale banner, "no blocks were placed" -- is written by
+ * dist/webview.js, which cannot say anything at all in the one case this covers: the script did
+ * not load. A file excluded from the VSIX, a Content-Security-Policy that rejects the bundle, a
+ * corrupted install -- each produces a panel that opens, takes a tab, and is a blank rectangle
+ * forever, indistinguishable from an editor that is merely slow. The graph panel has had this
+ * sentence and its 15-second backstop since the identical report was made about it
+ * (graphPanel.ts's WEBVIEW_DID_NOT_START); the preview shipped with neither.
+ *
+ * webview/main.ts removes it as its first act, so this text still being on screen IS the
+ * diagnosis. Deliberately NOT hidden by default -- hidden-by-default is what makes a blank panel
+ * possible in the first place. */
+export const PREVIEW_DID_NOT_START =
+  'Starting the preview&hellip; If this message stays here, this panel&#39;s script did not load &mdash; ' +
+  'run &quot;Feature Lab: Show Log&quot; for the reason.'
+
+/** How long to wait for the webview to say its script is running, before telling the command that
+ * opened this panel that it never will.
+ *
+ * The SAME 15 seconds and the same reasoning as the graph's WEBVIEW_READY_TIMEOUT_MS: without it,
+ * a preview whose bundle does not load leaves the command's progress notification spinning
+ * forever, because the first result is only ever posted to a webview that reported `ready`.
+ * Generous on purpose -- a backstop for a panel that is never coming, not a performance budget. */
+const WEBVIEW_READY_TIMEOUT_MS = 15_000
 
 export interface ShellHtmlParams {
   nonce: string
@@ -241,12 +435,25 @@ export function renderShellHtml(params: ShellHtmlParams): string {
      width -- see that module's own doc comment. The splitter itself supplies the divider line
      (.fl-splitter's border-left in panel.css), so no border here. */
   #fl-sidebar { flex: 0 0 300px; overflow-y: auto; }
+  /* The one sentence this shell says on its own -- see PREVIEW_DID_NOT_START. Over the canvas,
+     never in the layout, and pointer-events:none so it can never intercept a drag of the 3D
+     view in the instant before the script removes it. */
+  #fl-boot[hidden] { display: none; }
+  #fl-boot {
+    position: absolute; top: 0; left: 0; right: 300px; bottom: 0; z-index: 4; pointer-events: none;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    padding: 0 48px; box-sizing: border-box;
+    font-family: var(--vscode-font-family); font-size: 13px; line-height: 1.6;
+    color: var(--vscode-descriptionForeground);
+  }
+  #fl-boot > span { max-width: 44em; }
 </style>
 </head>
 <body data-fl-workspace="${workspaceId}">
   <div id="fl-root">
     <canvas id="fl-canvas"></canvas>
     <div id="fl-attribution" role="status" aria-live="polite" hidden></div>
+    <div id="fl-boot" role="status" aria-live="polite"><span>${PREVIEW_DID_NOT_START}</span></div>
     <div id="fl-sidebar"></div>
   </div>
   <script nonce="${nonce}" type="module" src="${scriptUri}"></script>
@@ -288,7 +495,20 @@ export interface GraphLink {
   readonly onRunStats?: (packRoot: string, stats: RunStatsWire | null) => void
 }
 
+/** What the preview panel says after the user cancels a run.
+ *
+ * It rides the "stale" banner, which is the panel's existing way of saying "what you are looking
+ * at is not current, and here is why" -- exactly the situation a cancelled run leaves behind.
+ * Phrased as a fact and a next step, never as a failure: nothing went wrong, and the pack was not
+ * touched. Exported because it is a sentence somebody reads, and those are worth testing by their
+ * words. */
+export const PREVIEW_CANCELLED =
+  'The preview was cancelled, so nothing here is from this run. Change a setting or save the file to generate again.'
+
 export class PreviewPanel {
+  /** The webview panel's view type -- also what extension.ts registers a serializer against, so
+   * the manifest, the serializer and this class cannot drift apart silently. */
+  static readonly VIEW_TYPE = 'featurelab.preview'
   private readonly panel: vscode.WebviewPanel
   private disposed = false
   private document: vscode.TextDocument
@@ -349,6 +569,9 @@ export class PreviewPanel {
   /** Set once the placed-block notes have been reported for this panel, so a save-triggered
    * regenerate does not repeat them on every run. */
   private reportedBlockNotes = false
+  /** Set once the unresolved-texture rows have been reported for this panel -- see
+   * reportUnresolved for why two routes can carry the same rows. */
+  private reportedUnresolved = false
   /** The most recent generate response, kept only so the block notes can be reported against
    * it when the atlas arrives AFTER the first result -- which is the ordinary order: the
    * constructor fires a generate immediately and the texture flow may have a download in front
@@ -360,6 +583,9 @@ export class PreviewPanel {
    * overlay is ever posted, and a `pickCell` message is ignored. Set only by attributeNode(),
    * which only the graph panel reaches (see this file's header). */
   private attributionNodeId: string | null = null
+  /** The identifier the webview's picker was last seeded with, so a reload can tell a rename
+   * apart from an ordinary save -- see tryPostInit's `whenChanged`. */
+  private seededIdentifier: string | null = null
   /** graph/attribution.ts's own selection bridge over that index. The two directions of this
    * feature are ONE object because they are one selection: a node picked in the graph and a
    * block picked in the preview are two ways of setting it, and the bridge is what makes the
@@ -370,6 +596,34 @@ export class PreviewPanel {
   /** Set once per panel when a profiled run came back with no attribution table at all. Keeps
    * the output-channel note to one line rather than one per regenerate. */
   private warnedAboutAttribution = false
+  /** The block-texture state this panel last observed, so a background re-check can tell "the
+   * atlas went stale under an open panel" from "nothing has changed since the last save". Null
+   * until the first check; see ensureTextures. */
+  private lastTextureState: TextureStatusWire['state'] | null = null
+  /** One texture check at a time. A check spawns a process and hashes the pack's block files,
+   * and the post-regenerate check fires on every save -- see ensureTextures. */
+  private textureCheckInFlight = false
+
+  /** Settles on this panel's FIRST outcome -- a result, or the reason there wasn't one.
+   *
+   * The preview command awaits it, which is what lets the command hold a progress notification
+   * up until there is something to look at, and report a first run that failed as a notification
+   * with a "Show log" button. Without it the command returned the instant the panel object
+   * existed, so "nothing happened" and "it is generating" were the same experience, and a first
+   * run that failed while the webview was still booting put its message into an outbox nobody
+   * was reading yet.
+   *
+   * Only the FIRST run. Every regenerate after it reports itself -- see reportFailure. */
+  private settleFirstResult: (() => void) | null = null
+  private rejectFirstResult: ((err: Error) => void) | null = null
+  private readonly firstResult: Promise<void>
+  /** The backstop for a webview whose script never runs -- see WEBVIEW_READY_TIMEOUT_MS.
+   * Cleared the moment the webview says `ready`, which is the only thing that proves it did. */
+  private readyTimer: ReturnType<typeof setTimeout> | null = null
+  /** Cancels the generate this panel currently has in flight, if any. Owned by the panel because
+   * nothing else can be: a regenerate is started by a save, by a control in the webview, or by
+   * the graph following a selection, while Cancel is pressed on the command's notification. */
+  private inflightGenerate: AbortController | null = null
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -385,28 +639,72 @@ export class PreviewPanel {
      * default, and what every command-opened preview gets -- means this panel attributes
      * nothing, asks for no profile and reports to nobody. */
     private readonly graphLink: GraphLink = {},
+    /** Set only by extension.ts's webview serializer, for a tab VS Code brought back after a
+     * window reload -- see RevivedPreview. Absent for every panel a person opens. */
+    revived?: RevivedPreview,
   ) {
     this.document = document
+    if (revived !== undefined) {
+      this.lastParams = revived.params ?? null
+      this.lastRequestWasGrow = revived.grown === true
+    }
+    this.firstResult = new Promise<void>((resolve, reject) => {
+      this.settleFirstResult = resolve
+      this.rejectFirstResult = reject
+    })
+    // A handler attached at creation, so a panel nobody awaits (one the graph opened, one a
+    // test made) cannot raise an unhandled rejection. Not a swallow -- it logs, and
+    // whenFirstResult() hands out the original promise, so a real awaiter still sees it.
+    void this.firstResult.catch((err: unknown) => log(`Preview first run failed: ${describeError(err)}`))
+    // A first result is only ever DELIVERED to a webview that reported `ready` (see the outbox in
+    // post()), so a bundle that never loads left the command's notification spinning forever with
+    // a blank panel beside it. The graph has had this backstop; this is the preview's.
+    this.readyTimer = setTimeout(() => this.reportWebviewNeverStarted(), WEBVIEW_READY_TIMEOUT_MS)
+    // Node keeps the process alive for a pending timer, which matters for the tests that drive
+    // this class outside an extension host.
+    this.readyTimer.unref?.()
     try {
       this.packRoot = resolvePackRoot(document.uri.fsPath)
+      log(`Preview panel opened for ${document.uri.fsPath} (pack root ${this.packRoot})`)
     } catch (err) {
       this.packRoot = null
       this.packRootError = err instanceof PackRootError ? err.message : String(err)
+      log(`Preview panel opened for ${document.uri.fsPath} with no pack root: ${this.packRootError}`)
     }
 
-    this.panel = vscode.window.createWebviewPanel(
-      'featurelab.preview',
-      `Feature Lab: ${path.basename(document.fileName)}`,
-      vscode.ViewColumn.Beside,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist')],
-      },
-    )
+    const webviewOptions: vscode.WebviewOptions = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist')],
+    }
+    if (revived !== undefined) {
+      // A revived panel comes back with its SCRIPTS OFF and no resource roots -- VS Code does not
+      // persist webview options -- and is already placed where the author left it, so nothing here
+      // names a column.
+      this.panel = revived.panel
+      this.panel.webview.options = webviewOptions
+    } else {
+      this.panel = vscode.window.createWebviewPanel(
+        PreviewPanel.VIEW_TYPE,
+        `Feature Lab: ${path.basename(document.fileName)}`,
+        vscode.ViewColumn.Beside,
+        { ...webviewOptions, retainContextWhenHidden: true },
+      )
+    }
     this.panel.webview.html = buildHtml(this.panel.webview, context.extensionUri)
     this.panel.onDidDispose(() => {
       this.disposed = true
+      if (this.readyTimer !== null) clearTimeout(this.readyTimer)
+      this.readyTimer = null
+      // Closing the preview stops its run for real. Nothing is left to draw the answer on, and
+      // the engine's one worker is better spent on a panel that still exists.
+      this.inflightGenerate?.abort()
+      this.inflightGenerate = null
+      // A panel closed before its first run finished has to settle, or the command that opened
+      // it holds a progress notification over a panel that is no longer there.
+      const pending = this.rejectFirstResult
+      this.settleFirstResult = null
+      this.rejectFirstResult = null
+      pending?.(new Error('the preview was closed before it finished generating'))
       this.attributionBridge?.dispose()
       this.attributionBridge = null
       // The graph's cards are showing THIS run's numbers. The run is now unreachable -- there is
@@ -429,6 +727,8 @@ export class PreviewPanel {
     switch (message.type) {
       case 'ready':
         this.webviewReady = true
+        if (this.readyTimer !== null) clearTimeout(this.readyTimer)
+        this.readyTimer = null
         // Seeds panel.ts's Feature OR Rule dropdown (and switches mode to match) with the
         // kind+identifier THIS regenerate() call is already about to request (or already
         // requested, if 'ready' arrives after the first result -- order between the initial
@@ -439,9 +739,40 @@ export class PreviewPanel {
         // buffered first result lands on an already-seeded picker, the same order the
         // ready-before-result case has always had.
         this.tryPostInit()
+        // Whatever the last panel on this document was left holding, before the flush for the
+        // same reason `init` is: the webview restores a camera onto the result it is about to be
+        // handed, and arriving afterwards would mean one frame at the default view and a jump.
+        this.postRestoreState()
         this.flushOutbox()
+        // THE LAST RESULT, AGAIN, for a webview that has booted a SECOND time.
+        //
+        // `ready` is not a once-per-panel event. A webview without retainContextWhenHidden is
+        // torn down when its tab is hidden and rebuilt -- from the static HTML, with nothing in
+        // it -- when the tab comes back, and it says `ready` again on the way in. The outbox is
+        // empty by then (it was flushed the first time round) and nothing else re-sends, so
+        // hiding and re-showing a preview left a SEEDED SIDEBAR OVER AN EMPTY CANVAS: the
+        // restored params, the picker and the controls all came back, and the picture did not.
+        //
+        // A panel this extension creates asks for retainContextWhenHidden and so never reaches
+        // this; a panel VS Code REVIVES after a window reload cannot -- retainContextWhenHidden
+        // lives on WebviewPanelOptions, which is fixed at creation and readonly afterwards, so a
+        // revived tab is stuck with whatever the reload gave it. Re-posting is the fix that works
+        // for both, and it costs a first boot nothing (lastResult is null until a run lands).
+        //
+        // AFTER the flush, so a result still sitting in the outbox is delivered first and this is
+        // the redundant copy rather than the out-of-order one.
+        if (this.lastResult !== null) {
+          this.postResult(this.lastResult)
+          // The overlay went with the page. Re-resolving the current selection against the index
+          // this panel still holds puts it back, and posts "unavailable" when there is nothing to
+          // put back -- which is what the webview draws as the plain preview it already is.
+          this.applyAttribution(this.lastResult)
+        }
         void this.tryPostEnvironments()
         void this.ensureTextures()
+        break
+      case 'persistState':
+        void this.stateStore()?.update(previewViewStateKey(this.document.uri.toString()), message.state ?? null)
         break
       case 'generate':
         if (message.params) {
@@ -450,6 +781,7 @@ export class PreviewPanel {
           // this needs recording, not just used once here: it's what keeps a LATER save-
           // triggered regenerate honoring "sticky grow is currently off" too.
           this.lastRequestWasGrow = false
+          this.rememberParams()
           this.pending = this.pending.then(() => this.regenerate())
         }
         break
@@ -465,6 +797,7 @@ export class PreviewPanel {
         if (message.params) {
           this.lastParams = message.params
           this.lastRequestWasGrow = true
+          this.rememberParams()
           this.pending = this.pending.then(() => this.growRegenerate())
         }
         break
@@ -474,22 +807,91 @@ export class PreviewPanel {
       case 'pickCell':
         this.pickCell(message)
         break
+      case CANCEL_MESSAGE_TYPE:
+        // NOT queued behind `this.pending`. Every other message here takes its turn in that
+        // chain, which is right for requests -- two generates must not interleave. A cancel is
+        // the opposite kind of thing: queueing it behind the run it is meant to stop would mean
+        // it could only ever arrive after that run had finished, which is precisely never doing
+        // anything at all.
+        this.cancelGenerate()
+        break
       default:
         break
     }
   }
 
-  private tryPostInit(): void {
+  /** Seeds panel.ts's Feature/Rule picker from what THIS document currently declares.
+   *
+   * `whenChanged` is for the one caller that is not an open: a RELOAD. `init` overrides whatever
+   * the picker is showing (seedOpenedDocument's "opened file always wins"), which is right when a
+   * panel is opened or re-pointed and wrong on every save -- an author who picked a different
+   * feature out of the dropdown would have their choice snatched back to the open file's
+   * identifier once per save. So a reload re-seeds only when the file now declares a DIFFERENT
+   * identifier from the one last posted, which is exactly the rename case: rename a feature in
+   * the editor, save, and the picker was left holding a name the pack no longer has, reading
+   * `"wiki:fancy_oak_tree" not found in loaded files` under a legend naming the new one. */
+  private tryPostInit(whenChanged = false): void {
     try {
       // kind matters here, not just identifier -- see parseDocumentIdentifier's own doc comment
       // for the bug this fixes: a rule file's identifier posted under a feature-only message
       // used to seed panel.ts's Feature picker, where it could only ever match nothing.
       const { kind, identifier } = parseDocumentIdentifier(this.document.getText())
+      if (whenChanged && identifier === this.seededIdentifier) return
+      this.seededIdentifier = identifier
       this.post({ type: 'init', kind, identifier })
-    } catch {
+    } catch (err) {
       // Not previewable yet (e.g. mid-edit, invalid JSON) -- regenerate()'s own error path
-      // already surfaces this; nothing more to seed the picker with.
+      // already surfaces this to the user; nothing more to seed the picker with. Logged rather
+      // than dropped, because an empty Feature picker with no explanation anywhere is one of the
+      // shapes "the extension is broken" takes.
+      log(`Could not seed the preview's picker from ${path.basename(this.document.fileName)}: ${describeError(err)}`)
     }
+  }
+
+  /** Where the two halves of this panel's state are kept -- see previewViewStateKey and
+   * previewParamsKey.
+   *
+   * Optional-chained through, because `context` here is an ExtensionContext in the extension and
+   * a two-field stand-in in most of the tests. A missing store costs the remembering and nothing
+   * else: every read falls back to exactly what this class did before any of it existed. */
+  private stateStore(): vscode.Memento | undefined {
+    return (this.context as { workspaceState?: vscode.Memento } | undefined)?.workspaceState
+  }
+
+  /** Records what this panel is currently generating, so a tab VS Code revives after a window
+   * reload comes back showing the same thing rather than resetting to the file's own identifier
+   * at the default size, seed and origin. Written on the two messages that set `lastParams` and
+   * on a retarget, which are the only three things that ever change it. */
+  private rememberParams(): void {
+    const blob: RememberedPreviewParams = {
+      // Stamped and dated, so the side that reads this back can tell whether it still means what
+      // it meant -- see freshPreviewParams for what each of these two is for.
+      version: PREVIEW_PARAMS_VERSION,
+      identifier: this.currentDocumentIdentifier(),
+      params: this.lastParams,
+      grown: this.lastRequestWasGrow,
+    }
+    void this.stateStore()?.update(previewParamsKey(this.document.uri.toString()), blob)
+  }
+
+  /** What this panel's document declares right now, or null when it does not parse -- which is
+   * most of the time somebody is typing in it, and is therefore an ordinary answer rather than a
+   * failure. */
+  private currentDocumentIdentifier(): string | null {
+    try {
+      return parseDocumentIdentifier(this.document.getText()).identifier
+    } catch {
+      return null
+    }
+  }
+
+  /** Hands the webview back its own blob. `key` travels with it because the webview has to write
+   * that key into its own `setState`: on a window reload VS Code hands this host the webview's
+   * saved state and nothing else, so it is the only thing that can say WHICH DOCUMENT a revived
+   * tab was previewing (see extension.ts's serializer). */
+  private postRestoreState(): void {
+    const uri = this.document.uri.toString()
+    this.post({ type: 'restoreState', key: uri, state: this.stateStore()?.get<unknown>(previewViewStateKey(uri), null) ?? null })
   }
 
   /** Fetches the engine's environment preset list and posts it to the webview's panel.ts (see
@@ -505,13 +907,24 @@ export class PreviewPanel {
       const environments: EnvironmentOptionWire[] = await this.controller.listEnvironments(timeoutMs)
       if (this.disposed) return
       this.post({ type: 'environments', environments })
-    } catch {
-      // See this method's own doc comment -- not fatal, nothing to surface.
+    } catch (err) {
+      // See this method's own doc comment -- not fatal, so nothing is shown. Logged, because an
+      // empty Preset dropdown is otherwise indistinguishable from a broken one.
+      log(`The environment preset list could not be fetched, so the Preset dropdown stays empty: ${describeError(err)}`)
     }
   }
 
   /** The first run: get this machine to a state where the preview can draw real block
    * textures, then post the atlas to the webview.
+   *
+   * WHAT THE SETTING MEANS NOW. featurelab.blockTextures governs PREPARATION -- whether this
+   * host looks for an atlas, offers to fetch one, and builds it. It no longer decides whether
+   * textures are DRAWN, because that switch now exists where the person looking at flat colours
+   * actually is: the preview panel's own "Block textures" row (frontend/src/ui/panel.ts), which
+   * remembers their answer per workspace. So the atlas goes over as soon as there is one,
+   * whatever this panel's own preference happens to be, and nothing here ever calls
+   * setTexturesEnabled: a host turning textures on behind the user's back would undo a choice
+   * they made in the sidebar two minutes ago.
    *
    * ON BY DEFAULT, which is a deliberate change and the whole point of the feature. What must
    * not depend on whether a machine happens to have an atlas is a COMMITTED IMAGE -- and the
@@ -519,8 +932,9 @@ export class PreviewPanel {
    * directly and pins textures off explicitly, and by scripts/capture-screenshots.mjs, which
    * never posts an atlas message at all. Neither goes through this class, so the guarantee
    * those images need is held where it belongs rather than by leaving the feature switched off
-   * for everyone. featurelab.blockTextures = false turns it off for someone who wants flat
-   * colours back, and is also what stops this ever asking anything.
+   * for everyone. featurelab.blockTextures = false stops this ever fetching, building or asking
+   * anything -- and SAYS SO to the panel, so the row reads as a setting somebody switched off
+   * rather than as a control that is broken.
    *
    * THE ASK HAPPENS EXACTLY ONCE, and only when a download is what is being asked for. A
    * machine with Mojang's assets already cached (or FEATURELAB_VANILLA_PACK pointing at a
@@ -530,61 +944,176 @@ export class PreviewPanel {
    *
    * EVERY OTHER OUTCOME IS EXPLAINED, once per panel. "The preview draws flat colours" with
    * nothing said is indistinguishable from a broken feature, and offline or proxied machines
-   * are a normal case here, not an edge one. */
-  private async ensureTextures(): Promise<void> {
+   * are a normal case here, not an edge one.
+   *
+   * IT IS NOT ONLY THE FIRST RUN ANY MORE. This used to have exactly one caller -- the webview's
+   * `ready` message -- which made the atlas a fact settled in the first second of a panel's life
+   * and never revisited. Repainting a texture with the preview open changed nothing for the rest
+   * of the session, and a "no" given once could only be taken back by running a CLI flag nobody
+   * had heard of. It now also runs after every generate ('refresh') and on demand ('user'); see
+   * TextureCheckMode for what each is allowed to do. */
+  private async ensureTextures(mode: TextureCheckMode = 'initial'): Promise<void> {
     const config = vscode.workspace.getConfiguration('featurelab')
-    if (!config.get<boolean>('blockTextures', true)) return
+    if (!config.get<boolean>('blockTextures', true)) {
+      // Said, not warned. Somebody switched this off on purpose; a notification about a setting
+      // working as configured is how people learn to dismiss notifications unread. The panel row
+      // carries it instead, which is where the question gets asked.
+      this.postTextureStatus(false, TEXTURES_DISABLED_REASON)
+      // ...except when they ASKED. A command that does nothing and says nothing is a command a
+      // user reports as broken, so the one mode with a person waiting on an answer gets one.
+      if (mode === 'user') void warn(`Feature Lab: ${TEXTURES_DISABLED_REASON}`)
+      return
+    }
+    // A background check has nothing to do until there is an answer for it to differ from. This
+    // is not only an optimisation: the constructor's own first generate finishes while the
+    // webview's `ready` check is still running, so without it the very first refresh would race
+    // the very first check and the panel's state would depend on which won.
+    if (mode === 'refresh' && this.lastTextureState === null) return
+    // A status check spawns a process and hashes this pack's block files (~55ms on a 200-block
+    // pack), and 'refresh' fires on every regenerate -- including a burst of saves. One at a
+    // time is enough: the next regenerate re-checks anyway, and a queue of identical probes
+    // would be the one thing that made this cost visible.
+    if (this.textureCheckInFlight) return
+    this.textureCheckInFlight = true
     const timeoutMs = config.get<number>('requestTimeoutMs', 30_000)
+    let rebuilt = false
     try {
       // The pack under test goes in: its own blocks are drawn from the same sheet vanilla's
       // are, and on a large pack they can be 40% of the distinct block names a preview places.
       const packRoot = this.packRoot ?? undefined
       let status = await this.textures.status(packRoot)
       if (this.disposed) return
-      if (status.state === 'declined') return
-      if (status.state === 'missing' || status.state === 'stale') {
-        if (status.needsDownload && !(await this.offerTextureDownload(status))) return
-        if (this.disposed) return
-        status = (await this.buildTextures(packRoot, status.needsDownload)).status
-        if (this.disposed) return
-      }
-      if (status.state !== 'ready') {
-        this.explainNoTextures(status.detail)
+      // Whether this is NEWS. A background re-check that reports the same state it reported last
+      // time would repost a row the panel is already showing on every single save; what it is
+      // here for is the state that CHANGED underneath an open panel.
+      const changed = status.state !== this.lastTextureState
+      this.lastTextureState = status.state
+      if (status.state === 'declined' && mode !== 'user') {
+        // No warning: this machine was asked once and answered, and repeating the answer back at
+        // somebody is not news. The row still says it, and says how to undo it -- which is now a
+        // command in this editor rather than a CLI flag (see TEXTURES_DECLINED_REASON).
+        if (mode === 'initial' || changed) this.postTextureStatus(false, TEXTURES_DECLINED_REASON)
         return
       }
+      // 'user' mode takes ANY not-ready state into the build branch, `declined` included. That is
+      // the whole of the way back: blocktextures.Ensure deletes the decline record on a
+      // successful build ("building is the answer to the question a decline postponed"), so a
+      // person who said no once and changed their mind never has to find a terminal.
+      if (status.state === 'missing' || status.state === 'stale' || (mode === 'user' && status.state !== 'ready')) {
+        if (status.needsDownload) {
+          if (mode === 'refresh') {
+            // A background re-check never puts a modal in front of somebody who was editing, and
+            // never reaches the network. The question belongs to the panel's own first run and to
+            // the command; this one only reports, and only when the answer moved.
+            if (changed) this.postTextureStatus(false, status.detail)
+            return
+          }
+          const answer = await this.offerTextureDownload(status)
+          if (this.disposed) return
+          if (answer !== 'download') {
+            // "Never" has already said its piece, in a notification and in the row. A dismissed
+            // notification decided nothing -- the question comes back with the next preview --
+            // but the row still has to say why it is inert right now.
+            if (answer === 'dismissed') this.postTextureStatus(false, status.detail)
+            return
+          }
+        }
+        status = (await this.buildTextures(packRoot, status.needsDownload)).status
+        if (this.disposed) return
+        this.lastTextureState = status.state
+        rebuilt = true
+      }
+      if (status.state !== 'ready') {
+        this.noTextures(status.detail)
+        return
+      }
+      // A ready atlas that was ready last time too is the SAME SHEET, and it is a base64 PNG:
+      // re-sending it after every save would put a megabyte-ish message on the wire per
+      // keystroke-burst for a picture the webview is already holding. Only a background check
+      // is held to this -- 'initial' has nothing delivered yet, and 'user' is somebody asking to
+      // be handed it again.
+      if (mode === 'refresh' && !rebuilt && !changed) return
       const atlas = await this.controller.loadAtlas(timeoutMs)
       if (this.disposed) return
       this.blockNotes = notesFromAtlas(atlas)
       this.post({ type: 'atlas', atlas })
+      // "I have delivered one" -- NOT "draw them". Whether they are drawn is the panel's own
+      // switch and the preference behind it; see this method's own doc comment.
+      this.postTextureStatus(true)
+      // Which of the pack's own faces the atlas could not answer for, from the atlas ITSELF --
+      // so a machine that built it last week and built nothing today still gets the list. A
+      // no-op when the build above already reported the same rows, and when the engine is too
+      // old to carry them at all. See unresolvedFromAtlas.
+      const unresolved = unresolvedFromAtlas(atlas)
+      this.reportUnresolved(unresolved.rows, unresolved.total)
       // The atlas usually arrives after the first result (the constructor fires a generate
       // immediately, and this path may have had a download in front of it), so the notes for
       // what is already on screen are reported here rather than waiting for the next run.
       this.reportBlockNotes(this.lastResult)
     } catch (err) {
       if (this.disposed) return
-      const message = err instanceof Error ? err.message : String(err)
-      this.explainNoTextures(`block textures could not be prepared -- ${message}`)
+      // The engine prints ONE COMPLETE SENTENCE for every way this can fail -- offline, a proxy
+      // that broke TLS, an unwritable cache -- and TextureCommandError carries it as `detail`
+      // precisely so a host can show it. Reading only `message` off it, which is what this used
+      // to do, threw that sentence away and left "block textures could not be built" as the whole
+      // of what somebody was told about a problem they could have fixed.
+      this.noTextures(
+        err instanceof TextureCommandError
+          ? `${err.message} -- ${err.detail}`
+          : `block textures could not be prepared -- ${err instanceof Error ? err.message : String(err)}`,
+      )
+    } finally {
+      this.textureCheckInFlight = false
     }
   }
 
+  /** "Check the block textures again, and ask me again if you have to" -- the whole of
+   * featurelab.refreshBlockTextures, and the answer to two things this panel could not do at all
+   * before it existed.
+   *
+   * A texture repainted while the panel is open now reaches the preview (the engine restales the
+   * atlas by CONTENT, so an edit that preserved the file's size and mtime still counts), and a
+   * "no" given once is a decision a person can reverse where they made it, rather than by
+   * discovering a CLI flag. Both were permanent for the life of the session. */
+  async refreshTextures(): Promise<void> {
+    await this.ensureTextures('user')
+  }
+
+  /** Tells this panel that the engine it was built against has been shut down -- the host
+   * replaced the controller because `featurelab.binaryPath` changed.
+   *
+   * Said HERE rather than waiting for the next generate to fail, because the gap between the two
+   * is exactly the window in which somebody believes they have switched engines. Checks the
+   * controller's own tombstone rather than trusting the caller, so a panel that already holds the
+   * NEW controller is left alone. */
+  notifyEngineDisposed(): void {
+    if (this.disposed || !this.controller.isDisposed()) return
+    this.engineLevelFailure = true
+    this.postStale(true, new EngineDisposedError(this.controller.binaryPath).message)
+  }
+
   /** Puts the question, with the engine's own notice as the body: what is fetched, from where,
-   * how large it is, whose it is, where it lands, and how to avoid it entirely. Returns true
-   * only for an explicit yes. "Never" records the decline so nothing asks again; dismissing the
-   * message decides nothing and the question comes back with the next preview, which is the
-   * right reading of a notification nobody answered. */
-  private async offerTextureDownload(status: TextureStatusWire): Promise<boolean> {
+   * how large it is, whose it is, where it lands, and how to avoid it entirely.
+   *
+   * THREE ANSWERS, not two, because the caller has to tell them apart. "Never" records the
+   * decline so nothing asks again and has already explained itself; dismissing the message
+   * decides nothing at all and the question comes back with the next preview, which is the right
+   * reading of a notification nobody answered -- but the panel still has to be told where it
+   * stands in the meantime, and only the caller knows it has not been told yet. */
+  private async offerTextureDownload(status: TextureStatusWire): Promise<'download' | 'never' | 'dismissed'> {
     const answer = await vscode.window.showInformationMessage(
       'Feature Lab can draw real Minecraft block textures in the preview.',
       { modal: true, detail: status.notice ?? status.detail },
       'Download',
       'Never',
     )
-    if (answer === 'Download') return true
+    if (answer === 'Download') return 'download'
     if (answer === 'Never') {
       await this.textures.decline()
-      this.explainNoTextures('block textures were declined; the preview draws flat block colours. Run "featurelab textures -download" to change that.')
+      this.noTextures(TEXTURES_DECLINED_REASON)
+      return 'never'
     }
-    return false
+    return 'dismissed'
   }
 
   /** Runs the build behind a progress notification, forwarding the engine's own progress lines
@@ -617,18 +1146,54 @@ export class PreviewPanel {
                 'or keep the two directories side by side with matching _bp/_rp names.',
             )
           }
-          // Which faces, and why. "N with an unresolved texture" is a number an author cannot act
-          // on: a key missing from terrain_texture.json and a PNG that was never exported look
-          // identical in the preview and have different fixes.
-          for (const u of result.pack.unresolved ?? []) {
-            output.appendLine(`  ${u.block} (${u.face} face, texture "${u.texture}"): ${u.reason}`)
-          }
-          const extra = (result.pack.unresolvedTotal ?? 0) - (result.pack.unresolved?.length ?? 0)
-          if (extra > 0) output.appendLine(`  ... and ${String(extra)} more.`)
+          // Read through the same two helpers the atlas route uses, for the same reason: the
+          // build's `unresolved` is capped at blocktextures.UnresolvedLimit too, so its length
+          // is not the count anybody wants to read.
+          const unresolved = unresolvedRows(result.pack.unresolved)
+          this.reportUnresolved(unresolved, unresolvedTotal(result.pack.unresolvedTotal, unresolved.length))
         }
         return result
       },
     )
+  }
+
+  /** Which faces did not resolve, and what to do about them. "N blocks with an unresolved
+   * texture" is a number an author cannot act on: a key missing from terrain_texture.json and a
+   * PNG that was never exported look identical in the preview and have different fixes.
+   *
+   * The wording is summarizeUnresolved's -- the headline carries the ENGINE's total rather than
+   * the length of its capped sample, and the sample is grouped by code rather than by prose.
+   *
+   * ONCE PER PANEL, and from whichever route got there first -- a build that just ran, or the
+   * atlas a build ran last week left behind (see unresolvedFromAtlas). The two carry the same
+   * rows, so the second is a no-op rather than the list printed twice. */
+  private reportUnresolved(rows: readonly UnresolvedTextureWire[], total: number): void {
+    if (this.reportedUnresolved) return
+    const lines = summarizeUnresolved(rows, total)
+    if (lines.length === 0) return
+    this.reportedUnresolved = true
+    const output = this.textureOutput()
+    for (const line of lines) output.appendLine(line)
+  }
+
+  /** Tells the panel where it stands on block textures -- PanelHandle.setTextureStatus.
+   *
+   * The panel already knows WHETHER it can draw them (it asks the viewer, which knows whether an
+   * atlas decoded). What it cannot know is WHY not, and the answers need different actions:
+   * nothing built on this machine, a build that failed, a download declined, a setting switched
+   * off. This is the only place this host claims to know one, and it never says more than it
+   * does: `available: true` means "an atlas is on its way", not "textures are on". */
+  private postTextureStatus(available: boolean, reason?: string): void {
+    this.post({ type: 'textureStatus', available, ...(reason === undefined ? {} : { reason }) })
+  }
+
+  /** The two halves of "this preview is not textured, and here is why": the panel row says it
+   * every time, and a notification says it once per panel. Kept together so a new exit from the
+   * texture flow cannot warn somebody without also telling the row -- which is how the row ends
+   * up inert with a neutral message over a failure the user was interrupted about. */
+  private noTextures(detail: string): void {
+    this.postTextureStatus(false, detail)
+    this.explainNoTextures(detail)
   }
 
   /** Says, once per panel, why the preview is not textured. Never an error dialog: textures
@@ -636,8 +1201,7 @@ export class PreviewPanel {
   private explainNoTextures(detail: string): void {
     if (this.warnedAboutAtlas) return
     this.warnedAboutAtlas = true
-    this.textureOutput().appendLine(detail)
-    void vscode.window.showWarningMessage(`Feature Lab: ${detail}`)
+    void warn(`Feature Lab: ${detail}`)
   }
 
   /** Reports the notes for the blocks THIS preview actually placed -- a pack block whose
@@ -658,11 +1222,13 @@ export class PreviewPanel {
   }
 
   /** The output channel everything long-form about textures goes to -- the per-block notes,
-   * the pack summary, the sentence behind a warning. Created on first use so a session that
-   * never has anything to say never adds a channel to the user's Output dropdown. */
+   * the pack summary, the sentence behind a warning.
+   *
+   * The SAME channel every other part of this extension writes to (log.ts). It used to be a
+   * second one created here, which meant a user told to "see the Feature Lab output channel"
+   * could be looking at either of two things with that name in the Output dropdown. */
   private textureOutput(): vscode.OutputChannel {
-    outputChannel ??= vscode.window.createOutputChannel('Feature Lab')
-    return outputChannel
+    return output()
   }
 
   /** Re-reads the pack, then regenerates.
@@ -676,6 +1242,10 @@ export class PreviewPanel {
    * asking to be rid of. */
   private async reloadFiles(savedFile?: string): Promise<void> {
     if (this.disposed) return
+    // The file this panel IS ABOUT may be the thing that changed, by going away. Every reload
+    // route ends up here -- a save, a burst of writes, the pack root named after a delete or a
+    // rename -- so this is the one place that sees all of them.
+    if (this.disposeIfDocumentGone()) return
     if (this.packRootError !== null || this.packRoot === null) {
       this.postError(`cannot preview this file: ${this.packRootError}`)
       return
@@ -683,20 +1253,89 @@ export class PreviewPanel {
     const packRoot = this.packRoot
     const timeoutMs = vscode.workspace.getConfiguration('featurelab').get<number>('requestTimeoutMs', 30_000)
     this.postBusy()
+    const busy = showBusy(savedFile === undefined ? 'reloading the pack' : 'reloading the saved file')
+    const started = Date.now()
+    log(savedFile === undefined ? `Reloading every file in ${packRoot}` : `Reloading ${savedFile}`)
     try {
-      await (savedFile === undefined
+      const summary = await (savedFile === undefined
         ? this.controller.reloadPack(packRoot, timeoutMs)
         : this.controller.reloadPackFile(packRoot, savedFile, timeoutMs))
+      // The reload's own answer, in the changed vocabulary: `featureCount` is what BUILT and
+      // `fileCounts.features` is what was read, so a save that breaks the file being edited now
+      // shows up here as the number going down rather than as nothing at all.
+      log(`Reload finished in ${String(Date.now() - started)}ms: ${describePackContents(summary)}`)
+      for (const warning of summary.warnings ?? []) log(`  pack warning: ${warning}`)
+      // NOT a notification and not a stale banner. This fires on every save, and a file is
+      // unparseable for most of the time somebody is typing in it; interrupting them per keystroke
+      // is how people learn to dismiss notifications unread. The regenerate that follows carries
+      // the same fact to the place they are actually looking -- the panel's Diagnostics section,
+      // where every pack-scoped problem now arrives as one expandable row (see postResult).
+      const broken = describeBrokenFiles(summary.diagnostics)
+      if (broken !== null) log(`  ${broken}`)
+      for (const d of brokenFiles(summary.diagnostics)) log(`    ${diagnosticLocation(d)}: ${d.message}`)
       if (this.disposed) return
+      // The reload is what makes an identifier RENAMED IN THE EDITOR real to the engine, so this
+      // is where the picker finds out about it -- see tryPostInit's `whenChanged` for why an
+      // ordinary save deliberately re-seeds nothing.
+      this.tryPostInit(true)
       await this.regenerate()
     } catch (err) {
       if (this.disposed) return
       this.handleGenerateError(err)
+    } finally {
+      busy.dispose()
     }
+  }
+
+  /** Closes this panel when the file it previews is no longer on disk, answering `true` when it
+   * did.
+   *
+   * A TAB POINTING AT A DELETED FILE IS NOT A PREVIEW OF ANYTHING. Deleting the previewed feature
+   * (from the graph's own Delete, or from the Explorer) left the panel open, blank, saying
+   * `"wiki:..." not found in loaded files` -- while `documentUri` went on naming the deleted file,
+   * so the panel still claimed every save of that path, still counted as the open preview for it,
+   * and a re-open of a file recreated at the same path found this corpse and revealed it instead
+   * of making a live one.
+   *
+   * The same answer extension.ts's serializer already gives a revived tab whose document cannot
+   * be opened: the tab goes. There is nothing the author can do from inside a panel about a file
+   * that is not there, and a permanent error where a preview used to be is worse than the tab
+   * closing when the thing it was about did.
+   *
+   * ONLY for a file this panel could have expected to find -- an untitled or otherwise
+   * non-file-scheme document has no path to test and is left exactly alone. A stat that fails for
+   * any reason other than "not there" (a permission, a disconnected share) also leaves the panel
+   * up: "I could not look" is not "it is gone". */
+  private disposeIfDocumentGone(): boolean {
+    if (this.disposed) return false
+    if (this.document.uri.scheme !== 'file') return false
+    const fsPath = this.document.uri.fsPath
+    if (typeof fsPath !== 'string' || fsPath.length === 0) return false
+    try {
+      fs.accessSync(fsPath)
+      return false
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false
+    }
+    log(`The preview of ${fsPath} is closing: that file no longer exists.`)
+    this.dispose()
+    return true
   }
 
   get documentUri(): vscode.Uri {
     return this.document.uri
+  }
+
+  /** Stops the generate this panel currently has in flight -- what the "Preview Feature" command
+   * calls when the user presses Cancel on its notification.
+   *
+   * A no-op when nothing is running: by the time somebody reaches the button the answer may have
+   * already arrived, and cancelling a finished request has to be as harmless here as it is on
+   * the engine. */
+  cancelGenerate(): void {
+    if (this.inflightGenerate === null) return
+    log(`Cancelling the preview of ${path.basename(this.document.fileName)} at the user's request.`)
+    this.inflightGenerate.abort()
   }
 
   /** Brings the panel forward WHERE IT IS.
@@ -717,7 +1356,52 @@ export class PreviewPanel {
   retargetTo(document: vscode.TextDocument): void {
     this.document = document
     this.panel.title = `Preview: ${path.basename(document.uri.fsPath)}`
+    // THE PARAMS DESCRIBE THE FILE THIS PANEL IS NO LONGER ABOUT, so they are dropped here.
+    //
+    // This was a silent wrong answer, and it is worth writing down exactly. `lastParams` is
+    // populated the moment the author touches ANY control in the panel -- a seed, a size, the
+    // origin -- and from then on regenerate() prefers it over the open file's own identifier (see
+    // its own comment). Nothing used to clear it. So with "Preview on select" on: click node A,
+    // set a seed, click node B. The tab renames itself to B, the graph says it is previewing B,
+    // and the run that actually happens is `{feature: A, seed: ...}` -- A's blocks, under B's
+    // name, with nothing anywhere saying so. The first retarget of a panel nobody had touched
+    // worked, which is what made it look fine.
+    //
+    // Clearing them puts this panel back into the state it opens in: the next regenerate previews
+    // whatever the NEW document declares. The author's size/seed/origin are lost with them, which
+    // is the honest trade -- those were chosen for a different feature -- and the webview is free
+    // to re-post a `generate` off its own restored controls if it would rather keep them.
+    this.lastParams = null
+    this.rememberParams()
+    // And the picker is re-seeded, which is the other half: `init` is posted from the 'ready'
+    // handler and nowhere else, so a panel that had already booted went on showing the previous
+    // feature in its own Feature/Rule dropdown and in the sidebar -- disagreeing with its own tab
+    // title. See tryPostInit and PanelHandle.seedOpenedDocument's "opened file always wins".
+    this.tryPostInit()
+    // AND THE OVERLAY, which described the run this panel is no longer about.
+    //
+    // For roughly the second it takes the new run to come back, the 3D view went on painting the
+    // PREVIOUS node's cells -- 88 of them, measured -- under a readout that retargetTo had
+    // already emptied and a tab that had already renamed itself, while the graph was naming the
+    // new node. Coloured cells nothing on screen accounts for is the worst of the three states
+    // this can be in: "no highlight yet" is legible, "last run's highlight, labelled" is at least
+    // honest, and "last run's highlight, labelled with nothing" reads as a bug in the renderer.
+    //
+    // The index goes with it rather than being kept until the next one replaces it: it is keyed
+    // to cells of a volume that is about to be thrown away, so every click resolved against it in
+    // the meantime would answer about the wrong run. attributeNode() re-arms this the moment the
+    // caller says which node the new file is being previewed for -- which, on the follow-the-
+    // selection path this method exists for, is the very next call.
+    this.clearAttributionOverlay()
     this.pending = this.pending.then(() => this.regenerate())
+  }
+
+  /** Takes the write-attribution highlight, its index and its readout off the screen, leaving the
+   * plain preview. Safe on a panel that never had one. */
+  private clearAttributionOverlay(): void {
+    this.attributionBridge?.dispose()
+    this.attributionBridge = null
+    this.postAttributionUnavailable()
   }
 
   /** Called when the preview command is re-invoked on this panel's document -- queues a plain
@@ -748,14 +1432,50 @@ export class PreviewPanel {
   notifyPackFileSaved(document: vscode.TextDocument): void {
     const isOwnDocument = document.uri.toString() === this.document.uri.toString()
     if (isOwnDocument) this.document = document
-    const invalidatesPack =
-      isOwnDocument || (this.packRoot !== null && isEngineLoadedPackFile(this.packRoot, document.uri.fsPath))
+    const invalidatesPack = isOwnDocument || this.invalidatedBy(document.uri.fsPath)
     if (!invalidatesPack) return
     // The saved document's own path goes down with the reload: this method is the ONE place
     // that knows which file changed, and throwing that away here is what used to make every
     // save pay a full re-read of the pack to rediscover it. See reloadFiles's own comment for
     // why the button next door deliberately does not pass it.
     this.pending = this.pending.then(() => this.reloadFiles(document.uri.fsPath))
+  }
+
+  /** Whether a write to `filePath` makes this panel's loaded pack out of date. The pack ROOT
+   * itself counts: the graph panel declares a whole pack stale after an operation whose referrers
+   * it cannot list in advance (a rename, a delete), and it does that by naming the root. */
+  private invalidatedBy(filePath: string): boolean {
+    if (this.packRoot === null) return false
+    if (path.relative(this.packRoot, filePath) === '') return true
+    return isEngineLoadedPackFile(this.packRoot, filePath)
+  }
+
+  /** A BURST of pack writes, as one reload -- what extension.ts hands over after it has collapsed
+   * a run of them (see its own PACK_WRITE_DEBOUNCE_MS).
+   *
+   * One reload for the whole burst, not one per path. Ten quick edits in the node editor used to
+   * be ten full reload-and-regenerate cycles per open preview: serialised, so they could not race,
+   * but not collapsed, so the author watched nine answers they had already moved past go by before
+   * the one they were waiting for.
+   *
+   * INCREMENTAL ONLY FOR A SINGLE FILE. reloadFiles' fast path re-reads exactly the file it is
+   * given (see its own comment), which is right when one file changed and wrong the moment two
+   * did; a burst that touched several -- or that named the pack root, which is how a rename or a
+   * delete declares "every referrer moved" -- gets the full re-read.
+   *
+   * `documents` are the freshly-opened copies of whatever paths VS Code could open, so a panel
+   * whose OWN document is in the burst is left holding the new bytes rather than the pre-write
+   * ones. That is the one thing this needs a document for at all. */
+  notifyPackFilesWritten(documents: readonly vscode.TextDocument[], paths: readonly string[]): void {
+    if (this.disposed) return
+    for (const document of documents) {
+      if (document.uri.toString() === this.document.uri.toString()) this.document = document
+    }
+    const own = this.document.uri.fsPath
+    const relevant = paths.filter((p) => p === own || this.invalidatedBy(p))
+    if (relevant.length === 0) return
+    const single = relevant.length === 1 && this.packRoot !== null && path.relative(this.packRoot, relevant[0]!) !== '' ? relevant[0] : undefined
+    this.pending = this.pending.then(() => this.reloadFiles(single))
   }
 
   /** Runs a fresh `generate` and posts its result/error to the webview -- see this class's own
@@ -826,9 +1546,19 @@ export class PreviewPanel {
     // own identifier" -- kind-aware (see parseDocumentIdentifier's own doc comment): a rule
     // file falls back to `{rule: id}`, never the `{feature: id}` every request used to send
     // regardless of which kind of file was actually open.
+    //
+    // A THIRD CASE SITS BETWEEN THOSE TWO: params that describe a bench but name nothing to put
+    // in it. That is what freshPreviewParams hands a revived tab whose file was renamed between
+    // windows -- the seed, the origin and the sizes are still the author's, the feature name is
+    // not the file's any more and was dropped. Those keep the bench and take the identifier from
+    // the file, which is the whole point of dropping it; without this they would be sent as they
+    // are and the engine would be asked to generate nothing in particular.
+    const remembered = this.lastParams
+    const namesTarget =
+      remembered !== null && (typeof remembered.feature === 'string' || typeof (remembered as { rule?: unknown }).rule === 'string')
     let requested: GenerateParamsWire
-    if (this.lastParams) {
-      requested = this.lastParams
+    if (remembered !== null && namesTarget) {
+      requested = remembered
     } else {
       const envId = config.get<string>('env', 'plains')
       let parsed: ReturnType<typeof parseDocumentIdentifier>
@@ -839,7 +1569,10 @@ export class PreviewPanel {
         this.postError(`cannot preview this file: ${message}`)
         return
       }
-      requested = parsed.kind === 'rule' ? { rule: parsed.identifier, env: envId } : { feature: parsed.identifier, env: envId }
+      const derived = parsed.kind === 'rule' ? { rule: parsed.identifier } : { feature: parsed.identifier }
+      // The bench first so anything it says (its own `env`, above all) wins over the setting,
+      // and the file-derived identifier last so it wins over nothing at all.
+      requested = remembered === null ? { ...derived, env: envId } : { env: envId, ...remembered, ...derived }
     }
 
     // The ONE place a profile is ever asked for, and only while this panel is attributing a
@@ -855,6 +1588,23 @@ export class PreviewPanel {
 
     this.postBusy()
     this.postStale(false)
+    // A regenerate that starts while one is in flight supersedes it. The engine runs one request
+    // at a time, so an abandoned run is not free -- it is the thing standing between the user and
+    // the run they are actually waiting for.
+    this.inflightGenerate?.abort()
+    const inflight = new AbortController()
+    this.inflightGenerate = inflight
+    // The status-bar spinner, and not a progress notification: this method is also what a SAVE
+    // runs, and a notification per save is how people learn to dismiss notifications without
+    // reading them. The command that opens a preview raises its own notification once, around
+    // the first run (see whenFirstResult).
+    const busy = showBusy(useGrown ? 'growing and regenerating the preview' : 'generating the preview')
+    const started = Date.now()
+    log(
+      `Generate${useGrown ? ' (grown)' : ''} in ${packRoot}: ` +
+        `${params.feature !== undefined ? `feature ${params.feature}` : `rule ${String(params.rule)}`}, ` +
+        `env ${String(params.env ?? 'default')}, wait ${String(timeoutMs)}ms`,
+    )
     try {
       // useGrown always re-runs generateGrown() with THIS call's own current `params` -- the
       // engine itself refits the grow bounds fresh from THIS run's own overflow every time
@@ -862,27 +1612,101 @@ export class PreviewPanel {
       // when the first actually captured overflow) rather than reusing a size computed by an
       // earlier grow. That is what satisfies "refit on every run, never freeze the bounds from
       // the first grow" for panel.ts's sticky toggle with no extra bookkeeping needed here.
-      const result = useGrown ? await (this.controller as unknown as GrowCapablePreviewController).generateGrown(packRoot, params, timeoutMs) : await this.controller.generate(packRoot, params, timeoutMs)
+      const result = useGrown
+        ? await (this.controller as unknown as GrowCapablePreviewController).generateGrown(packRoot, params, timeoutMs, inflight.signal)
+        : await this.controller.generate(packRoot, params, timeoutMs, inflight.signal)
       if (this.disposed) return
+      if (this.superseded(inflight)) return
+      log(`Generate finished in ${String(Date.now() - started)}ms`)
       this.postResult(result)
       this.lastResult = result
       this.reportBlockNotes(result)
       // AFTER the result is posted, never before: the webview's viewer has to be holding this
       // run's own volume before a mask indexed against it can mean anything, and the two
       // messages are delivered in the order they are sent.
+      this.dropAttributionIfNodeGone(result)
       this.applyAttribution(result)
       this.reportRunStats(result, params)
       const wireDiagnostics = extractDiagnostics(result)
-      // Both ids, because the engine fills fileId with the basename for build-time diagnostics
-      // and with the requested identifier for placement-time ones -- see updateDiagnostics's own
-      // doc comment. `params` is what we actually asked for, so its feature/rule id is exactly
-      // the identifier the engine will report as the placement root.
+      // `params` is what we actually asked for, so its feature/rule id is exactly the identifier
+      // the engine will report as the placement root. See documentFileIds for the rest.
       const requestedId = params.feature ?? params.rule ?? ''
-      updateDiagnostics(this.diagnosticCollection, this.document, [path.basename(this.document.fileName), requestedId], wireDiagnostics)
+      updateDiagnostics(this.diagnosticCollection, this.document, this.documentFileIds(requestedId), wireDiagnostics)
+      // AND ASK ABOUT THE BLOCK TEXTURES AGAIN. Not awaited, so it never sits between a finished
+      // run and the picture: this run is already on screen by the line above, and a repainted
+      // texture arrives a beat later as a fresh atlas. Until this existed the atlas was settled
+      // in the panel's first second and never revisited, so editing a texture with the preview
+      // open did nothing at all for the rest of the session. See TextureCheckMode's 'refresh'
+      // for everything this is forbidden from doing (asking, downloading, or speaking up when
+      // nothing moved).
+      void this.ensureTextures('refresh')
     } catch (err) {
       if (this.disposed) return
+      if (this.superseded(inflight)) return
       this.handleGenerateError(err)
+    } finally {
+      busy.dispose()
+      // Only if it is still OURS. A regenerate that superseded this one has already put its own
+      // controller here, and clearing that would leave the newer run uncancellable -- the Cancel
+      // pill would be on screen over a run nothing could reach.
+      if (this.inflightGenerate === inflight) this.inflightGenerate = null
     }
+  }
+
+  /** Whether a newer regenerate has already taken this panel over, so `inflight`'s outcome --
+   * result OR error -- must not reach the screen.
+   *
+   * Both halves matter and neither is theoretical. A superseded run that WON the race (the engine
+   * answered it just as the next request went out) would post an older volume over a newer one:
+   * the picture on screen would be a run the pack has moved past, with nothing saying so. A
+   * superseded run that was cancelled -- which is what runGenerateOrGrown does to it, on purpose,
+   * to stop it holding the engine's one worker -- comes back as a RequestCancelledError, and
+   * handleCancelled's whole job is to raise the "the preview was cancelled" banner. Nobody
+   * cancelled anything: the panel is mid-regenerate and about to draw. Letting that through is
+   * how a burst of edits ends with a stale banner over a perfectly current picture.
+   *
+   * `inflightGenerate` is the identity: runGenerateOrGrown writes its own controller there before
+   * awaiting, and only the newest run's is still in place. */
+  private superseded(inflight: AbortController): boolean {
+    if (this.inflightGenerate === inflight) return false
+    log('A newer regenerate took over, so this run\'s outcome is dropped rather than drawn.')
+    return true
+  }
+
+  /** Every spelling the engine might use for THIS panel's own document in a diagnostic's
+   * `fileId`, plus the identifier this run actually requested. Handed to updateDiagnostics,
+   * which keeps whatever matches any of them and drops the rest.
+   *
+   * THREE SPELLINGS, AND ALL THREE ARE LIVE AT ONCE. The engine's loader used to key a file by
+   * its BASENAME ("tree_acacia_branching.json") and now keys it PACK-RELATIVE, with forward
+   * slashes ("features/tree_acacia_branching.json"); placement-time diagnostics are keyed by the
+   * requested identifier instead (see updateDiagnostics's own doc comment). Passing only the
+   * basename matched 0 of 4 real diagnostics against a current engine, and because a list that
+   * matches nothing is indistinguishable here from a run with nothing to say, the collection was
+   * simply DELETED -- VS Code's Problems view went blank with no message, while the panel's own
+   * Diagnostics section (which never filtered) went on showing all four. That is the shape this
+   * bug takes and the reason it survived: the in-panel list self-heals.
+   *
+   * Both file spellings go over on every run rather than one being chosen, because the engine is
+   * not ours to pin: `featurelab.binaryPath` can point at an older build than the one this
+   * extension shipped with, and the two must both work from the same code. They cannot collide --
+   * a diagnostic carries one fileId, and a basename and a pack-relative path are only ever equal
+   * for a file sitting in the pack root, where they are the same file anyway.
+   *
+   * The pack-relative form is skipped for a document OUTSIDE the pack root (path.relative
+   * escaping upwards), which is not a spelling the engine can produce for a file it never
+   * loaded. */
+  private documentFileIds(requestedId: string): string[] {
+    const ids = [path.basename(this.document.fileName), requestedId]
+    if (this.packRoot !== null) {
+      const relative = path.relative(this.packRoot, this.document.uri.fsPath)
+      if (relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+        // Forward slashes always: the engine's own file ids are pack-relative POSIX paths, and
+        // on Windows path.relative answers with backslashes.
+        ids.push(relative.split(path.sep).join('/'))
+      }
+    }
+    return ids
   }
 
   // -------------------------------------------------------------------------
@@ -916,6 +1740,40 @@ export class PreviewPanel {
       return
     }
     this.pending = this.pending.then(() => this.regenerate())
+  }
+
+  /** Stops attributing a node the loaded pack no longer defines.
+   *
+   * THE CONTRADICTION THIS ENDS. Rename an identifier in the text editor and save: the reload
+   * makes the new name real, the regenerate runs it, and 79 blocks appear -- but this panel was
+   * still attributing the OLD name, so the bridge resolved it to nothing and the readout said
+   * `wiki:fancy_oak_tree placed no blocks in this run` directly above a legend reading
+   * `wiki:fancy_oak_tree_renamed  79 blocks`. Two sentences about one run, on one screen,
+   * disagreeing -- while the graph, which rebuilds from the files, was already right.
+   *
+   * "Placed no blocks" is a true and useful thing to say about a node that ran and wrote nothing,
+   * which is why it cannot simply be suppressed: a filter, an aggregate, a refused placement all
+   * land there legitimately. The difference is whether the pack still HAS the node, and the
+   * result's own `entries` -- the identifier list the Feature picker is built from, and the same
+   * list whose absence produces panel.ts's `not found in loaded files` -- is exactly that answer,
+   * from the same run, with no second round trip.
+   *
+   * SILENT WHEN THERE IS NO EVIDENCE. A response with no `entries` array is what
+   * GenerateParams.omitEntries asks for and what an older engine may send; "the list is not here"
+   * is not "the node is not in it", and tearing the highlight down on that would break
+   * attribution for every host that asks for the smaller response. */
+  private dropAttributionIfNodeGone(result: unknown): void {
+    const nodeId = this.attributionNodeId
+    if (nodeId === null) return
+    const wire = result as { entries?: unknown; ruleEntries?: unknown } | null
+    const entries = wire?.entries
+    if (!Array.isArray(entries)) return
+    const has = (list: unknown): boolean =>
+      Array.isArray(list) && list.some((e) => (e as { identifier?: unknown } | null)?.identifier === nodeId)
+    if (has(entries) || has(wire?.ruleEntries)) return
+    log(`No longer attributing ${nodeId}: the loaded pack does not define it any more.`)
+    this.attributionNodeId = null
+    this.clearAttributionOverlay()
   }
 
   /** Rebuilds the index from a fresh result and re-resolves the current selection.
@@ -979,9 +1837,15 @@ export class PreviewPanel {
    * `origin` and `partial` travel with them because they change what the numbers MEAN: a count
    * from a truncated run is a floor, and "did not run" is only ever true of one origin. */
   private reportRunStats(result: unknown, params: GenerateParamsWire): void {
-    if (this.attributionNodeId === null || this.packRoot === null) return
+    if (this.packRoot === null) return
     const report = this.graphLink.onRunStats
     if (report === undefined) return
+    // NOT gated on attribution any more, and that was the bug. `onRunStats` exists only on a
+    // panel the GRAPH opened, so "is there anybody to tell" is already answered by the callback
+    // being there at all -- adding "and is it attributing something" on top meant a graph-driven
+    // preview that was not in attribution mode went on showing the numbers from some earlier run,
+    // indefinitely, with nothing to say they were stale. A run with no profile reports `null`
+    // below, which is what takes them back off the cards.
     const wire = result as {
       profile?: { featureIdentifiers?: string[]; features?: unknown[] } | null
       origin?: { x: number; y: number; z: number }
@@ -1008,15 +1872,20 @@ export class PreviewPanel {
     if (selection.kind === 'node') {
       const total = selection.cells.length
       const shown = Math.min(total, ATTRIBUTION_CELL_LIMIT)
+      // Array.from over a SUBARRAY, not over the whole view: this is what crosses the wire.
+      const cells = Array.from(selection.cells.subarray(0, shown))
       this.post({
         type: 'attribution',
         available: true,
         nodeId: selection.nodeId,
-        // Array.from over a SUBARRAY, not over the whole view: this is what crosses the wire.
-        cells: Array.from(selection.cells.subarray(0, shown)),
+        cells,
         cellCount: total,
         shown,
         writes: selection.writes,
+        // EVERY writer this run had, one colour each -- see attributionGroupsFor. The `cells`
+        // field above stays exactly what it was, which is what keeps a frontend that only knows
+        // setAttributionCells drawing the selected node alone rather than nothing at all.
+        groups: this.attributionGroupsFor(selection.nodeId, cells),
       })
       return
     }
@@ -1036,6 +1905,78 @@ export class PreviewPanel {
     // dressed as an answer, in exactly the case somebody clicked the block to understand.
     const nodeIds = selection.writers.map((w) => w.nodeId).filter((id): id is string => id !== null)
     if (this.packRoot !== null) this.graphLink.onSelectNodes?.(this.packRoot, nodeIds)
+  }
+
+  /** Every feature that wrote anything in the run currently on screen, as the viewer's own
+   * per-writer overlay groups (VoxelViewer.setAttributionGroups).
+   *
+   * WHY ALL OF THEM AND NOT JUST THE SELECTED ONE. One colour can only answer "is this block one
+   * of that node's". The question somebody actually has in front of a preview is "which of these
+   * is whose", and its interesting answer is nearly always more than one feature: a scatter and
+   * the tree it delegates to, two features fighting over the same column. The engine's table
+   * already names every writer -- the host was throwing that away and shipping one node's cells.
+   *
+   * THE SELECTED NODE IS FIRST, always. Colours are assigned by position from the viewer's own
+   * series, whose first entry is the blue-violet the single-writer overlay has always used, so
+   * the node somebody clicked keeps a stable colour no matter who else wrote this run, and a
+   * preview with one writer looks exactly as it did. The rest follow by size, largest first,
+   * with ties broken by name so the same run always paints the same picture.
+   *
+   * PAST THE SERIES THE TAIL IS GROUPED rather than wrapped: a seventh writer drawn in the first
+   * one's colour is a legend that lies about which blocks are whose. The band says how many
+   * features it stands for.
+   *
+   * ONE BUDGET FOR THE WHOLE MESSAGE. The selected node's cells are already on the wire under
+   * `cells` (this is what pays for the shim), so what they cost comes off the same
+   * ATTRIBUTION_CELL_LIMIT the rest of the groups draw from -- a message cannot grow by a factor
+   * of the number of writers just because a run had several. Whatever the budget cannot cover is
+   * simply not painted, and the viewer's legend then reports what it actually painted rather
+   * than a number nothing on screen backs up. */
+  private attributionGroupsFor(selectedNodeId: string, selectedCells: readonly number[]): { id: string; label: string; cells: readonly number[] }[] {
+    const index = this.attributionBridge?.index
+    if (index === undefined) return []
+    const groups: { id: string; label: string; cells: readonly number[] }[] = [
+      { id: selectedNodeId, label: selectedNodeId, cells: selectedCells },
+    ]
+    let budget = ATTRIBUTION_CELL_LIMIT - selectedCells.length
+
+    const seen = new Set<string>([selectedNodeId])
+    const others: { id: string; cells: number }[] = []
+    for (const id of index.nodeIds) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const cells = index.distinctCellsWrittenBy(id)
+      // A feature that ran and wrote nothing is an ANSWER, but it is not a colour: an empty
+      // legend row spends one of six distinguishable colours on a band with nothing under it.
+      if (cells > 0) others.push({ id, cells })
+    }
+    others.sort((a, b) => b.cells - a.cells || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+
+    const take = (ids: readonly string[]): number[] => {
+      const out: number[] = []
+      for (const id of ids) {
+        if (budget <= 0) break
+        const cells = index.cellsWrittenBy(id)
+        const n = Math.min(cells.length, budget)
+        for (let i = 0; i < n; i++) out.push(cells[i] as number)
+        budget -= n
+      }
+      return out
+    }
+
+    // A writer the budget could not reach is left OFF, rather than sent as a band with nothing
+    // under it: the legend is read as "this colour, these blocks", and a row standing over no
+    // blocks at all is the one thing it must not say. The selected node keeps its place either
+    // way -- its cells are the first thing the budget pays for.
+    const push = (id: string, label: string, ids: readonly string[]): void => {
+      const cells = take(ids)
+      if (cells.length > 0) groups.push({ id, label, cells })
+    }
+    const ownColours = others.length <= ATTRIBUTION_GROUP_LIMIT - 1 ? others.length : ATTRIBUTION_GROUP_LIMIT - 2
+    for (const writer of others.slice(0, ownColours)) push(writer.id, writer.id, [writer.id])
+    const tail = others.slice(ownColours)
+    if (tail.length > 0) push(ATTRIBUTION_TAIL_GROUP_ID, `${String(tail.length)} more features`, tail.map((w) => w.id))
+    return groups
   }
 
   /** A click in the 3D view, resolved here rather than there -- the webview named a position,
@@ -1073,23 +2014,48 @@ export class PreviewPanel {
   }
 
   private handleGenerateError(err: unknown): void {
+    if (err instanceof RequestCancelledError) {
+      this.handleCancelled(err)
+      return
+    }
+    if (err instanceof EngineDisposedError) {
+      // This panel is bound to a controller the host has already replaced. There is no recovery
+      // inside the panel -- the remedy is to reopen it -- so it says exactly that and stays
+      // stale. Before the tombstone existed this branch could not be reached, because the
+      // controller simply restarted the OLD binary and the run succeeded against an engine the
+      // user believed they had stopped using. See EngineDisposedError.
+      this.engineLevelFailure = true
+      this.postStale(true, err.message)
+      return
+    }
     if (err instanceof EngineCrashedError) {
+      // The engine's own last words, verbatim and whole -- the tail it collected is the only
+      // direct evidence there is about why the process died, and it is far longer than a
+      // notification can carry.
+      if (err.stderrTail.length > 0) log(`Engine stderr before it exited:\n    ${err.stderrTail.split('\n').join('\n    ')}`)
+      this.engineLevelFailure = true
       this.postStale(true, `The featurelab engine process crashed: ${err.message}`)
       return
     }
     if (err instanceof MalformedResponseError) {
+      log(`Engine sent this unreadable line: ${err.rawLine}`)
+      this.engineLevelFailure = true
       this.postStale(true, `The featurelab engine sent an unreadable response: ${err.message}`)
       return
     }
     if (err instanceof RequestTimeoutError) {
+      this.engineLevelFailure = true
       this.postStale(true, err.message)
       return
     }
     if (err instanceof RpcError) {
+      // The engine answered, and its answer was "no". That is about the PACK, not about the
+      // engine -- see reportFailure for why those two are told to the user differently.
       this.postError(err.message)
       return
     }
-    this.postError(err instanceof Error ? err.message : String(err))
+    this.engineLevelFailure = true
+    this.postError(describeError(err))
   }
 
   /** The single host->webview send funnel: buffers while the webview hasn't reported 'ready'
@@ -1120,17 +2086,166 @@ export class PreviewPanel {
     this.post({ type: 'busy', busy: true })
   }
 
+  /** Hands the webview the engine's answer, WHOLE.
+   *
+   * Whole is the contract, and the part of it that has actually been got wrong is `stops`: the
+   * rows saying where a feature's work ended early -- "iterations = 0, 412 times" -- which are the
+   * answer to "why is this preview empty". They used to reach the viewer only by riding the
+   * PROFILE, and a profile is only asked for when the graph has put this panel into attribution
+   * mode (see regenerate's `profile: true` splice). So the one case the explanation exists for --
+   * somebody watching an empty preview, with profiling off, which is the default -- was the one
+   * case it never arrived in, and the panel fell back to "no stop reasons from this engine".
+   *
+   * The engine now carries them at the TOP LEVEL of a generate response, and nothing here filters,
+   * rewrites or gates them. Three states, and they are three different things:
+   *   - absent: an engine that predates the field. The viewer says so rather than implying that
+   *     nothing stopped (frontend/src/protocol.ts's `stopsKnown`).
+   *   - present and empty: this engine reports stops and there were none. A real answer.
+   *   - present and populated: the reasons, named.
+   * An empty array must therefore never be normalised into absence, nor absence into an empty
+   * array. The safest way to hold that is to forward the object untouched, which is what this
+   * does; the log line is the only thing added, and only so a reader can tell the three apart.
+   *
+   * THERE IS NOW EXACTLY ONE EXCEPTION, and it is written out rather than folded in quietly.
+   * `diagnostics` is re-ordered and the PACK-scoped half is folded into a single row (see
+   * packContents.ts's scopedForPreview). The engine emits pack diagnostics first because that is
+   * the order it builds libraries in, so every preview of every feature opened with two to four
+   * several-hundred-character paragraphs about files the author was not looking at, and the one
+   * line explaining why THIS preview was empty sat underneath them. Nothing is dropped -- the
+   * summary row carries every pack-scoped message whole, and the panel's own "Show more"
+   * disclosure reveals them, which is what makes the fold safe to do at all. Nothing else in the
+   * response is touched, and the VS Code Problems view is fed from the UNSUMMARISED list (see
+   * regenerate): a problems list is the durable place a pack-wide problem belongs, and a folded
+   * row there would hide the file it is about. */
   private postResult(result: unknown): void {
-    this.post({ type: 'result', result })
+    this.post({ type: 'result', result: withPreviewDiagnostics(result) })
+    const stops = (result as { stops?: unknown } | null)?.stops
+    if (Array.isArray(stops)) log(`Run reported ${String(stops.length)} stop reason(s).`)
+    this.finishFirstResult()
   }
 
   private postError(message: string): void {
     this.post({ type: 'error', message })
+    this.reportFailure(message)
   }
 
   private postStale(stale: boolean, reason?: string): void {
     this.post({ type: 'stale', stale, reason })
+    if (stale) this.reportFailure(reason ?? 'the preview went stale')
   }
+
+  /** Resolves when this panel's first run produced something to look at; rejects with the reason
+   * it did not. See firstResult's own doc comment. */
+  whenFirstResult(): Promise<void> {
+    return this.firstResult
+  }
+
+  /** What happens when the webview has said nothing for WEBVIEW_READY_TIMEOUT_MS.
+   *
+   * It has to say it TWICE OVER, because there are two different situations by then and only one
+   * of them has anybody listening:
+   *
+   *   - The first run has not finished. A command is holding a progress notification over this
+   *     panel, so the reason goes back through whenFirstResult and the command phrases it. That is
+   *     the graph panel's case exactly (failFirstGraph).
+   *   - The first run already finished. This is the commoner one here and the one the finding is
+   *     about: `postResult` settles whether or not the webview ever loaded, because a result is
+   *     buffered for a webview that has not reported ready. So the command returned happy, and the
+   *     author is looking at a blank rectangle with nothing anywhere to say why. Nobody is left to
+   *     hand a reason to, so it is said out loud -- with the "Show log" button every other message
+   *     in this extension carries.
+   *
+   * Either way the panel STAYS OPEN. Its own static sentence (PREVIEW_DID_NOT_START) is still on
+   * screen saying the same thing, and closing somebody's tab to make a point would take away the
+   * evidence. */
+  private reportWebviewNeverStarted(): void {
+    if (this.webviewReady || this.disposed) return
+    const detail =
+      `The preview webview for ${this.document.uri.fsPath} did not report that its script was running ` +
+      `within ${String(WEBVIEW_READY_TIMEOUT_MS)}ms. The panel is open; if it is blank, dist/webview.js did not load ` +
+      '(an asset missing from the package, or a Content-Security-Policy that rejected it).'
+    const reject = this.rejectFirstResult
+    if (reject !== null) {
+      this.settleFirstResult = null
+      this.rejectFirstResult = null
+      reject(
+        new Error(
+          `the preview panel's script did not start within ${String(WEBVIEW_READY_TIMEOUT_MS)}ms. ` +
+            'The panel is open; if it is blank, its bundle did not load.',
+        ),
+      )
+      log(detail)
+      return
+    }
+    void warn(
+      `Feature Lab: the preview of ${path.basename(this.document.fileName)} is open but its script never started, so it will stay blank.`,
+      detail,
+    )
+  }
+
+  private finishFirstResult(): void {
+    const settle = this.settleFirstResult
+    this.settleFirstResult = null
+    this.rejectFirstResult = null
+    settle?.()
+  }
+
+  /** The one place a failed run becomes words.
+   *
+   * WHO SAYS IT DEPENDS ON WHEN IT HAPPENED, and that is deliberate rather than a compromise.
+   * The FIRST run has a command waiting on it, so the reason is handed back through
+   * whenFirstResult and the command puts it in one notification -- two would be the same failure
+   * reported twice. Every run after that has nobody waiting: a save fired it, and the only thing
+   * on screen is a panel the user may not be looking at. Those are logged always, and raised as a
+   * notification when the failure is about the ENGINE (it crashed, it timed out, it sent
+   * something unreadable) rather than about the pack.
+   *
+   * The pack-level ones -- "no such feature", a placement the engine refused -- stay in the panel
+   * and in the Problems view, where they already are. They are ordinary while somebody edits a
+   * feature, they arrive on every keystroke-then-save, and a notification per save for a file
+   * that is mid-edit is how people learn to ignore notifications. */
+  /** What a preview the USER stopped leaves behind.
+   *
+   * Three things have to be true afterwards and none of them is the default. The spinner has to
+   * stop -- a preview that looks like it is still working after Cancel is the exact complaint
+   * this feature answers. Something has to be ON SCREEN saying what happened, because an empty
+   * viewer is also what a broken panel looks like. And whatever was waiting on the first result
+   * has to settle, or the command that opened this panel holds its notification forever.
+   *
+   * It does NOT go through reportFailure: nothing failed, so nothing writes "failed" to the log
+   * and nothing raises a notification. The panel is left in a state the user can act on -- change
+   * a control, save the file -- and the very next regenerate replaces all of this.
+   */
+  private handleCancelled(err: RequestCancelledError): void {
+    log(`Preview of ${path.basename(this.document.fileName)} was cancelled at the user's request.`)
+    this.post({ type: 'busy', busy: false })
+    this.post({ type: 'stale', stale: true, reason: PREVIEW_CANCELLED })
+    const pending = this.rejectFirstResult
+    if (pending === null) return
+    this.settleFirstResult = null
+    this.rejectFirstResult = null
+    pending(err)
+  }
+
+  private reportFailure(message: string): void {
+    const pending = this.rejectFirstResult
+    log(`Preview of ${path.basename(this.document.fileName)} failed: ${message}`)
+    if (pending !== null) {
+      this.settleFirstResult = null
+      this.rejectFirstResult = null
+      pending(new Error(message))
+      return
+    }
+    if (this.engineLevelFailure) {
+      this.engineLevelFailure = false
+      void fail(`Feature Lab: the preview stopped updating -- ${message}`)
+    }
+  }
+
+  /** Set by handleGenerateError just before it posts, for the failures that are about the engine
+   * rather than about the pack. Read and cleared by reportFailure, which is the only thing that
+   * decides whether a failure is worth interrupting somebody over. */
+  private engineLevelFailure = false
 
   /** Feeds panel.ts's Budget section (PanelHandle.setTimeoutInfo) the before/after of the
    * request-timeout coupling this class's regenerate() computes -- see that method's own doc
@@ -1151,4 +2266,21 @@ function extractDiagnostics(result: unknown): DiagnosticWireLike[] {
   const diagnostics = (result as Record<string, unknown>).diagnostics
   if (!Array.isArray(diagnostics)) return []
   return diagnostics as DiagnosticWireLike[]
+}
+
+/** The generate response as the PANEL should see it: this run's diagnostics first, the pack's
+ * standing ones folded into one expandable row behind them. See postResult for why this is the
+ * one field that is not forwarded untouched, and packContents.ts's scopedForPreview for what the
+ * fold actually does.
+ *
+ * A SHALLOW COPY, never a mutation: the caller keeps the engine's own object as `lastResult` and
+ * hands it to other readers (reportBlockNotes, applyAttribution), and rewriting a field in place
+ * would make what those see depend on whether the result had been posted yet. A response with no
+ * diagnostics array at all -- an engine that predates the field, or something unparseable -- is
+ * returned exactly as it arrived rather than gaining an empty one. */
+export function withPreviewDiagnostics(result: unknown): unknown {
+  if (typeof result !== 'object' || result === null) return result
+  const diagnostics = (result as Record<string, unknown>).diagnostics
+  if (!Array.isArray(diagnostics)) return result
+  return { ...(result as Record<string, unknown>), diagnostics: scopedForPreview(diagnostics as DiagnosticWireLike[]) }
 }
