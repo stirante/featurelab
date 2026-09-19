@@ -72,6 +72,37 @@
   --flg-bg: var(--vscode-editor-background, #1e1e1e);
   --flg-fg: var(--vscode-editor-foreground, var(--vscode-foreground, #cccccc));
   --flg-fg-muted: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+  /* THE COLOUR FOR TEXT THAT IS SECONDARY BUT STILL HAS TO BE READ.
+     --flg-fg-muted is `descriptionForeground`, and in Light Modern that is `#3b3b3b99` -- 60%
+     alpha over a #f8f8f8 card, which composites to #878787 and measures 3.40:1. Every card's
+     type line, its run counts and its fan-in control were set in it, and all of them are
+     sentences somebody has to read off a 232x86 box. `descriptionForeground` cannot be made to
+     pass, because it is the host's, so this derives its own: the panel's OWN foreground, faded
+     towards the panel's own background by a fixed amount. It stays a theme colour (both ends are
+     --vscode-*, so it moves with the theme and the sentinel test still sees it move), it still
+     reads as quieter than an identifier, and it lands at 6.7:1 in Dark Modern and 5.4:1 in Light
+     Modern instead of 3.40. --flg-fg-muted is kept for ORNAMENT -- borders, hatches, the
+     colour-mix fills -- where no ratio is owed. */
+  --flg-fg-dim: color-mix(in srgb, var(--flg-fg) 78%, var(--flg-bg));
+  /* HOW FAR AN ACCENT HUE IS PULLED TOWARDS THE FOREGROUND WHEN IT IS USED AS TEXT.
+     The kind hues are the host's chart colours, chosen to be told apart on a plot rather than to
+     carry 10px and 11px type: `charts-blue` is #1a85ff in Light Modern and measures 3.3:1 on a
+     card, `charts-orange` #d18616 on an orange-tinted chip measures 3.22:1. Both were being used
+     for the WORDS -- a card's fan-out count, a sequence chip's ordinal -- and both failed.
+     Mixing towards the panel's own foreground fixes both themes at once and in the right
+     direction each time: a light theme's foreground is near-black so the hue darkens, a dark
+     theme's is near-white so it lightens. The hue survives -- an orange chip still reads orange
+     beside a blue one -- and it clears 4.5:1 instead
+     of sitting below 3.5. FIFTY, not seventy: at 70% the worst pairing in the sheet -- a sequence
+     chip's orange ordinal on its own orange-tinted background -- came up from 3.22:1 to only
+     3.54:1, because the tint moves the background towards the hue at the same time as the hue is
+     moving towards the text. Half and half clears it, and an orange chip still reads orange
+     beside a blue one, which is the whole job the colour is doing.
+     Declared once, here, because it is a constant rather than a colour;
+     the light block below re-declares colours and has no reason to re-declare this.
+     Stripes, borders, glyph marks and the colour-mix fills go on using the raw accent: no ratio
+     is owed by a 4px rule. */
+  --flg-accent-text-mix: 50%;
   --flg-surface: var(--vscode-editorWidget-background, #252526);
   --flg-surface-hover: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08));
   --flg-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
@@ -137,7 +168,13 @@
   background-image: linear-gradient(to right, var(--flg-grid) 1px, transparent 1px),
     linear-gradient(to bottom, var(--flg-grid) 1px, transparent 1px);
   background-size: 48px 48px;
-  cursor: grab;
+  /* A CROSSHAIR, not a grab hand. The plain left drag on the background box-selects (see
+     render.ts's onPointerDown for why that moved off the modifier), and a cursor promising a pan
+     on a gesture that selects is the canvas telling the user the wrong thing before they press.
+     The pan's own affordance arrives with the gesture: `grab` the moment space goes down, and
+     `grabbing` while either space or the middle button is dragging. Both of those are worn by
+     `.flg-gesture-cursor` below and NEVER by this element -- see its rule for why. */
+  cursor: crosshair;
   outline: none;
   touch-action: none;
   user-select: none;
@@ -148,8 +185,27 @@
   outline-offset: -1px;
 }
 
-.flg-graph.flg-panning {
-  cursor: grabbing;
+/* THE GESTURE CURSOR. An empty overlay across the canvas, shown only while a pan or a card drag
+   is in flight (or while space is held, which promises one), carrying the cursor that gesture
+   asks for.
+
+   IT IS AN OVERLAY BECAUSE `cursor` IS INHERITED. Putting `grabbing` on `.flg-graph` recomputed
+   the style of every one of the ~3,500 card boxes that stay in this document, which cost ~230 ms
+   at the start of a pan and ~280 at the start of a drag -- a fifth of a second of dead air to
+   change the shape of the pointer. Nothing inherits from this element, so the same change is one
+   style write. src/graph/render.ts owns when it appears; test/scale.test.ts holds the budget.
+
+   POINTER EVENTS ARE ON, because the cursor is decided by hit testing and an element that is
+   skipped for hit testing cannot decide one. Pointer capture keeps the moves and the release
+   going to whatever started the gesture, so taking them here costs nothing.
+
+   z-index 6: above the world and the cards, BELOW the overview map and the legend (7), so those
+   two keep their own cursors and stay clickable while a gesture is in flight. */
+.flg-gesture-cursor {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: transparent;
 }
 
 /* The ONE element pan/zoom moves -- see render.ts's applyCamera(). Everything drawn is a child,
@@ -179,6 +235,28 @@
   top: 0;
   width: 0;
   height: 0;
+}
+
+/* THE CHIP LAYER SITS ABOVE THE CARDS, AND HAS TO SAY SO IN A z-index RATHER THAN IN DOM ORDER.
+   It comes after `.flg-nodes` in the document, which is enough while every card is at `z-index:
+   auto` -- and is not enough the moment one is not. Hovering a card raises it to 2 and selecting
+   one to 3, and a POSITIVE z-index paints above every auto-positioned element in the same
+   stacking context whatever the document order says. Neither layer makes a stacking context of
+   its own, so the cards and the chips compete directly inside `.flg-world`.
+
+   What that produced, measured on the compound fixture at 1440x900: an edge chip 208px wide at
+   x=620 with `demo:vine_column` over 49px of its left end and `demo:vine_block` over 49px of its
+   right, 110px of the label left showing. Nothing had truncated it -- the chip was at its full
+   `max-width` with the text laid out -- the cards were simply painted on top of both ends, which
+   is the worst of both worlds: the label takes the space and does not deliver the words.
+
+   3 rather than 4, and a LAYER rather than a rule on `.flg-chip`, so `.flg-node.flg-dragging`
+   (4) still comes out on top: a card being carried must never disappear under a label, which is
+   the promise that rule's own comment makes. Because this layer IS now a stacking context, the
+   chips' own hover and selection z-indices sort them against each other and can no longer leak
+   out and outrank a card. */
+.flg-chips {
+  z-index: 3;
 }
 
 /* The alignment guides a dragged card snaps to -- see render.ts's snapToNeighbours. Between the
@@ -253,14 +331,21 @@
 
 /* ---------------------------------------------------------------- nodes -- */
 
-/* The two numbers here are GRAPH_NODE_WIDTH / GRAPH_NODE_HEIGHT in src/graph/render.ts, which
-   exports them so the layout module can place boxes it does not render. They must move
-   together: a mismatch puts every edge endpoint slightly off its box.
+/* The width here is GRAPH_NODE_WIDTH in src/graph/render.ts, which exports it so the layout
+   module can place boxes it does not render. It must move with that constant: a mismatch puts
+   every edge endpoint slightly off its box.
 
-   The card is a fixed 232x86 and the row heights below are budgeted to fit five rows inside it
-   -- header, type, fan line, badges, coverage note -- with a few pixels spare. A row added here
-   without taking one away overflows the box, which on this canvas does not clip tidily: it
-   lands on top of the node underneath. */
+   THE HEIGHT IS NO LONGER FIXED, and the two numbers below are CARD_MIN_HEIGHT and
+   CARD_MAX_HEIGHT in the same file. A fixed 86 was the average of two different cards and served
+   neither: a leaf with a short type, no fan line and no badges spent about forty per cent of it
+   on empty space, while a shared out-of-scope node in a cycle wrapped its badge row onto a second
+   line that landed below an `overflow: hidden` box -- so the badge that got hidden was the one
+   saying the type is not implemented.
+
+   render.ts writes an exact `height` on every card, computed from the rows that card is actually
+   going to draw (cardHeight), and the bounds below are a guard rail for anything the inline style
+   does not reach. The ceiling is the layout's row pitch minus a gap, so a tall card still cannot
+   touch the one beneath it -- cards that touch read as one object. */
 .flg-node {
   --flg-node-accent: var(--flg-kind-leaf);
   /* The header wash. Low enough that 12.5px text at 600 weight still clears contrast against it
@@ -270,6 +355,8 @@
   box-sizing: border-box;
   width: 232px;
   height: 86px;
+  min-height: 64px;
+  max-height: 104px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -356,7 +443,7 @@
   font-family: var(--flg-mono);
   font-size: 11px;
   line-height: 14px;
-  color: var(--flg-fg-muted);
+  color: var(--flg-fg-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -378,20 +465,50 @@
   line-height: 12px;
   white-space: nowrap;
   overflow: hidden;
-  color: var(--flg-fg-muted);
+  color: var(--flg-fg-dim);
 }
 
 /* In the node's own hue, because it is the same statement the stripe makes, spelled out: "3
    sequence" next to an orange stripe and three orange lines. */
 .flg-node-fan-out {
-  color: var(--flg-node-accent);
+  /* 10px in the card's own hue, and at 3.68:1 in Light Modern the least readable line on the
+     card. See --flg-accent-text-mix. */
+  color: color-mix(in srgb, var(--flg-node-accent) var(--flg-accent-text-mix), var(--flg-fg));
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* A BUTTON THAT LOOKS LIKE THE LINE IT REPLACED. The fan-in count is the one fact on a card that
+   the canvas cannot answer -- twenty arrivals land inside the card's own height, and most of the
+   twenty parents are off screen at any zoom where the card can be read -- so it opens the list
+   instead of stating the number and stopping (render.ts, options.onFanIn). It keeps the row's
+   metrics exactly: the card is a fixed 232x86 whose rows are budgeted to the pixel, and a control
+   that added a border or a line-height here would push the badges out of the box. */
 .flg-node-fan-in {
   flex: 0 0 auto;
   font-weight: 600;
+  /* Everything a <button> brings and this row does not want. */
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  /* It is a control, so it says so on hover and answers the keyboard visibly. */
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.flg-node-fan-in:hover {
+  color: var(--flg-fg);
+  text-decoration-style: solid;
+}
+
+.flg-node-fan-in:focus-visible {
+  outline: 1px solid var(--flg-focus);
+  outline-offset: 1px;
 }
 
 /* ONE RUN'S MEASUREMENTS, on the fan line -- not a row of their own.
@@ -427,7 +544,7 @@
   font-family: var(--flg-mono);
   /* Muted by default: these are a measurement of one run, not a property of the feature, and the
      card's own identity should not lose to them. The write count is the one that gets weight. */
-  color: var(--flg-fg-muted);
+  color: var(--flg-fg-dim);
 }
 
 .flg-node-stat-writes {
@@ -577,13 +694,13 @@
 }
 
 .flg-node-external .flg-node-id {
-  color: var(--flg-fg-muted);
+  color: var(--flg-fg-dim);
 }
 
 /* The card's one line of prose, and on this card it is the whole explanation. Italic so it reads
    as a note about the box rather than as the type name it stands in for. */
 .flg-node-type-external {
-  color: var(--flg-fg-muted);
+  color: var(--flg-fg-dim);
   font-style: italic;
 }
 
@@ -637,17 +754,14 @@
   box-shadow: 0 0 0 2px var(--flg-focus), 0 10px 24px var(--flg-shadow);
 }
 
-/* The cursor while a drag is in flight, wherever the pointer has got to. Pointer capture keeps
-   the events coming to the card, but not the cursor's shape -- without this, dragging a card
-   over the background shows the background's `grab` and the gesture looks like it was dropped. */
-.flg-graph.flg-dragging-node,
-.flg-graph.flg-dragging-node .flg-node {
-  cursor: grabbing;
-}
+/* The cursor while a drag is in flight, wherever the pointer has got to, is `.flg-gesture-cursor`
+   above: pointer capture keeps the events coming to the card but not the cursor's shape, and
+   without something covering the canvas a card dragged over the background would show the
+   background's crosshair and the gesture would look like it had been dropped. */
 
 /* A card being carried is never quieted, even when the selection is somewhere else entirely:
    the user's hand is on it. */
-.flg-graph.flg-has-focus .flg-node.flg-dragging {
+.flg-node.flg-quiet.flg-dragging {
   opacity: 1;
 }
 
@@ -690,6 +804,20 @@
   z-index: 4;
 }
 
+/* VISIBLE AT NEAR AND MID ZOOM, not only under the pointer.
+   It was transparent until hover, which made the one control on the card undiscoverable: a person
+   who does not already know a connector exists has no reason to hover the right eight pixels of a
+   card to find out, and it was reported as "there is no way to connect two nodes". The original
+   reason for hiding it -- fifty-seven permanent dots on a dense canvas -- is real, and is answered
+   instead by the zoom bands: out at `far` and `distant` the handle is most of the box and goes
+   away entirely (see the LOD section), and at `near`/`mid` a card is big enough that an 8px dot on
+   its border is a detail rather than a mark competing with the identifier.
+   A handle that REFUSES stays hidden -- see the rule below it, which is the whole point of the
+   distinction and is not weakened here. */
+.flg-node-port {
+  opacity: 0.55;
+}
+
 .flg-node:hover .flg-node-port,
 .flg-node.flg-selected .flg-node-port,
 .flg-node:focus-within .flg-node-port,
@@ -700,6 +828,88 @@
 .flg-node-port:hover {
   border-width: 1px;
 }
+
+/* ------------------------------------------------------------ culling -- */
+
+/* A card the camera cannot see. See render.ts's cull() for why this is a class and not a
+   detachment: `.flg-node[data-node-id]` is a contract the host and the tests depend on, and a
+   card that vanished when you panned away from it would make "absent" stop meaning "deleted".
+
+   `content-visibility: hidden` is what makes keeping it nearly free. The browser skips style
+   recalculation, layout and paint for everything INSIDE the card -- nine tenths of the elements
+   on this canvas -- while the card itself keeps its box, so it is still found by a selector,
+   still measures honestly, and is still hit-testable. That last part matters: `display: none`
+   would be marginally cheaper and would make the card unclickable and unmeasurable, which is the
+   whole reason it is not used here.
+
+   Nothing about the card's own appearance changes, because nothing about the card is visible at
+   this distance anyway -- it is outside the viewport by construction. */
+.flg-node.flg-node-culled {
+  content-visibility: hidden;
+}
+
+/* -------------------------------------------------------- input ports -- */
+
+/* Where one incoming delegation LANDS. One per edge, at the exact y assignPorts fanned that edge
+   to, so a shared child with eleven parents shows eleven marks down its border and the count is
+   readable off the card instead of having to be inferred from a bundle of curves.
+
+   NOT a control, and shaped so it cannot be mistaken for one: a small bar flush with the border
+   rather than the outgoing handle's round dot, no pointer events, no tab stop. The asymmetry is
+   deliberate -- a dot means "you can start something here", a bar means "something arrives here",
+   and a canvas where both directions looked identical would invite a drag from the wrong side.
+
+   It takes its colour from the CARD's accent rather than the edge's, because the mark belongs to
+   the card: eleven differently-coloured ticks down one border would read as eleven states of the
+   card rather than as eleven arrivals. */
+.flg-node-inport {
+  position: absolute;
+  left: -3px;
+  width: 5px;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 1px;
+  background-color: color-mix(in srgb, var(--flg-node-accent) 70%, var(--flg-fg-muted));
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* An edge that goes BACKWARD in the layout arrives on the right-hand border instead -- see
+   assignPorts, which classifies by which way round the two boxes ended up. Drawing every arrival
+   on the left would put a mark where nothing lands and leave the real arrival unmarked. */
+.flg-node-inport.flg-node-inport-right {
+  left: auto;
+  right: -3px;
+}
+
+/* ------------------------------------------------- search highlighting -- */
+
+/* What a search leaves behind on the canvas: everything that does not match is quieted, so the
+   hits stand out without anything moving and without the shape of the pack being lost. The
+   overview map dims the same set, which is what makes "your hits are over there" answerable
+   without panning. Opacity only -- see the header on why nothing on this canvas moves.
+
+   NO ROOT CLASS IN THESE SELECTORS, for the reason spelled out over `.flg-node.flg-quiet` below:
+   `flg-node-dim` is already written per card by render.ts's setHighlight, so guarding it with
+   `.flg-graph.flg-has-highlight` bought nothing and made clearing a search a whole-document
+   style invalidation over 3,531 card boxes. `flg-has-highlight` stays on the root as a state
+   marker only. */
+.flg-node.flg-node-dim {
+  opacity: 0.3;
+}
+
+/* A dimmed card is still selectable and still answers hover, exactly as a quieted one does during
+   a selection: dimming is an answer to "where are my hits", not a disabling. */
+.flg-node.flg-node-dim:hover,
+.flg-node.flg-node-dim:focus-visible,
+.flg-node.flg-node-dim.flg-selected {
+  opacity: 1;
+}
+
+/* Space held turns the primary button back into a pan -- the drawing-tool idiom. The cursor is
+   the whole announcement, so it has to change the moment the key goes down and not when the
+   button does: render.ts raises `.flg-gesture-cursor` on the keydown, wearing `grab`, and swaps
+   it to `grabbing` when the button follows. */
 
 .flg-node-port:focus-visible {
   outline: 2px solid var(--flg-focus);
@@ -716,6 +926,12 @@
 .flg-node-port[data-refuses='true'] {
   background-color: transparent;
   border: 2px solid var(--flg-fg-muted);
+  /* HIDDEN EVEN THOUGH THE OTHER HANDLES ARE NOW ALWAYS ON. This is the rule that survives that
+     change and it is the one that matters: a leaf, or a feature the game provides, must not
+     advertise an outgoing connection it cannot make. More specific than the always-on rule above
+     on purpose, so making handles discoverable cannot quietly make the false ones discoverable
+     too. Focus still draws it -- that is how a keyboard user reaches the explanation. */
+  opacity: 0;
 }
 .flg-node:hover .flg-node-port[data-refuses='true'],
 .flg-node.flg-selected .flg-node-port[data-refuses='true'] {
@@ -737,28 +953,67 @@
   opacity: 1;
 }
 
+/* ---- DRAWING A CONNECTION -------------------------------------------------------------------
+
+   NO ROOT CLASS IN ANY OF THESE SELECTORS EITHER, and this block is the second time that lesson
+   was learned the hard way. Every rule here used to read `.flg-graph.flg-linking .flg-node...`
+   or `.flg-graph.flg-linking-armed .flg-node...` -- nine of them, all with a descendant subject
+   hanging off a class on the canvas root. Measured on the 3,531-card fixture: arming a
+   connection cost 228 ms of style recalculation and starting a pointer link 102 ms, against
+   0 ms for `flg-has-focus` (a root class no rule reads) and 6.7 ms for one card's own
+   `flg-quiet`. It is the identical defect the selection and search paths were cured of above,
+   left behind on the link path because nobody looked at it twice.
+
+   THE CURE NEEDED NO NEW STATE. `flg-link-source`, `flg-link-ok` and `flg-link-bad` are already
+   written per card by render.ts (markLinkTarget, armConnection) and already removed when the
+   gesture ends, so the root class was never doing anything a per-card class was not already
+   saying. `flg-linking` and `flg-linking-armed` stay on the root as state markers for the host
+   and the tests, exactly as `flg-has-focus` does, and nothing here reads them.
+
+   ONE DISTINCTION HAD TO BE RE-EXPRESSED. The pointer's single drop target used to get a heavy
+   3px ring and the armed mode's many legal targets a light 2px one -- a difference the root
+   class carried. It is `:hover` now, which is the same fact stated about the card itself: the
+   pointer's target is BY CONSTRUCTION the card under the pointer (markLinkTarget is driven by
+   nodeUnder), and in the keyboard mode there is no pointer on a card at all.
+
+   THE `.flg-quiet` TWIN ON EACH RULE is specificity, not decoration. `.flg-node.flg-quiet` is
+   0-2-0 and sits LATER in this file, so a bare `.flg-node.flg-link-ok` would lose its opacity to
+   it on a canvas that is quieted -- which is every canvas with something selected, which is when
+   most connections are drawn. */
+
 /* While a connection is in flight the SOURCE card stays lit, whatever the selection is: the
    user's hand is on it, exactly as with a card being dragged. */
-.flg-graph.flg-linking .flg-node.flg-link-source,
-.flg-graph.flg-has-focus.flg-linking .flg-node.flg-link-source {
+.flg-node.flg-link-source,
+.flg-node.flg-quiet.flg-link-source {
   opacity: 1;
   box-shadow: 0 0 0 2px var(--flg-focus), 0 4px 14px var(--flg-shadow);
 }
 
-.flg-graph.flg-linking .flg-node.flg-link-source .flg-node-port {
+.flg-node.flg-link-source .flg-node-port {
   opacity: 1;
 }
 
 /* THE DROP TARGET, ANSWERED BEFORE THE RELEASE. A legal target is ringed and brought back to
    full strength; an illegal one is struck through with a hatch and keeps its ring in the error
    colour, so the two differ by TEXTURE as well as by hue. Neither moves: a target that jumped
-   under the cursor would be a target the pointer then missed. */
-.flg-graph.flg-linking .flg-node.flg-link-ok {
+   under the cursor would be a target the pointer then missed.
+
+   The light ring is the default because the keyboard mode marks EVERY legal card at once -- on a
+   list type that is most of the pack, and a canvas of heavy rings is just a canvas of rings. */
+.flg-node.flg-link-ok,
+.flg-node.flg-quiet.flg-link-ok {
   opacity: 1;
+  box-shadow: 0 0 0 2px var(--flg-focus);
+}
+
+/* The one card under the pointer, which is the only card a pointer link ever marks. */
+.flg-node.flg-link-ok:hover,
+.flg-node.flg-quiet.flg-link-ok:hover {
   box-shadow: 0 0 0 3px var(--flg-focus), 0 6px 18px var(--flg-shadow);
 }
 
-.flg-graph.flg-linking .flg-node.flg-link-bad {
+.flg-node.flg-link-bad,
+.flg-node.flg-quiet.flg-link-bad {
   opacity: 1;
   box-shadow: 0 0 0 2px var(--flg-error-fg);
   background-image: repeating-linear-gradient(
@@ -768,25 +1023,15 @@
   );
 }
 
-/* An armed, keyboard-driven connection quiets everything it is NOT offering, the same way a
-   selection does -- otherwise the cards that cannot take what is being carried are just as loud
-   as the ones that can, and the marking says nothing. */
-.flg-graph.flg-linking-armed .flg-node {
-  opacity: 0.4;
-}
-
-.flg-graph.flg-linking-armed .flg-node.flg-link-ok,
-.flg-graph.flg-linking-armed .flg-node.flg-link-bad,
-.flg-graph.flg-linking-armed .flg-node.flg-link-source {
-  opacity: 1;
-}
-
-/* Quieter than the pointer's single drop target, because in this mode EVERY legal card is marked
-   at once -- and on a list type that is most of the pack. The heavy ring belongs to the one card
-   under the cursor; a canvas of them is just a canvas of rings. */
-.flg-graph.flg-linking-armed .flg-node.flg-link-ok {
-  box-shadow: 0 0 0 2px var(--flg-focus);
-}
+/* WHAT IS NOT HERE: `.flg-graph.flg-linking-armed .flg-node { opacity: 0.4 }`, with three
+   exception rules putting `flg-link-ok`, `flg-link-bad` and `flg-link-source` back to 1. Those
+   four rules were the 228 ms, and they were also DEAD: armConnection marks every card in
+   `nodeBoxes` -- group cards and ghosts included, since all of them carry a `data-nodeId` -- so
+   by the time the 0.4 could apply, every card on the canvas already had one of the three
+   exceptions on it. Removing them changes nothing that was ever painted. The "quiet what is not
+   on offer" the comment promised is done by the marking itself: a refused card is hatched and
+   ringed in the error colour, which is a stronger statement than a fade and survives a
+   forced-colors theme, where opacity is nearly the only signal left. */
 
 /* -- the verdict at the pointer -------------------------------------------
 
@@ -866,32 +1111,57 @@
    question the eye answers instantly.
 
    Opacity only, and only on things that are still fully present, clickable and in the
-   accessibility tree: this hides nothing and removes nothing. */
-.flg-graph.flg-has-focus .flg-node {
-  opacity: 0.35;
+   accessibility tree: this hides nothing and removes nothing.
+
+   THE CLASS IS ON THE QUIETED THING, NOT ON THE CANVAS ROOT, AND THAT IS A PERFORMANCE CONTRACT.
+   These rules used to read `.flg-graph.flg-has-focus .flg-node { ... }` -- seven of them, all
+   with a descendant subject, all keyed off one class on the root. A class change on the root
+   whose rules select DESCENDANTS makes the browser re-match every element that could be one of
+   those subjects, and this document keeps all 3,531 cards and all 4,580 edge groups in it
+   whatever the camera shows (see render.ts's cull()). Selecting a card cost 280 ms to a painted
+   frame, 250 ms of it style recalculation; with these seven rules deleted through the CSSOM and
+   nothing else changed, 57 ms and 8 ms. It is the same defect as `flg-panning` on the root
+   (see .flg-gesture-cursor), and `.flg-graph { --something: ... }` would be the same defect
+   again, because a custom property is inherited and invalidates the whole subtree too.
+
+   `flg-quiet` is written by render.ts's applyQuieting onto the elements the culler has DRAWN --
+   a viewport's worth -- and NEVER appears in an ancestor position in this file. Keep it that
+   way: the moment a rule reads `.flg-quiet .something`, the 280 ms is back. `flg-has-focus` is
+   still toggled on the root, but purely as a state marker for the host and the tests; no rule
+   here depends on it. */
+/* HOW DEEP THE QUIETING GOES, AND WHY IT IS NOT 0.35 ANY MORE.
+   At 0.35 a quieted card's own text measured 1.89:1 in Dark Modern and 1.45:1 in Light Modern --
+   on a 57-node fixture that is 34 of the 57 cards below the 3:1 floor for any text at all, and
+   the quieting is applied on an ordinary click, so that is the panel's normal state rather than
+   an edge case. 0.6 is the shallowest value that still reads as "this one, not those": measured
+   the same way it puts a quieted card at 4.59:1 in Dark Modern and 3.38:1 in Light Modern, and
+   the SELECTED card is unchanged at full strength, so the contrast BETWEEN the two is what does
+   the work. Anyone who has asked their platform for more contrast gets 0.85, which is barely a
+   fade at all -- for them the selection ring, the accent stripe and the edge highlighting are
+   still there and the fade was never the signal carrying it.
+   Still one declaration on `.flg-node.flg-quiet` itself; see the note above about ancestors. */
+.flg-node.flg-quiet {
+  opacity: 0.6;
 }
 
-.flg-graph.flg-has-focus .flg-node-focus {
-  opacity: 1;
+@media (prefers-contrast: more) {
+  .flg-node.flg-quiet {
+    opacity: 0.85;
+  }
 }
 
-.flg-graph.flg-has-focus .flg-edge,
-.flg-graph.flg-has-focus .flg-chip {
+.flg-edge.flg-quiet,
+.flg-chip.flg-quiet {
   opacity: 0.12;
-}
-
-.flg-graph.flg-has-focus .flg-edge.flg-incident,
-.flg-graph.flg-has-focus .flg-chip.flg-incident {
-  opacity: 1;
 }
 
 /* A quieted thing is still reachable, so hovering or focusing one brings it back rather than
    leaving the user prodding at something they cannot see. */
-.flg-graph.flg-has-focus .flg-node:hover,
-.flg-graph.flg-has-focus .flg-node:focus-visible,
-.flg-graph.flg-has-focus .flg-chip:hover,
-.flg-graph.flg-has-focus .flg-chip:focus-visible,
-.flg-graph.flg-has-focus .flg-edge:hover {
+.flg-node.flg-quiet:hover,
+.flg-node.flg-quiet:focus-visible,
+.flg-chip.flg-quiet:hover,
+.flg-chip.flg-quiet:focus-visible,
+.flg-edge.flg-quiet:hover {
   opacity: 1;
 }
 
@@ -1094,7 +1364,7 @@
 
 .flg-chip-mark {
   font-family: var(--flg-mono);
-  color: var(--flg-chip-accent);
+  color: color-mix(in srgb, var(--flg-chip-accent) var(--flg-accent-text-mix), var(--flg-fg));
 }
 
 .flg-chip-label {
@@ -1104,7 +1374,7 @@
 
 .flg-chip-detail {
   font-size: 9.5px;
-  color: var(--flg-fg-muted);
+  color: var(--flg-fg-dim);
 }
 
 .flg-chip-rule {
@@ -1130,7 +1400,9 @@
 .flg-chip-sequence .flg-chip-label {
   font-weight: 700;
   font-size: 12.5px;
-  color: var(--flg-kind-sequence);
+  /* The ordinal, and what the audit measured at 3.22:1 in Light Modern: orange type on an
+     orange-tinted chip, the worst pairing in the sheet. See --flg-accent-text-mix. */
+  color: color-mix(in srgb, var(--flg-kind-sequence) var(--flg-accent-text-mix), var(--flg-fg));
 }
 
 /* AGGREGATE -- square-cornered, muted, and showing no number whatsoever. Its ordinal is only
@@ -1139,7 +1411,9 @@
 .flg-chip-aggregate {
   --flg-chip-accent: var(--flg-kind-aggregate);
   border-radius: 2px;
-  color: var(--flg-fg-muted);
+  /* --flg-fg-dim, not --flg-fg-muted: this is the chip's whole text, and the muted token is the
+     host's `descriptionForeground`, which Light Modern resolves to a 3.40:1 grey. */
+  color: var(--flg-fg-dim);
   font-style: italic;
 }
 
@@ -1150,7 +1424,7 @@
 
 .flg-chip-weighted .flg-chip-label {
   font-weight: 600;
-  color: var(--flg-kind-weighted);
+  color: color-mix(in srgb, var(--flg-kind-weighted) var(--flg-accent-text-mix), var(--flg-fg));
 }
 
 /* The share bar. A weight is meaningless on its own -- "5" is half the picks next to one other
@@ -1272,6 +1546,7 @@
 /* MID: the sentences go. A fan-out line and a coverage note are read, not glanced at, and at 60%
    scale they are neither. The id, the type and the state badges stay. */
 .flg-graph[data-zoom-band='mid'] .flg-node-meta,
+.flg-graph[data-zoom-band='mid'] .flg-node-group-members,
 .flg-graph[data-zoom-band='mid'] .flg-node-note {
   display: none;
 }
@@ -1300,14 +1575,22 @@
   display: none;
 }
 
-.flg-graph[data-zoom-band='far'] .flg-node {
-  border-radius: 3px;
-  box-shadow: none;
-}
+/* THE BAND RULES DELIBERATELY DO NOT TARGET `.flg-node` ITSELF. Every one of them lands on a
+   CHILD of the card, and that is a performance decision rather than a stylistic one.
 
+   `data-zoom-band` lives on the canvas root, so flipping it invalidates style for every element
+   below it that any band rule could match. A card off screen is marked `.flg-node-culled` and its
+   whole subtree is skipped (`content-visibility: hidden`) -- but the card element itself is not,
+   because it has to keep its box so a selector can still find and measure it. So a rule naming
+   `.flg-node` puts all 3531 cards back into the invalidation, and one naming `.flg-node-head`
+   does not: the heads of culled cards are inside skipped subtrees.
+   Measured: ~43 ms of style recalculation per band flip with the rules on the card, ~4 ms with
+   them on its head. The card keeps its border and radius out here; at this scale its 4px accent
+   stripe IS the mark, which is what the block below was drawing anyway. */
 .flg-graph[data-zoom-band='far'] .flg-node-head {
   height: 100%;
   border-bottom: none;
+  border-radius: 2px;
   background-color: color-mix(in srgb, var(--flg-node-accent) 55%, var(--flg-surface));
 }
 
@@ -1335,6 +1618,55 @@
    the lesser evil at a zoom where no individual edge is traceable anyway. */
 .flg-graph[data-zoom-band='far'] .flg-edge-casing {
   display: none;
+}
+
+/* DISTANT: the band a REAL PACK is framed at.
+
+   `far` above was written for a fifty-seven-node fixture, which frames at about 0.12 and puts a
+   card at thirty screen pixels. A 3531-node pack lays out to roughly 30,600 x 53,000 units and
+   frames at about 0.011, where a card is two and a half pixels wide and under one pixel tall --
+   and at that scale `far`'s treatment stops being a simplification and becomes a lie: the border
+   is the whole card, the radius rounds it away entirely, and every card is the same grey line.
+
+   Out here the drawing answers exactly one question -- WHERE THINGS ARE, and how many separate
+   drawings this pack is -- so everything that is not position or category colour goes. It is not
+   a degraded view; at 0.011 it is the only view that says anything at all. One scroll brings the
+   rest back, and nothing has been thrown away because nothing was re-rendered. */
+.flg-graph[data-zoom-band='distant'] .flg-chips,
+.flg-graph[data-zoom-band='distant'] .flg-node-body,
+.flg-graph[data-zoom-band='distant'] .flg-node-icon,
+.flg-graph[data-zoom-band='distant'] .flg-node-id,
+.flg-graph[data-zoom-band='distant'] .flg-node-port,
+.flg-graph[data-zoom-band='distant'] .flg-node-inport,
+.flg-graph[data-zoom-band='distant'] .flg-edge-casing,
+/* The arrowheads too. They are a fixed ten world units long, which out here is a tenth of a pixel
+   -- so they contribute nothing but a second path per edge for the compositor to rasterise. */
+.flg-graph[data-zoom-band='distant'] .flg-edge-arrow {
+  display: none;
+}
+
+/* The card becomes its fill and nothing else: the HEAD is grown to the whole box and filled with
+   the category's own colour, flat -- no wash, because a 55% mix of a 2-pixel mark against the
+   surface is the surface. On the head rather than on the card for the reason given above the
+   `far` block: a rule naming `.flg-node` would restyle every culled card on the canvas. */
+.flg-graph[data-zoom-band='distant'] .flg-node-head {
+  height: 100%;
+  border-bottom: none;
+  border-radius: 0;
+  background-color: var(--flg-node-accent);
+}
+
+/* Except an unresolved one, which stays hollow for the same reason it does at `far`: filling it
+   makes it a solid red block, and a solid red block is what a scatter node already is. */
+.flg-graph[data-zoom-band='distant'] .flg-node-unresolved .flg-node-head {
+  background-color: transparent;
+}
+
+.flg-graph[data-zoom-band='distant'] .flg-edge-line {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1;
+  stroke-dasharray: none;
+  opacity: 0.5;
 }
 
 /* -------------------------------------------------- reduced motion / HC -- */
@@ -1378,11 +1710,14 @@
 
   /* Forced-colors mode has a very small palette and opacity is one of the few signals left in
      it, so the quieting stays -- but shallower, because there is no hue for the eye to fall back
-     on when a quieted thing is all it has. */
-  .flg-graph.flg-has-focus .flg-node,
-  .flg-graph.flg-has-focus .flg-edge,
-  .flg-graph.flg-has-focus .flg-chip {
-    opacity: 0.5;
+     on when a quieted thing is all it has. 0.85 rather than the 0.5 this said while the ordinary
+     value was 0.35: a forced-colors user is asking for MORE contrast, and 0.5 became the deeper
+     of the two the moment the ordinary value was raised to 0.6. It matches the
+     `prefers-contrast: more` value above, which is the same request made a different way. */
+  .flg-node.flg-quiet,
+  .flg-edge.flg-quiet,
+  .flg-chip.flg-quiet {
+    opacity: 0.85;
   }
 }
 
@@ -1403,6 +1738,7 @@
     --flg-bg: var(--vscode-editor-background, #ffffff);
     --flg-fg: var(--vscode-editor-foreground, var(--vscode-foreground, #1e1e1e));
     --flg-fg-muted: var(--vscode-descriptionForeground, rgba(30, 30, 30, 0.65));
+    --flg-fg-dim: color-mix(in srgb, var(--flg-fg) 78%, var(--flg-bg));
     --flg-surface: var(--vscode-editorWidget-background, #f6f6f6);
     --flg-surface-hover: var(--vscode-list-hoverBackground, rgba(0, 0, 0, 0.05));
     --flg-border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(0, 0, 0, 0.2)));
@@ -1445,6 +1781,15 @@
    --------------------------------------------------------------------------- */
 
 #flg-root {
+  /* THE SHELL'S OWN "QUIETER, BUT STILL READ IT" COLOUR.
+     Same construction and the same reason as --flg-fg-dim on .flg-graph above: the shell is
+     outside .flg-graph, so it cannot borrow that one. `descriptionForeground` is the host's own
+     foreground at 60% alpha in Light Modern, and measures 3.40:1 once that alpha resolves over
+     this panel's background -- which is where the status line, the section labels, the hints and
+     the run notes all were. Derived from the host's own
+     `foreground` faded towards the panel background instead: 5.5:1 in Light Modern, 6.7:1 in
+     Dark Modern, and still visibly the secondary of the two weights. */
+  --flg-shell-dim: color-mix(in srgb, var(--vscode-foreground) 78%, var(--vscode-editorWidget-background));
   background: var(--vscode-editor-background);
   color: var(--vscode-foreground);
   font-family: var(--vscode-font-family);
@@ -1462,7 +1807,7 @@
 }
 
 .flg-toolbar-label {
-  color: var(--vscode-descriptionForeground);
+  color: var(--flg-shell-dim);
   margin-right: 2px;
 }
 
@@ -1489,6 +1834,239 @@
 /* The compounds sit apart from the view controls: one group creates things,
    the other only changes what you are looking at. */
 .flg-tool { margin-left: auto; }
+
+/* ------------------------------------------------------------- history -- */
+
+/* Undo, Redo and the name of what they are about.
+
+   It is a GROUP rather than two loose buttons because the sentence beside them is what makes
+   them readable: "Undo" on its own is a promise about an unnamed thing, in an editor where every
+   field writes a file the moment it loses focus. The pair takes the left of the remaining space
+   so it reads as part of the document's own state, next to the search box, rather than as
+   another view control on the right. */
+.flg-history {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+/* Every button inside the group is placed by the group, so the `margin-left: auto` that pushes a
+   lone .flg-tool to the right must not apply to them as well -- it would spread the pair across
+   the toolbar. */
+.flg-history .flg-tool { margin-left: 0; }
+
+/* The two wrappers the buttons are rebuilt inside, so that the live region between them survives
+   every redraw (see historyHost). `display: contents` means they lay out as though they were not
+   there at all: the row is still four flex children with one gap between each. */
+.flg-history-slot { display: contents; }
+
+/* The name of the entry. Elided rather than wrapped: the toolbar is one row high, and an undo
+   label is a sentence whose length is whatever the author's last edit was. The full text is in
+   the buttons' tooltips and in this element's own. */
+.flg-history-label {
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Body text, not ornament: this is the only place the panel says WHAT Undo would put back,
+     and `descriptionForeground` put it at 3.40:1 in Light Modern. */
+  color: var(--vscode-foreground);
+  font-size: 0.92em;
+}
+
+/* A disabled history button still SAYS what it is; it does not disappear. A control that comes
+   and goes teaches people not to look for it, and "there is nothing to undo" is exactly the fact
+   somebody wants when they are looking for the undo.
+
+   IT IS `aria-disabled`, NOT `disabled`, AND THE LOOK CHANGED WITH IT. `disabled` took Redo out
+   of the tab order altogether, so the commonest state of this pair -- nothing redoable -- was a
+   control a keyboard could not reach to find out why; and `opacity: 0.5` over a `foreground`
+   face measured 2.67:1 in Light Modern and 3.59:1 in Dark, which is unreadable in the one state
+   where the button's own word is all the information there is. So the face keeps its colour and
+   the unavailability is said three other ways: a dashed border, no hover response, and the
+   button's own `aria-disabled` and tooltip. */
+.flg-history .flg-tool[aria-disabled='true'] {
+  border-style: dashed;
+  color: var(--vscode-foreground);
+  cursor: default;
+}
+
+.flg-history .flg-tool[aria-disabled='true']:hover { background: transparent; }
+
+/* The way out of a refusal. Present only while there IS one, because it is an answer to a
+   sentence on the status line rather than a standing control -- and marked, because it is the one
+   button here that changes what the history claims it can do. */
+.flg-history-forget {
+  border-color: var(--vscode-editorWarning-foreground);
+}
+
+/* "This panel reopened, so its Undo list starts over."
+
+   WHY IT IS POSITIONED RATHER THAN IN THE ROW. A revived panel's Undo reads "Nothing to undo" and
+   is `aria-disabled` -- pixel-for-pixel what a panel that has never written anything says, while
+   the edit it is no longer offering is still on disk. The sentence that tells those two apart is
+   a sentence, and the toolbar is one line high: a wrapping fourth child would push the canvas
+   down every time this appeared, on a control that is in the toolbar precisely so it does not
+   move. So it floats UNDER the pair, over the canvas, exactly the way the search box's results
+   do -- `#flg-toolbar` is already the positioned ancestor for that reason. */
+.flg-history { position: relative; }
+
+#flg-history-note[hidden] { display: none; }
+
+#flg-history-note {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 21;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 44em;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  background: var(--flg-surface);
+  border: 1px solid var(--flg-border);
+  border-radius: 3px;
+  box-shadow: 0 2px 6px var(--flg-shadow);
+  /* Body text: it is the only thing on screen saying where the missing history went, and the
+     muted token is the host's `descriptionForeground`, which Light Modern resolves to a
+     60%-alpha grey measuring 3.40:1. */
+  color: var(--flg-fg);
+  font-size: 0.92em;
+  line-height: 1.5;
+  white-space: normal;
+  text-align: left;
+}
+
+.flg-history-note-text { min-width: 0; }
+
+.flg-history-note-dismiss {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* ------------------------------------------- what you can do to this node -- */
+
+/* The rename box, Preview and Delete, on the node they are about.
+
+   The bar had no rule at all, so its three children flowed as inline-block text: the identifier
+   field and the buttons ran together on whatever line they happened to fit, and `.flg-tool`'s
+   `margin-left: auto` -- written for the flex toolbar -- did nothing here. A row of actions that
+   reflows as the panel is dragged narrower is a row where the destructive one moves under the
+   pointer, which is the one place that must not happen.
+
+   So: the name takes a line of its own, and the actions sit on the next one in a fixed order,
+   Delete last. `gap` rather than margins, so nothing has to be un-set on the first child. */
+.flg-lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.flg-lifecycle .flg-rename {
+  flex: 1 0 100%;
+}
+
+/* Cancels the toolbar's `margin-left: auto`, which would otherwise push the first button to the
+   far edge and leave the pair split across the width of the panel. */
+.flg-lifecycle .flg-tool {
+  margin-left: 0;
+}
+
+/* ------------------------------------------------- an irreversible button -- */
+
+/* A button that writes a file the user cannot get back by pressing Escape -- the inspector's
+   Delete is the one this exists for.
+
+   It had no styling at all. The class it wore (`flg-remove`) was referenced four times and
+   defined nowhere, so "Delete this feature" rendered as the same quiet bordered pill as "Fit":
+   the control that deletes a file and the control that changes the zoom were visually identical,
+   next to each other, in a panel people click through quickly. That is a mis-click waiting to
+   happen, and the file it takes is not in any undo stack.
+
+   THE COLOUR IS NOT THE SIGNAL, it is the confirmation of one. The danger hue is the fastest cue
+   for most readers and useless to some -- roughly one man in twelve cannot separate the red/green
+   pair, and a high-contrast theme flattens the palette outright -- so it is never load-bearing
+   here. What carries the meaning without it:
+     - the WORD on the button, which the webview writes ("Delete"), and which is why this rule
+       does not try to add an icon or a glyph of its own;
+     - a HEAVIER BORDER than every other button in the row, which survives greyscale;
+     - a FILLED hover and a pressed state, so the button visibly behaves differently from its
+       neighbours before it is committed to.
+   And it never fires without the confirmation the inspector already asks for; this rule makes the
+   question expected rather than surprising.
+
+   `--vscode-editorError-foreground` rather than a picked red: it is the colour this host already
+   uses to mean "something is wrong here", it exists in every shipped theme, and it is tuned by
+   the theme for that theme's background. */
+/* `.flg-remove` is the name the webview uses today, in four places, and it has never been
+   defined anywhere -- which is exactly how Delete came to render as an ordinary pill. It is
+   listed here as an alias so the button is styled whichever name reaches it first; when the
+   webview finishes moving to `.flg-destructive` this selector can go, and nothing else has to
+   change. */
+.flg-add.flg-destructive,
+.flg-tool.flg-destructive,
+button.flg-destructive,
+.flg-add.flg-remove,
+.flg-tool.flg-remove,
+button.flg-remove {
+  color: var(--vscode-editorError-foreground);
+  border-color: color-mix(in srgb, var(--vscode-editorError-foreground) 55%, var(--vscode-widget-border));
+  /* Two pixels against everything else's one. The weight is the half of this that survives a
+     greyscale print and a high-contrast theme. */
+  border-width: 2px;
+  padding: 2px 8px;
+}
+
+.flg-add.flg-destructive:hover,
+.flg-tool.flg-destructive:hover,
+button.flg-destructive:hover,
+.flg-add.flg-remove:hover,
+.flg-tool.flg-remove:hover,
+button.flg-remove:hover {
+  /* A wash rather than a solid fill: solid would put white-on-red text under whatever contrast
+     the theme happens to give, and the word is the part that must stay readable. */
+  background: color-mix(in srgb, var(--vscode-editorError-foreground) 14%, transparent);
+  border-color: var(--vscode-editorError-foreground);
+}
+
+.flg-add.flg-destructive:active,
+.flg-tool.flg-destructive:active,
+button.flg-destructive:active,
+.flg-add.flg-remove:active,
+.flg-tool.flg-remove:active,
+button.flg-remove:active {
+  background: color-mix(in srgb, var(--vscode-editorError-foreground) 26%, transparent);
+}
+
+.flg-add.flg-destructive:focus-visible,
+.flg-tool.flg-destructive:focus-visible,
+button.flg-destructive:focus-visible,
+.flg-add.flg-remove:focus-visible,
+.flg-tool.flg-remove:focus-visible,
+button.flg-remove:focus-visible {
+  /* The focus ring stays the host's focus colour, NOT the danger colour. A ring that changed hue
+     with the button would make "this is focused" and "this is dangerous" the same signal, and a
+     keyboard user tabbing across the row needs to keep telling them apart. */
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.flg-add.flg-destructive:disabled,
+.flg-tool.flg-destructive:disabled,
+button.flg-destructive:disabled,
+.flg-add.flg-remove:disabled,
+.flg-tool.flg-remove:disabled,
+button.flg-remove:disabled {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  border-color: var(--vscode-widget-border);
+  background: transparent;
+  cursor: default;
+}
 
 #flg-side {
   border-left: 1px solid var(--vscode-panel-border);
@@ -1531,7 +2109,7 @@
 }
 
 .flg-hint {
-  color: var(--vscode-descriptionForeground);
+  color: var(--flg-shell-dim);
   font-size: 0.92em;
   margin-top: 2px;
   overflow-wrap: anywhere;
@@ -1549,14 +2127,14 @@
      in the canvas's vocabulary renders with no border and no background at all. */
   margin: 6px 0;
   padding: 6px 8px;
-  border-left: 2px solid var(--vscode-descriptionForeground);
+  border-left: 2px solid var(--flg-shell-dim);
   background: var(--vscode-textCodeBlock-background);
   font-size: 0.95em;
 }
 
 .flg-run-head {
   font-weight: 600;
-  color: var(--vscode-descriptionForeground);
+  color: var(--vscode-foreground);
   margin-bottom: 3px;
   overflow-wrap: anywhere;
 }
@@ -1569,7 +2147,7 @@
 /* The first line is the answer; the rest are caveats and context, and they read as such. */
 .flg-run-line + .flg-run-line {
   margin-top: 3px;
-  color: var(--vscode-descriptionForeground);
+  color: var(--flg-shell-dim);
 }
 
 /* A required key is marked on the label rather than stated in prose beneath it:
@@ -1585,20 +2163,105 @@
   font-size: 0.95em;
 }
 
+/* THE THREE LEVELS DIFFER BY MORE THAN A STRIPE.
+   They used to differ by the COLOUR of a 2px border and by nothing else: three boxes a reader
+   could tell apart only by naming a hue, which is no use to anybody who cannot, and no use at
+   all in a screenshot or a printout. Each one now carries a word in its own gutter -- the
+   marker text is part of the notice's own text (see `notice()` in webview/graph.ts), so it is
+   read out, copied and searched like the rest of the sentence rather than living in a
+   `::before` that only sighted users get -- and the stripe's WIDTH goes up with the level, so
+   the three are distinguishable as shapes with the colour taken away entirely. */
 .flg-notice-info { border-left-color: var(--vscode-charts-blue); }
-.flg-notice-warning { border-left-color: var(--vscode-editorWarning-foreground); }
-.flg-notice-error { border-left-color: var(--vscode-editorError-foreground); }
+
+.flg-notice-warning {
+  border-left-color: var(--vscode-editorWarning-foreground);
+  border-left-width: 4px;
+  padding-left: 6px;
+}
+
+.flg-notice-error {
+  border-left-color: var(--vscode-editorError-foreground);
+  border-left-width: 4px;
+  border-left-style: double;
+  padding-left: 6px;
+}
+
+/* The word in front of the sentence. Bold and in the level's own colour, so it is the one thing
+   read first, but it is real text: with no colour at all it still says "Error". */
+.flg-notice-mark {
+  font-weight: 600;
+}
+
+.flg-notice-warning > .flg-notice-mark { color: var(--vscode-editorWarning-foreground); }
+.flg-notice-error > .flg-notice-mark { color: var(--vscode-editorError-foreground); }
+
+/* A notice that sits OVER THE DRAWING rather than in the column beside it.
+   Three findings share this strip and share a shape: the canvas drew confidently, the status
+   line agreed with it, and the fact that would have changed the reader's mind was on no surface
+   at all -- a group a comment-blind formatter deleted out of every file, a saved camera restored
+   over the hole a deleted feature left, a pack whose features/ directory has moved. See
+   graphPanel.ts's #flg-banner for why it is here and not in the sidebar.
+   OPAQUE, and with a border all the way round. The sidebar's own notices sit on a solid column
+   and need neither; these sit on top of cards and edges, and a notice you can read the graph
+   through is a notice nobody reads. */
+.flg-banner-note {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: var(--flg-surface);
+  /* Three sides only. The LEFT border is the level stripe -- its width, style and colour are what
+     tell warning from error with the colour taken away (see .flg-notice-warning above) -- and a
+     `border` shorthand here would come later in the cascade and quietly flatten all three back to
+     one hairline in one colour. */
+  border-top: 1px solid var(--flg-border);
+  border-right: 1px solid var(--flg-border);
+  border-bottom: 1px solid var(--flg-border);
+  border-radius: 3px;
+  box-shadow: 0 2px 6px var(--flg-shadow);
+  color: var(--flg-fg);
+}
+
+/* The dismiss, on the same line as the words rather than under them: the strip is over the
+   canvas and every pixel of height it takes is a pixel of the drawing it covers. */
+.flg-banner-dismiss {
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+}
 
 #flg-status {
   flex: 0 0 auto;
   padding: 4px 10px;
   border-top: 1px solid var(--vscode-panel-border);
   background: var(--vscode-editorWidget-background);
-  color: var(--vscode-descriptionForeground);
+  /* Not `descriptionForeground`. This is the line the panel says everything in -- what is being
+     written, what was refused, what a filter left -- so it is body text, and Light Modern's
+     `descriptionForeground` -- 60% alpha over the `editorWidget` background -- measures 3.40:1.
+     `foreground` is 10.6:1 there and 10.2:1 in Dark Modern, and the line is 0.92em, which is not
+     large text. */
+  color: var(--vscode-foreground);
   font-size: 0.92em;
 }
 
-.flg-status-error { color: var(--vscode-editorError-foreground); }
+/* THE ERROR STATE, WHICH FOR A LONG TIME WAS NOT RED AT ALL.
+   This read `.flg-status-error { ... }`: one class, specificity 0-1-0, against `#flg-status`'s
+   own 1-0-0 `color` three lines up. An id beats any number of classes, so the error colour never
+   applied and a refusal was pixel-identical to "Saved." in both themes. The id is in the
+   selector now, which is the only way a class can win against one.
+
+   What it does NOT do is paint the sentence red. Light Modern's `editorError.foreground` over
+   this bar's `editorWidget` background is 4.48:1 -- a hair under 4.5 at 0.92em, so a refusal
+   recoloured whole would have swapped one contrast failure for another. The sentence stays
+   `foreground`, which passes everywhere, and the state is carried by two things that owe no text
+   ratio: a heavy stripe down the left of the bar (3:1 as a non-text indicator, which the error
+   colour clears comfortably) and the word "Error: " that setStatus puts at the front of the
+   sentence, which survives with no colour at all. */
+#flg-status.flg-status-error {
+  border-left: 4px solid var(--vscode-editorError-foreground);
+  padding-left: 6px;
+  font-weight: 600;
+}
 
 /* The compound panel: what a collapsed node IS, above the form for its settings.
 
@@ -1646,6 +2309,15 @@
   overflow-wrap: anywhere;
 }
 
+/* A named run of jump buttons, and its rows. Both are `display: contents`: they exist so the
+   accessibility tree has a named list with countable items in it, and they must change the flex
+   column's layout by exactly nothing -- the buttons stay direct flex children as far as CSS is
+   concerned, at the same width and with the same 2px gap. */
+.flg-jump-list,
+.flg-listitem {
+  display: contents;
+}
+
 .flg-jump:hover { background: var(--vscode-list-hoverBackground); }
 
 .flg-jump:focus-visible {
@@ -1660,9 +2332,12 @@
 /* A section label inside the overview. Plain prose, unlike .flg-subheading, which is monospaced
    and coloured like a type identifier -- using that for a heading made the words read as the name
    of something in the pack. */
+/* A heading, so it is set in the panel's own foreground rather than in the description grey it
+   used to use -- which measured 3.40:1 in Light Modern on a run of words somebody navigates by.
+   It is told from the prose around it by weight and by the space above it, not by being fainter. */
 .flg-section {
   margin: 10px 0 2px;
-  color: var(--vscode-descriptionForeground);
+  color: var(--vscode-foreground);
   text-transform: none;
   font-weight: 600;
 }
@@ -1796,6 +2471,29 @@
   text-overflow: ellipsis;
 }
 
+/* "on its own" on the header of a group that has one member left.
+   A WORD, and a word in the same colour as the rest of the header rather than a coloured pip: a
+   remnant of a group draws as an ordinary group -- a frame, a name, a chevron -- and the only
+   thing that can tell the two apart is a reader, so the fact has to be in the text they read.
+   Sized down and given a hairline so it reads as an aside on the name rather than as part of it;
+   it is the first thing to be elided when the frame is narrow, because the name outranks it. */
+.flg-frame-lone {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.85em;
+  padding: 0 4px;
+  border: 1px solid var(--flg-border);
+  border-radius: 3px;
+  /* Full foreground, not the muted token: this is the one word on the header that carries a fact
+     the picture does not, and the muted token is the host's `descriptionForeground`, which Light
+     Modern resolves to a 3.40:1 grey. A marker nobody can read is the silence this was written
+     to end. */
+  color: var(--flg-fg);
+}
+
 .flg-frame-head.flg-dragging {
   cursor: grabbing;
 }
@@ -1871,6 +2569,19 @@
   font-style: italic;
 }
 
+/* Who is inside a collapsed group, on the card itself. The same metrics as a feature card's
+   meta row -- this line lives in the same budgeted 232x86 box -- and the same muted hue, because
+   it is a list of what the card STANDS FOR and not a second title. Elided rather than wrapped:
+   the box cannot grow, and a wrapped third name would push the badges out of it.
+
+   It hides with the other read-them sentences at the `mid` band; see the zoom-based LOD block. */
+.flg-node-group-members {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--flg-font);
+}
+
 /* The shift+drag selection rectangle, in screen space over the canvas. */
 .flg-marquee {
   position: absolute;
@@ -1881,6 +2592,315 @@
   z-index: 6;
 }
 
+/* The marquee is the ONE gesture whose cursor still lives on the root, and it is free: crosshair
+   is already what `.flg-graph` wears when nothing is happening, so the computed value does not
+   change and nothing below the root is recomputed. It is written down anyway because the idle
+   cursor is a choice somebody could revisit, and a marquee has to keep this one. */
 .flg-graph.flg-marqueeing {
   cursor: crosshair;
+}
+
+/* ----------------------------------------------------------- overview -- */
+
+/* The map of the whole pack, bottom right. See src/graph/minimap.ts for why it is a canvas and
+   not a second DOM tree, and why following the camera is cheap.
+
+   In SCREEN space on the canvas root, like the marquee and the link tip: it is furniture, not
+   part of the drawing, so it must not scale, pan or rotate with the world. Above everything, and
+   the one region of the canvas where a press does NOT start a marquee -- minimap.ts stops the
+   event, because a press there is aimed at the map. */
+.flg-minimap {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--flg-border);
+  border-radius: 5px;
+  background-color: color-mix(in srgb, var(--flg-surface) 88%, transparent);
+  box-shadow: 0 2px 8px var(--flg-shadow);
+  font-size: 10px;
+  color: var(--flg-fg-dim);
+}
+
+/* IT GETS OUT OF THE WAY OF THE CARDS IT IS SITTING ON -- THE MAP DOES, NOT THE HEADER.
+   The map is 200 px of furniture over the bottom-right corner of the drawing, and on the 57-node
+   fixture at 1440x900 that corner had cards in it: `wiki:search_pumpkin_too_shallow` 79%
+   covered, `wiki:snap_pumpkin_air_disallowed` 37%. At full strength it was, in practice, a hole
+   in the canvas. At 0.2 it is a shape in the corner -- enough to say a map is there and roughly
+   what the pack looks like, not enough to hide the card underneath -- and it comes back in full
+   the instant the pointer or the keyboard arrives, which is the only time it is being read. The
+   transition is what keeps that from reading as a flicker on a pointer passing through.
+
+   THE FADE IS ON THE BODY AND NOT ON THE WHOLE WIDGET, which is the fix. `opacity` applies to an
+   element and everything inside it, so 0.2 on the container took the HEADER down with the map:
+   the collapse control measured 1.63:1 in Dark Modern and 1.43:1 in Light. Below about 1.5:1 a
+   12px glyph is not faint, it is gone -- and this is the control whose whole purpose is to be
+   found by somebody who wants the map out of their way. The header is one 26px strip and covers
+   almost nothing; the 200x120 canvas underneath it is what was ever in the way. */
+.flg-minimap-body {
+  opacity: 0.2;
+  transition: opacity 120ms ease-out;
+}
+
+.flg-minimap:hover .flg-minimap-body,
+.flg-minimap:focus-within .flg-minimap-body {
+  opacity: 1;
+}
+
+/* Somebody who has asked for less motion gets the same two states and no fade between them. */
+@media (prefers-reduced-motion: reduce) {
+  .flg-minimap-body {
+    transition: none;
+  }
+}
+
+.flg-minimap-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 3px 2px 7px;
+  border-bottom: 1px solid var(--flg-border);
+}
+
+.flg-minimap-collapsed .flg-minimap-head {
+  border-bottom: none;
+}
+
+.flg-minimap-title {
+  flex: 1 1 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* THE AFFORDANCE HAS TO BE FINDABLE BEFORE IT CAN BE USED. The map IS collapsible, which is the
+   answer to "it covers my cards" -- but the way to collapse it was a 16x16 chevron at font-size
+   10 in description grey, which is a target below every pointer guideline there is and a glyph
+   nobody reads as a control. 22x22 with a 12px glyph is a real target, and the whole header is
+   labelled, so the reader who wants the map gone can find the thing that does it. */
+.flg-minimap-toggle {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background-color: transparent;
+  color: var(--flg-fg);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.flg-minimap-toggle:hover {
+  background-color: var(--flg-surface-hover);
+  color: var(--flg-fg);
+}
+
+.flg-minimap-toggle:focus-visible {
+  outline: 1px solid var(--flg-focus);
+  outline-offset: -1px;
+}
+
+.flg-minimap-body {
+  padding: 4px;
+}
+
+/* The collapsed map has no body, so the strip is all there is and it carries no fade at all. */
+.flg-minimap-collapsed .flg-minimap-body {
+  opacity: 1;
+}
+
+/* `crosshair`, matching the canvas: pointing at the map aims the camera, which is the same kind
+   of act as pointing at the canvas. */
+.flg-minimap-canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+/* ------------------------------------------------------------- legend -- */
+
+/* The key to the glyphs and the line styles -- see src/graph/legend.ts for why the line samples
+   are drawn with the shipped edge classes rather than redeclaring the dashes here.
+
+   Bottom LEFT, opposite the overview map, so the two pieces of furniture never fight for the
+   same corner on a narrow panel. */
+.flg-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* A LABELLED PILL, not a 22px circle with a question mark in it. The trigger floats over the
+   drawing, and a lone glyph there reads as a mark belonging to whatever card is underneath it
+   rather than as a control belonging to the canvas -- reviewers took it for a badge. The word is
+   what makes it a button; the `?` after it is what says it opens an explanation. */
+.flg-legend-button {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--flg-border);
+  border-radius: 11px;
+  background-color: color-mix(in srgb, var(--flg-surface) 88%, transparent);
+  /* IT IS A BUTTON WITH A WORD ON IT, SO THE WORD HAS TO BE READABLE. It was set in
+     --flg-fg-muted (the host's `descriptionForeground`, 3.40:1 in Light Modern) and then had
+     `opacity: 0.8` applied on top of that, which multiplies: measured 4.45:1 in Dark Modern and
+     2.91:1 in Light. Two separate ways of saying "this is quiet furniture", stacked, on the one
+     control that explains what every colour on the canvas means.
+     The fading now happens where it costs nothing -- the BACKGROUND is already translucent, so
+     the pill still reads as sitting over the drawing rather than in it -- and the label is set in
+     --flg-fg-dim, which is quieter than an identifier and still clears 4.5:1 in both themes. */
+  color: var(--flg-fg-dim);
+  font-family: var(--flg-font);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.flg-legend-button:hover,
+.flg-legend-open .flg-legend-button {
+  color: var(--flg-fg);
+  background-color: var(--flg-surface);
+}
+
+.flg-legend-button:focus-visible {
+  outline: 1px solid var(--flg-focus);
+  outline-offset: 1px;
+}
+
+.flg-legend-panel {
+  width: 330px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--flg-border);
+  border-radius: 6px;
+  background-color: var(--flg-surface);
+  box-shadow: 0 4px 16px var(--flg-shadow);
+  color: var(--flg-fg);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.flg-legend-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.flg-legend-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.flg-legend-close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background-color: transparent;
+  color: var(--flg-fg-muted);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.flg-legend-close:hover {
+  background-color: var(--flg-surface-hover);
+  color: var(--flg-fg);
+}
+
+.flg-legend-close:focus-visible {
+  outline: 1px solid var(--flg-focus);
+  outline-offset: -1px;
+}
+
+.flg-legend-note {
+  margin: 4px 0 8px;
+  color: var(--flg-fg-muted);
+}
+
+.flg-legend-section {
+  margin: 8px 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--flg-fg-muted);
+}
+
+.flg-legend-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Three columns: the mark, the name, the sentence. A grid rather than inline text so the names
+   line up into a column that can be scanned without reading the meanings. */
+.flg-legend-row {
+  display: grid;
+  grid-template-columns: 22px 92px 1fr;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+/* The glyph in the card's own accent, so the key and the canvas agree at a glance. The category
+   on the row drives it through the same custom property the cards use. */
+.flg-legend-glyph {
+  justify-self: center;
+  font-family: var(--flg-mono);
+  font-size: 12px;
+  color: var(--flg-legend-accent, var(--flg-fg));
+}
+
+.flg-legend-row[data-category='rule'] { --flg-legend-accent: var(--flg-kind-rule); }
+.flg-legend-row[data-category='sequence'] { --flg-legend-accent: var(--flg-kind-sequence); }
+.flg-legend-row[data-category='aggregate'] { --flg-legend-accent: var(--flg-kind-aggregate); }
+.flg-legend-row[data-category='weighted'] { --flg-legend-accent: var(--flg-kind-weighted); }
+.flg-legend-row[data-category='conditional'] { --flg-legend-accent: var(--flg-kind-conditional); }
+.flg-legend-row[data-category='scatter'] { --flg-legend-accent: var(--flg-kind-scatter); }
+.flg-legend-row[data-category='filter'] { --flg-legend-accent: var(--flg-kind-filter); }
+.flg-legend-row[data-category='child'] { --flg-legend-accent: var(--flg-kind-child); }
+.flg-legend-row[data-category='leaf'] { --flg-legend-accent: var(--flg-kind-leaf); }
+.flg-legend-row[data-category='unresolved'] { --flg-legend-accent: var(--flg-error-fg); }
+.flg-legend-row[data-category='external'] { --flg-legend-accent: var(--flg-fg-muted); }
+
+.flg-legend-name {
+  font-weight: 600;
+}
+
+.flg-legend-meaning {
+  color: var(--flg-fg-muted);
+}
+
+/* The line sample. It carries the real `.flg-edge-*` classes, so its stroke, width and dash come
+   from the rules above and cannot drift from what the canvas draws. */
+.flg-legend-swatch {
+  justify-self: center;
+  width: 20px;
+  height: 10px;
+  overflow: visible;
 }
