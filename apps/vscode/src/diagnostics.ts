@@ -17,6 +17,16 @@ export interface DiagnosticWireLike {
   chain?: string[]
   count?: number
   message: string
+  /** "pack" or "run" -- see session.Diagnostic.Scope. Not read here: the Problems view is the
+   * durable place, which is exactly where a pack-scoped problem belongs, and a run-scoped one
+   * about the same file is no less worth marking. Declared so this interface stays a superset of
+   * what the engine sends and callers can pass one list to both consumers. */
+  scope?: string
+  /** The 1-based line and column in `fileId`, when the loader knew one -- see
+   * jsonc.ErrorPosition. Absent for most diagnostics: a refused placement is about a feature, not
+   * about a character. */
+  line?: number
+  column?: number
 }
 
 export function createDiagnosticCollection(): vscode.DiagnosticCollection {
@@ -24,10 +34,15 @@ export function createDiagnosticCollection(): vscode.DiagnosticCollection {
 }
 
 /** Sets (replacing any previous set) the VS Code diagnostics for `document` from the
- * engine's diagnostics whose `fileId` matches any of `fileIds`. The engine reports no
- * line/column, so every diagnostic spans the whole document -- still enough for VS Code's
- * Problems panel and editor squiggles to surface it, which is the point: making a generation
- * error visible without the user having to open the webview at all.
+ * engine's diagnostics whose `fileId` matches any of `fileIds`.
+ *
+ * WHERE THE SQUIGGLE GOES. A diagnostic the engine gave a 1-based line (and, usually, column) for
+ * is marked AT that position -- the rest of that line from the column onwards -- so "invalid JSON
+ * at line 4, column 57" puts the Problems-panel entry, and the editor's squiggle, on the comma
+ * rather than on the file. Everything else still spans the whole document, which is all that can
+ * honestly be said about a placement that was refused: it is about a feature, not a character.
+ * Whole-document is also the fallback for a line the document does not have, which a stale
+ * diagnostic against a file edited since the run can easily name.
  *
  * `fileIds` is a LIST because the engine populates fileId two different ways, and matching only
  * one of them silently hid an entire class of diagnostic:
@@ -55,14 +70,34 @@ export function updateDiagnostics(
     return
   }
   const lastLine = Math.max(0, document.lineCount - 1)
-  const range = new vscode.Range(0, 0, lastLine, document.lineAt(lastLine).text.length)
+  const whole = new vscode.Range(0, 0, lastLine, document.lineAt(lastLine).text.length)
   const vsDiagnostics = relevant.map((d) => {
     const severity = d.level === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
-    const diag = new vscode.Diagnostic(range, formatMessage(d), severity)
+    const diag = new vscode.Diagnostic(rangeFor(document, d, whole), formatMessage(d), severity)
     diag.source = 'featurelab'
     return diag
   })
   collection.set(document.uri, vsDiagnostics)
+}
+
+/** The span to mark for one diagnostic: the engine's own position when it gave one and the
+ * document still has that line, otherwise `whole`.
+ *
+ * The engine counts from 1 and VS Code counts from 0, which is the only arithmetic here and the
+ * only thing that can be got wrong silently -- an off-by-one puts the squiggle on the line above
+ * the problem, which is worse than putting it on the file, because it looks authoritative.
+ *
+ * The span runs from the column to the END of that line rather than covering a single character:
+ * the loader reports where it stopped reading, not how much of what follows is wrong, and a
+ * one-character mark on a line of JSON is hard to see and easy to mistake for a rendering
+ * artefact. */
+function rangeFor(document: vscode.TextDocument, d: DiagnosticWireLike, whole: vscode.Range): vscode.Range {
+  const line = typeof d.line === 'number' && Number.isFinite(d.line) ? Math.trunc(d.line) - 1 : -1
+  if (line < 0 || line >= document.lineCount) return whole
+  const text = document.lineAt(line).text
+  const column = typeof d.column === 'number' && Number.isFinite(d.column) ? Math.trunc(d.column) - 1 : 0
+  const start = Math.max(0, Math.min(column, text.length))
+  return new vscode.Range(line, start, line, text.length)
 }
 
 /** Prefixes a Problems-panel message with the CHAIN down to the feature that actually failed
