@@ -123,6 +123,18 @@ type Palette struct {
 	// discriminator was absent or not confirmed. They are retained verbatim
 	// instead of being silently approximated.
 	UnresolvedAliases map[string]struct{}
+	// unknownNames collects every block NAME a JSON descriptor asked for that
+	// KnowsBlockName could not find in any block table this engine has -- see
+	// Resolve and NewMatchSet, which record into it, and TakeUnknownNames,
+	// which drains it.
+	//
+	// A name here is NOT an error and the palette does not treat it as one: it
+	// is interned like any other, the feature builds, and the preview places a
+	// block by that name. The recording exists because nothing else can see
+	// the difference. "minecraft:stone" and "not even an id" are both strings
+	// that intern fine, and the second one is a feature that does nothing in
+	// the real game.
+	unknownNames map[string]struct{}
 	// tagData is the pack's own per-block tag index, populated by
 	// LoadBlockTags (tags.go) -- nil until a caller loads a pack's
 	// blocks/**/*.json, in which case every tag lookup just falls back to
@@ -209,7 +221,80 @@ func (p *Palette) Resolve(desc Descriptor) ID {
 	if len(states) == 0 {
 		states = nil
 	}
+	p.noteIfUnknownName(desc.Name)
 	return p.intern(desc.Name, states)
+}
+
+// KnowsBlockName reports whether name is a block this engine has heard of, in
+// any of the three tables it has: the embedded vanilla catalogue
+// (VanillaBlockNames), the built-in classification table -- which also carries
+// the legacy aggregate ids that are block names without being catalogue
+// entries, minecraft:log/minecraft:leaves and friends (IsKnownBlockName) --
+// and the pack's OWN blocks/**/*.json, if LoadBlockTags has indexed one.
+//
+// Vanilla is answered from the embedded catalogue rather than from the tag
+// index deliberately: the index only carries vanilla because pack.Load stacks
+// DefaultBlocks() under every pack, so a Palette built by hand or loaded in a
+// different order would otherwise report minecraft:diamond_block as a block
+// that does not exist. See VanillaBlockNames.
+//
+// A "no" is not proof of anything, which is why the only thing built on this
+// answer is a WARNING: a block another add-on in the world declares appears in
+// none of these tables, is entirely real at run time, and is spelled exactly
+// like a typo.
+//
+// The name is canonicalised first (an unnamespaced "stone" is
+// "minecraft:stone"), because that is the lookup the engine itself does.
+func (p *Palette) KnowsBlockName(name string) bool {
+	canonical := canonicalName(name)
+	if IsKnownBlockName(canonical) {
+		return true
+	}
+	if _, ok := VanillaBlockNames()[canonical]; ok {
+		return true
+	}
+	if p == nil || p.tagData == nil {
+		return false
+	}
+	_, ok := p.tagData.byBlock[canonical]
+	return ok
+}
+
+// noteIfUnknownName records name into unknownNames when no block table has it.
+// Empty names are skipped: an empty block descriptor is refused by the parser
+// long before it reaches a palette (see features.AsBlockDescriptor), so a "" in
+// here would mean a caller built a Descriptor by hand, and "" is not a
+// misspelled block name -- it is no name at all, which is a different finding
+// with a different message.
+func (p *Palette) noteIfUnknownName(name string) {
+	if p == nil || strings.TrimSpace(name) == "" || p.KnowsBlockName(name) {
+		return
+	}
+	if p.unknownNames == nil {
+		p.unknownNames = make(map[string]struct{})
+	}
+	p.unknownNames[name] = struct{}{}
+}
+
+// TakeUnknownNames returns every block name recorded since the last call,
+// sorted, and CLEARS the set.
+//
+// It drains rather than accumulates because the caller that wants this is
+// features.BuildLibrary, which builds one file at a time against one shared
+// palette and needs to say WHICH file named a block that does not exist. A set
+// that kept everything would attribute the second file's typo to the first,
+// and a pack where two files share a typo would be told about it once.
+func (p *Palette) TakeUnknownNames() []string {
+	if p == nil || len(p.unknownNames) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(p.unknownNames))
+	for name := range p.unknownNames {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	p.unknownNames = nil
+	return out
 }
 
 // lookup is Entry without the panic: it reports false for an id this palette

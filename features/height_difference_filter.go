@@ -198,22 +198,22 @@ func (f *HeightDifferenceFilterFeature) Place(ctx *wgen.PlacementContext) *wgen.
 	if sub == nil {
 		LogFailure(ctx, heightDifferenceFilterTypeID,
 			"`height_difference_filter_feature` could not find feature `places_feature`.")
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
-			profiler.RecordStop(profiler.StopUnresolvedReference, f.featureRef+" not found", profiler.NoOrdinal)
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
+			profiler.RecordStop(profiler.StopUnresolvedReference, f.featureRef+" not found"+SuggestFeatureRef(f.resolver, f.featureRef), profiler.NoOrdinal)
 		}
 		return nil
 	}
 
 	if !f.shouldPlace(ctx) {
 		// The game logs nothing for this branch -- gate fails silently.
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopHeightDifferenceRejected, profiler.NoOrdinal) {
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopHeightDifferenceRejected, profiler.NoOrdinal) {
 			profiler.RecordStop(profiler.StopHeightDifferenceRejected, f.describeRejection(ctx), profiler.NoOrdinal)
 		}
 		return nil
 	}
 
 	if !IsAllowedToPlaceFeature(f) {
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopRecursionGuard, "already placing", profiler.NoOrdinal)
 		}
 		return nil

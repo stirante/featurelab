@@ -393,7 +393,7 @@ func (f *SnapToSurfaceFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos 
 			fmt.Sprintf("no surface found searching %s from a position holding %s "+
 				"(search_range %d) -- a fully solid or fully empty column has no "+
 				"surface to snap to", dirName, describeBlockAt(ctx.API, ctx.Origin), f.searchRange))
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopNoSurface, profiler.NoOrdinal) {
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopNoSurface, profiler.NoOrdinal) {
 			profiler.RecordStop(profiler.StopNoSurface,
 				fmt.Sprintf("no surface %s within %d", snapDirectionWord(mode), f.searchRange), profiler.NoOrdinal)
 		}
@@ -403,14 +403,14 @@ func (f *SnapToSurfaceFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos 
 	sub := f.resolver.Resolve(f.featureToSnap)
 	if sub == nil {
 		LogFailure(ctx, snapToSurfaceTypeID, "Referenced feature could not be resolved")
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
-			profiler.RecordStop(profiler.StopUnresolvedReference, f.featureToSnap+" not found", profiler.NoOrdinal)
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
+			profiler.RecordStop(profiler.StopUnresolvedReference, f.featureToSnap+" not found"+SuggestFeatureRef(f.resolver, f.featureToSnap), profiler.NoOrdinal)
 		}
 		return nil
 	}
 	if !IsAllowedToPlaceFeature(f) {
 		LogFailure(ctx, snapToSurfaceTypeID, "Cannot place internal feature")
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopRecursionGuard, "already placing", profiler.NoOrdinal)
 		}
 		return nil

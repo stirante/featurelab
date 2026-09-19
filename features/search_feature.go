@@ -300,14 +300,14 @@ func (f *SearchFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 	// header.
 	if target == nil {
 		LogFailure(ctx, searchTypeID, "Could not find a valid position for the feature")
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
-			profiler.RecordStop(profiler.StopUnresolvedReference, f.placesFeatureRef+" not found", profiler.NoOrdinal)
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
+			profiler.RecordStop(profiler.StopUnresolvedReference, f.placesFeatureRef+" not found"+SuggestFeatureRef(f.resolver, f.placesFeatureRef), profiler.NoOrdinal)
 		}
 		return nil
 	}
 	if !IsAllowedToPlaceFeature(f) {
 		LogFailure(ctx, searchTypeID, "Cannot place internal feature")
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopRecursionGuard, "already placing", profiler.NoOrdinal)
 		}
 		return nil
@@ -373,7 +373,7 @@ func (f *SearchFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 	// Exhausted without reaching required_successes -- transaction
 	// discarded, matching the engine, which never commits on this path.
 	LogFailure(ctx, searchTypeID, "Could not find a valid position for the feature")
-	if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopSearchExhausted, profiler.NoOrdinal) {
+	if profiler.StopsActive && !profiler.StopCounted(profiler.StopSearchExhausted, profiler.NoOrdinal) {
 		profiler.RecordStop(profiler.StopSearchExhausted,
 			fmt.Sprintf("%d of %d required successes", successCount, f.requiredSuccesses), profiler.NoOrdinal)
 	}

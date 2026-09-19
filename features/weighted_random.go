@@ -107,7 +107,7 @@ func (f *WeightedRandomFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos
 	pickIndex := WeightedPick(weights, ctx.Random)
 	if pickIndex == -1 {
 		LogFailure(ctx, weightedRandomTypeID, "Feature could not be selected")
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopNoSelection, "no entry has a weight above 0", profiler.NoOrdinal)
 		}
 		return nil
@@ -116,15 +116,15 @@ func (f *WeightedRandomFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos
 	resolved := f.resolver.Resolve(f.entries[pickIndex].ref)
 	if resolved == nil {
 		LogFailure(ctx, weightedRandomTypeID, "Feature could not be selected")
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopUnresolvedReference, pickIndex) {
-			profiler.RecordStop(profiler.StopUnresolvedReference, f.entries[pickIndex].ref+" not found", pickIndex)
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopUnresolvedReference, pickIndex) {
+			profiler.RecordStop(profiler.StopUnresolvedReference, f.entries[pickIndex].ref+" not found"+SuggestFeatureRef(f.resolver, f.entries[pickIndex].ref), pickIndex)
 		}
 		return nil
 	}
 
 	if !IsAllowedToPlaceFeature(f) {
 		LogFailure(ctx, weightedRandomTypeID, "Cannot place internal feature")
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopRecursionGuard, "already placing", profiler.NoOrdinal)
 		}
 		return nil

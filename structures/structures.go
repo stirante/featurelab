@@ -97,6 +97,13 @@ func fileIDToStructureName(id string) string {
 // directory holds both kinds side by side.
 type Library struct {
 	Diagnostics []Diagnostic
+	// Loaded is how many source files actually became a resolvable
+	// structure -- so a caller reporting "N structures" can report what the
+	// pack can USE rather than how many files were on disk, and the
+	// difference between the two is exactly the files that failed to parse
+	// or collided on a name. (This package has no Entries list to count, so
+	// unlike features/rules the number is kept directly.)
+	Loaded      int
 	byName      map[string]*ResolvedStructure
 	legacyByKey map[string]*ResolvedLegacyStructure
 }
@@ -107,6 +114,25 @@ func (l *Library) Resolve(structureName string) *ResolvedStructure {
 		return nil
 	}
 	return l.byName[structureName]
+}
+
+// Names is every `.mcstructure` structure_name this library can resolve, unordered.
+//
+// It exists for ONE caller -- the "structure_name %q was not found" diagnostic in
+// features/structure_template.go, which needs something to suggest instead of a bare refusal.
+// Deliberately not part of IResolver: resolving is what a placement does and listing is what a
+// diagnostic does, and a resolver interface that had to enumerate itself would force every
+// implementation (including the zero-structures one, and any future lazy one) to be able to.
+// The diagnostic type-asserts for this and says less when it is absent.
+func (l *Library) Names() []string {
+	if l == nil {
+		return nil
+	}
+	out := make([]string, 0, len(l.byName))
+	for name := range l.byName {
+		out = append(out, name)
+	}
+	return out
 }
 
 // ResolveLegacy implements ILegacyResolver -- see legacy.go's own doc comment for why this is a
@@ -178,5 +204,5 @@ func BuildLibrary(files []SourceFile, palette *block.Palette) *Library {
 		}
 	}
 
-	return &Library{Diagnostics: diags, byName: byName, legacyByKey: legacyByKey}
+	return &Library{Diagnostics: diags, Loaded: len(byName) + len(legacyByKey), byName: byName, legacyByKey: legacyByKey}
 }

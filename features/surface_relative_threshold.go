@@ -69,7 +69,7 @@ func (f *SurfaceRelativeThresholdFeature) Place(ctx *wgen.PlacementContext) *wge
 	failsThreshold := surfaceY-f.minDistanceBelowSurface <= ctx.Origin.Y
 	if failsThreshold {
 		LogFailure(ctx, surfaceRelativeThresholdTypeID, "Target location is not within the minimum distance to surface")
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopSurfaceThresholdRejected, profiler.NoOrdinal) {
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopSurfaceThresholdRejected, profiler.NoOrdinal) {
 			profiler.RecordStop(profiler.StopSurfaceThresholdRejected,
 				fmt.Sprintf("surface %d blocks above, needs more than %d", surfaceY-ctx.Origin.Y, f.minDistanceBelowSurface),
 				profiler.NoOrdinal)
@@ -80,8 +80,8 @@ func (f *SurfaceRelativeThresholdFeature) Place(ctx *wgen.PlacementContext) *wge
 	sub := f.resolver.Resolve(f.featureRef)
 	if sub == nil {
 		LogFailure(ctx, surfaceRelativeThresholdTypeID, "Target location is not within the minimum distance to surface")
-		if profiler.ProfilingActive {
-			profiler.RecordStop(profiler.StopUnresolvedReference, f.featureRef+" not found", profiler.NoOrdinal)
+		if profiler.StopsActive {
+			profiler.RecordStop(profiler.StopUnresolvedReference, f.featureRef+" not found"+SuggestFeatureRef(f.resolver, f.featureRef), profiler.NoOrdinal)
 		}
 		return nil
 	}
@@ -90,7 +90,7 @@ func (f *SurfaceRelativeThresholdFeature) Place(ctx *wgen.PlacementContext) *wge
 	// return only). Recursion guard marks/checks `f` (the wrapper), not
 	// `sub` -- see shared.go.
 	if !IsAllowedToPlaceFeature(f) {
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopRecursionGuard, "already placing", profiler.NoOrdinal)
 		}
 		return nil

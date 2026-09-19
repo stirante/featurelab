@@ -9,7 +9,11 @@
 // cost of scanning a feature file is nothing next to building it.
 package features
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/stirante/featurelab/block"
+)
 
 // notABedrockBlock lists names this engine does not have but that an author has a good reason to
 // believe in: each one is either a Java Edition block or a name that appears in the engine
@@ -58,4 +62,52 @@ func checkBlockNames(fileID, identifier string, body map[string]any, diags *[]Di
 		}
 	}
 	walk(body)
+}
+
+// warnUnknownBlockNames reports every block name one file's builder resolved
+// that no block table this engine has contains -- the names
+// block.Palette.TakeUnknownNames drained after that file's builder ran.
+//
+// A WARNING, never an error, and the distinction is the whole design. A block
+// name is free text in the JSON: the file loads, the schema is satisfied, and
+// the game will happily read it. What it cannot do is find the block, so the
+// field silently does nothing -- a places_block that places nothing, a
+// may_replace that matches nothing. That is a defect worth a row.
+//
+// But the engine's knowledge is not the world's. The two tables consulted (see
+// block.Palette.KnowsBlockName) are the generated vanilla catalogue and THIS
+// pack's own blocks/ directory. A block declared by a different add-on
+// installed alongside this one is in neither, is perfectly real at run time,
+// and its name is spelled exactly like a typo. Promoting this to an error
+// would refuse working packs, so the message says where it looked and leaves
+// the judgement with the author.
+//
+// Names covered by notABedrockBlock are skipped: checkBlockNames has already
+// said something specific and more useful about them, and one problem reported
+// twice reads as two problems.
+func warnUnknownBlockNames(names []string, warn func(string)) {
+	if warn == nil {
+		return
+	}
+	for _, name := range names {
+		if _, special := notABedrockBlock[name]; special {
+			continue
+		}
+		warn(fmt.Sprintf("%q is not a block this engine knows: it is in none of the tables "+
+			"consulted -- the generated vanilla block catalogue (`featurelab blocktable`), the "+
+			"built-in legacy block-name table, and this pack's own blocks/ directory. If another "+
+			"add-on installed alongside this one declares it, this is fine and there is nothing "+
+			"to do; otherwise the game resolves the name to no block and whatever field named it "+
+			"places or matches nothing -- check the namespace and the spelling.", name))
+	}
+}
+
+// drainUnknownBlockNames is TakeUnknownNames with a nil-palette guard, so
+// BuildLibrary can be called with no palette at all (several tests are) without
+// a check for it at the call site.
+func drainUnknownBlockNames(palette *block.Palette) []string {
+	if palette == nil {
+		return nil
+	}
+	return palette.TakeUnknownNames()
 }

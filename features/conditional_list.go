@@ -199,8 +199,8 @@ func (f *ConditionalListFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPo
 			// not found!" and ends the WHOLE list. 1.26.40 skipped just the
 			// entry -- that behaviour is gone.
 			LogFailure(ctx, conditionalListTypeID, "Feature not found!")
-			if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopUnresolvedReference, i) {
-				profiler.RecordStop(profiler.StopUnresolvedReference, fmt.Sprintf("%s not found; list ended", entry.ref), i)
+			if profiler.StopsActive && !profiler.StopCounted(profiler.StopUnresolvedReference, i) {
+				profiler.RecordStop(profiler.StopUnresolvedReference, fmt.Sprintf("%s not found; list ended%s", entry.ref, SuggestFeatureRef(f.resolver, entry.ref)), i)
 			}
 			return lastSuccess
 		}
@@ -210,7 +210,7 @@ func (f *ConditionalListFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPo
 		// accumulator). Guard keyed on `f`, not the callee -- see shared.go.
 		if !IsAllowedToPlaceFeature(f) {
 			LogFailure(ctx, conditionalListTypeID, "Cannot place an internal feature!")
-			if profiler.ProfilingActive {
+			if profiler.StopsActive {
 				profiler.RecordStop(profiler.StopRecursionGuard, "already placing; list ended", i)
 			}
 			return lastSuccess
@@ -221,7 +221,7 @@ func (f *ConditionalListFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPo
 		// (the game short-circuits the same way: a constant condition is
 		// used directly instead of running the expression evaluator).
 		if entry.condition.Evaluate(molangCtx) == 0 {
-			if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopConditionFalse, i) {
+			if profiler.StopsActive && !profiler.StopCounted(profiler.StopConditionFalse, i) {
 				profiler.RecordStop(profiler.StopConditionFalse, fmt.Sprintf("condition = 0, %s skipped", entry.ref), i)
 			}
 			continue // an exact compare against zero, then the loop continues

@@ -101,6 +101,7 @@ import (
 	"fmt"
 
 	"github.com/stirante/featurelab/block"
+	"github.com/stirante/featurelab/internal/nearest"
 	"github.com/stirante/featurelab/profiler"
 	"github.com/stirante/featurelab/structures"
 	"github.com/stirante/featurelab/wgen"
@@ -712,6 +713,22 @@ func (f *StructureTemplateFeature) Place(ctx *wgen.PlacementContext) *wgen.Block
 	return found
 }
 
+// structureNameLister is the optional half of structures.IResolver: a resolver that can also
+// say what it holds. structures.Library implements it; structures.NoStructures does not, and
+// neither does any test double that only needs Resolve -- so this is an assertion rather than a
+// method on the interface, and a resolver without it simply produces the message with no
+// suggestion on the end.
+type structureNameLister interface {
+	Names() []string
+}
+
+func structureNames(r structures.IResolver) []string {
+	if lister, ok := r.(structureNameLister); ok {
+		return lister.Names()
+	}
+	return nil
+}
+
 func buildStructureTemplateFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, error) {
 	name, ok := body["structure_name"].(string)
 	if !ok || name == "" {
@@ -719,7 +736,8 @@ func buildStructureTemplateFeature(body map[string]any, ctx *BuildContext) (wgen
 	}
 	structure := ctx.Structures.Resolve(name)
 	if structure == nil {
-		return nil, fmt.Errorf("structure_name %q was not found in the loaded structures", name)
+		return nil, fmt.Errorf("structure_name %q was not found in the loaded structures%s",
+			name, nearest.Phrase(name, structureNames(ctx.Structures)))
 	}
 
 	facingByte, err := parseFacingDirection(body["facing_direction"])

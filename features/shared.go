@@ -2,6 +2,7 @@ package features
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/stirante/featurelab/block"
@@ -153,9 +154,44 @@ func (e *PlacementDeadlineExceeded) Error() string {
 		e.LimitMs, where)
 }
 
+// PlacementCancelled is raised when a placement is abandoned because the caller asked for it to
+// stop -- the request it belongs to was cancelled (cmd/featurelab/serve.go's "cancel" method) --
+// rather than because any budget was exceeded.
+//
+// It is NOT a budget and NOT a diagnostic. The other four refusals in this package all describe
+// something about the PACK (a chain that will not converge, a field the engine does not define,
+// a run too slow for its own clock) and their whole purpose is to leave the author a partial
+// result plus an explanation of it. This one describes something about the SESSION: somebody
+// pressed Cancel. There is nothing to explain and nothing worth showing, so the caller that
+// recovers this discards the run and answers "cancelled" instead of handing back a truncated
+// volume that looks like a feature which placed almost nothing.
+//
+// Site names the loop that noticed, on the same terms as PlacementDeadlineExceeded.Site, and
+// exists for the same reason: it is the one thing the chain cannot say.
+type PlacementCancelled struct {
+	Site  string
+	Chain []profiler.ChainFrame
+}
+
+func (e *PlacementCancelled) Error() string {
+	if e.Site != "" {
+		return fmt.Sprintf("placement cancelled while %s", e.Site)
+	}
+	return "placement cancelled"
+}
+
 var (
 	delegationBudget *int
 	delegationsUsed  int
+	// cancelDone is the caller's cancellation signal for the placement currently running, or
+	// nil when nothing can cancel this run.
+	//
+	// A CHANNEL rather than a context.Context, and read rather than stored as a Context, for
+	// one reason: this is checked from the hottest loops in the project, and a nil compare
+	// followed by a non-blocking receive is the cheapest form the check has. A nil channel is
+	// the free path -- which is what every test, every benchmark and the golden digest harness
+	// run on, since none of them ever arms one.
+	cancelDone <-chan struct{}
 	// deadlineAt is nil when no wall-clock deadline is armed -- the golden
 	// digest recipe's own SetDelegationBudget(&db) call never arms one, so
 	// that path is completely unaffected by this field's existence.
@@ -203,6 +239,64 @@ func SetDelegationBudgetMs(budget *int, timeLimitMs *int) {
 	deadlineTicks = deadlineTickMin
 	deadlineInterval = deadlineTickMin
 	deadlineLastRead = now
+}
+
+// SetPlacementCancel arms (or, with nil, disarms) the cancellation signal for one placement --
+// normally a context's Done channel, from the request the placement is running for. The
+// placement aborts with a *PlacementCancelled panic the next time any of this package's
+// existing checkpoints runs.
+//
+// It deliberately does NOT take a context.Context. Nothing in this package wants a deadline,
+// a value bag or a second way to express the wall-clock limit SetDelegationBudgetMs already
+// owns; all it wants is the one bit of "stop now", and a channel is that bit in the form the
+// hot-path check can read for free.
+//
+// Arming here also kicks TickDeadline's countdown off its unarmed reload, so a run that asked
+// for cancellation but not for a wall-clock deadline still notices. Call it AFTER
+// SetDelegationBudgetMs, which resets the same countdown.
+func SetPlacementCancel(done <-chan struct{}) {
+	cancelDone = done
+	if done == nil {
+		if deadlineAt == nil {
+			deadlineTicks = deadlineTickUnarmed
+		}
+		return
+	}
+	deadlineTicks = deadlineTickMin
+	deadlineInterval = deadlineTickMin
+	deadlineLastRead = time.Now()
+}
+
+// PlacementCancelRequested reports whether the signal armed by SetPlacementCancel has fired.
+// False when nothing is armed.
+func PlacementCancelRequested() bool {
+	if cancelDone == nil {
+		return false
+	}
+	select {
+	case <-cancelDone:
+		return true
+	default:
+		return false
+	}
+}
+
+// CheckPlacementCancel panics with *PlacementCancelled (naming site) if the caller has asked
+// this placement to stop, and does nothing otherwise.
+//
+// Exported for the ONE loop this package cannot see into: a feature rule's own per-iteration
+// scatter walk lives in the rules package and can delegate thousands of times to a feature
+// whose Place has no loop of its own and therefore never reaches TickDeadline. Everything
+// inside this package is already covered by TickDeadline and WithRecursionGuard and should use
+// those rather than calling this directly.
+//
+// Costs a nil compare when nothing is armed, which is every test, benchmark and golden-digest
+// run in this repository.
+func CheckPlacementCancel(site string) {
+	if !PlacementCancelRequested() {
+		return
+	}
+	panic(&PlacementCancelled{Site: site, Chain: profiler.CurrentChain()})
 }
 
 // DelegationsSoFar returns the running delegation count.
@@ -325,12 +419,17 @@ func TickDeadline(site string) {
 // has passed, otherwise re-tune and reload the countdown. Kept out of line so TickDeadline itself
 // stays small enough for the inliner.
 func tickDeadlineSlow(site string) {
-	if deadlineAt == nil {
+	if deadlineAt == nil && cancelDone == nil {
 		deadlineTicks = deadlineTickUnarmed
 		return
 	}
+	// Checked here, on the countdown's slow half, rather than in TickDeadline itself: that keeps
+	// the per-iteration cost of cancellation at exactly zero (the hot path is the same decrement
+	// and branch it always was) while still noticing within the ~1ms the countdown is tuned to
+	// leave between two clock reads. A user pressing Cancel cannot tell 1ms from 0.
+	CheckPlacementCancel(site)
 	now := time.Now()
-	if now.After(*deadlineAt) {
+	if deadlineAt != nil && now.After(*deadlineAt) {
 		limitMs := 0
 		if configuredTimeLimitMs != nil {
 			limitMs = *configuredTimeLimitMs
@@ -387,12 +486,19 @@ func WithRecursionGuard(wrapper wgen.IFeature, fn func() *wgen.BlockPos) *wgen.B
 			panic(&DelegationBudgetExceeded{Budget: *delegationBudget, Attempted: delegationsUsed, Chain: profiler.CurrentChain()})
 		}
 	}
-	if delegationsUsed&0x3ff == 0 && deadlineAt != nil && time.Now().After(*deadlineAt) {
-		limitMs := 0
-		if configuredTimeLimitMs != nil {
-			limitMs = *configuredTimeLimitMs
+	if delegationsUsed&0x3ff == 0 {
+		// Cancellation rides the same every-1024-delegations cadence the deadline already uses,
+		// and for the same reason: a delegating chain that never reaches a leaf loop (so never
+		// ticks) still has to be stoppable, and 1024 delegations is short enough to be one of
+		// those and long enough to cost nothing.
+		CheckPlacementCancel("")
+		if deadlineAt != nil && time.Now().After(*deadlineAt) {
+			limitMs := 0
+			if configuredTimeLimitMs != nil {
+				limitMs = *configuredTimeLimitMs
+			}
+			panic(&PlacementDeadlineExceeded{Delegations: delegationsUsed, LimitMs: limitMs, Chain: profiler.CurrentChain()})
 		}
-		panic(&PlacementDeadlineExceeded{Delegations: delegationsUsed, LimitMs: limitMs, Chain: profiler.CurrentChain()})
 	}
 	// Profiler hook (the same call into the profiler package,
 	// right before the in-progress flag below) -- counts one "delegation"
@@ -473,15 +579,48 @@ func WeightedPick(weights []float64, rnd random.IRandom) int {
 // ---------------------------------------------------------------------------
 
 // AsBlockDescriptor normalizes a decoded-JSON value into a block.Descriptor.
+//
+// EMPTY IS AN ERROR, EVERYWHERE, and this is the one place that says so. The
+// game's block-descriptor schema takes a block NAME, and "" is not one: it
+// resolves to no block, so the field it was written in does nothing at all --
+// a places_block that places nothing, a may_replace entry that matches
+// nothing, a base_block that is not a block. An editor writing a
+// half-finished row (`+` on a weighted places_block produces
+// `{"block": "", "weight": 1}`) produces exactly this, and a file whose only
+// problem is invisible is the expensive kind.
+//
+// It is refused HERE rather than in each field's own parser for the same
+// reason blocknames.go sweeps the whole body: a block descriptor appears in
+// places_block, in a weighted entry's `block`, in may_replace / may_grow_on /
+// may_attach_to / base_block / a structure constraint's allowlist, and in
+// thirty other fields across a dozen parsers -- all of which already funnel
+// through this function. One check here is the same check in every one of
+// them, and there is no next field that can be added without it.
+//
+// The level matches the neighbouring "places_block must not be an empty
+// array": an ERROR, because the game rejects the value rather than accepting
+// it and doing nothing. Whitespace counts as empty -- " " is not a block name
+// either, and reporting it as one would be a distinction no author can see.
 func AsBlockDescriptor(value any, jsonPath string) (block.Descriptor, error) {
 	switch v := value.(type) {
 	case string:
+		if strings.TrimSpace(v) == "" {
+			return block.Descriptor{}, emptyBlockNameError(jsonPath)
+		}
 		return block.Descriptor{Name: v}, nil
 	case map[string]any:
 		if tags, ok := v["tags"].(string); ok {
+			if strings.TrimSpace(tags) == "" {
+				return block.Descriptor{}, fmt.Errorf("%s.tags must not be empty -- a tag descriptor is a "+
+					"Molang query (for example \"q.any_tag('stone')\"), and an empty one matches no block, "+
+					"so this field does nothing", jsonPath)
+			}
 			return block.Descriptor{IsTags: true, Tags: tags}, nil
 		}
 		if name, ok := v["name"].(string); ok {
+			if strings.TrimSpace(name) == "" {
+				return block.Descriptor{}, emptyBlockNameError(jsonPath + ".name")
+			}
 			var states map[string]block.StateValue
 			if rawStates, ok := v["states"]; ok && rawStates != nil {
 				m, ok := rawStates.(map[string]any)
@@ -497,6 +636,14 @@ func AsBlockDescriptor(value any, jsonPath string) (block.Descriptor, error) {
 		}
 	}
 	return block.Descriptor{}, fmt.Errorf("%s must be a block name string, {name, states?}, or {tags}", jsonPath)
+}
+
+// emptyBlockNameError words the empty-block-name refusal once, so the sentence
+// is the same whether the author wrote `""`, `{"name": ""}` or pressed `+` in
+// an editor and left the new row alone.
+func emptyBlockNameError(jsonPath string) error {
+	return fmt.Errorf("%s must not be an empty block name -- the game takes a block id here "+
+		"(for example \"minecraft:stone\") and rejects \"\", so this field places or matches nothing", jsonPath)
 }
 
 // AsBlockDescriptorList parses an array-of-block-descriptors field, tolerating

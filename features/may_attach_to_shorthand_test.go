@@ -58,10 +58,19 @@ func singleBlockDoc(identifier, mayAttachToJSON string) string {
 // inferred from vanilla block-state definitions. That warning is correct and
 // is pinned by block/rotate_test.go; these tests are about may_attach_to's
 // shorthand forms, and want to hear about nothing else.
+//
+// It also drops the unknown-block-name warning, for the same reason: the
+// fixtures here name `example:branch_log` and `example:canopy_leaves`, which
+// no blocks/ directory in these tests declares, so that warning is CORRECT
+// (and is pinned by blocknames_test.go) and is not what any test in this file
+// is asking about.
 func diagnosticsBesidesRotationSpelling(diagnostics []Diagnostic) []Diagnostic {
 	var out []Diagnostic
 	for _, d := range diagnostics {
 		if strings.Contains(d.Message, "(auto_rotate/randomize_rotation)") {
+			continue
+		}
+		if strings.Contains(d.Message, "is not a block this engine knows") {
 			continue
 		}
 		out = append(out, d)

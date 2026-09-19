@@ -298,8 +298,13 @@ type FeatureRuleEntry struct {
 
 // FeatureRuleLibrary is a resolvable set of parsed rules.
 type FeatureRuleLibrary struct {
-	Entries      []FeatureRuleEntry
-	Diagnostics  []features.Diagnostic
+	Entries     []FeatureRuleEntry
+	Diagnostics []features.Diagnostic
+	// Failed is every rule file that produced no Entry at all -- the same
+	// contract, and the same reason for existing, as features.Library.
+	// Failed (see features.FailedFile). len(Entries) + len(Failed) is the
+	// number of rule files this library was built from.
+	Failed       []features.FailedFile
 	byIdentifier map[string]*FeatureRule
 }
 
@@ -392,7 +397,14 @@ func buildRule(body map[string]any, description map[string]any, identifier strin
 		// Exactly the default-constructed scatter parameters: iterations 0, no axis
 		// offsets, scatter_chance 100 (the two absent keys default to that in
 		// features's own parser, so the defaults live in ONE place).
-		distribution, err = features.ParseScatterDistribution(map[string]any{"iterations": 0.0}, "distribution", warn)
+		//
+		// Parsed with NO warn channel. This map is not the author's JSON -- it is
+		// this package spelling out the engine's defaults -- so a diagnostic about
+		// it would be a diagnostic about our own literal. Concretely, features's
+		// parser warns that an iterations of 0 places nothing, which is true and is
+		// the sentence already emitted immediately above, with the reason the value
+		// is 0 at all. Two rows for one fact reads as two problems.
+		distribution, err = features.ParseScatterDistribution(map[string]any{"iterations": 0.0}, "distribution", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -416,21 +428,42 @@ func buildRule(body map[string]any, description map[string]any, identifier strin
 	}, nil
 }
 
-func parseRuleFile(f SourceFile, diags *[]features.Diagnostic) *FeatureRuleEntry {
-	var raw any
-	if err := json.Unmarshal(jsonc.StripComments([]byte(f.Text)), &raw); err != nil {
-		*diags = append(*diags, features.Diagnostic{Level: "error", FileID: f.ID, Message: "invalid JSON: " + err.Error()})
+// parseRuleFile mirrors features.parseFile, including its failed-file contract: a return of nil
+// means this file produced no entry at all, and records BOTH a diagnostic and a
+// features.FailedFile on failed so the file is still counted and still connectable to the
+// identifier it was meant to declare. failed may be nil.
+func parseRuleFile(f SourceFile, diags *[]features.Diagnostic, failed *[]features.FailedFile) *FeatureRuleEntry {
+	fail := func(line, column int, message string) *FeatureRuleEntry {
+		*diags = append(*diags, features.Diagnostic{Level: "error", FileID: f.ID, Line: line, Column: column, Message: message})
+		if failed != nil {
+			*failed = append(*failed, features.FailedFile{
+				FileID: f.ID, Identifier: features.ScrapeIdentifier(f.Text), Message: message,
+			})
+		}
 		return nil
 	}
+
+	if jsonc.HasUTF8BOM([]byte(f.Text)) {
+		*diags = append(*diags, features.Diagnostic{Level: "warning", FileID: f.ID, Message: jsonc.UTF8BOMWarning})
+	}
+	stripped := jsonc.StripComments([]byte(f.Text))
+	var raw any
+	if err := json.Unmarshal(stripped, &raw); err != nil {
+		pos, _ := jsonc.ErrorPosition(stripped, err)
+		return fail(pos.Line, pos.Column, jsonc.InvalidJSONMessage(stripped, err))
+	}
+	// Same as features.parseFile: a key written twice loads fine and does something other than
+	// what the file looks like it does. See features.ReportDuplicateKeys.
+	features.ReportDuplicateKeys(f.ID, stripped, diags)
 	root, ok := raw.(map[string]any)
 	if !ok {
-		*diags = append(*diags, features.Diagnostic{Level: "error", FileID: f.ID, Message: "root must be an object"})
-		return nil
+		return fail(0, 0, "root must be an object")
 	}
+	const bodyPath = `$["minecraft:feature_rules"]`
 	body, ok := root["minecraft:feature_rules"].(map[string]any)
 	if !ok {
-		*diags = append(*diags, features.Diagnostic{Level: "error", FileID: f.ID, Message: `"minecraft:feature_rules" must be an object`})
-		return nil
+		line, column := rulePositionOf(stripped, bodyPath)
+		return fail(line, column, `"minecraft:feature_rules" must be an object`)
 	}
 	// Every non-fatal finding below goes through this: the engine logged it and
 	// carried on, so the rule still builds and the author still gets told.
@@ -441,18 +474,19 @@ func parseRuleFile(f SourceFile, diags *[]features.Diagnostic) *FeatureRuleEntry
 
 	description, ok := body["description"].(map[string]any)
 	if !ok {
-		*diags = append(*diags, features.Diagnostic{Level: "error", FileID: f.ID, Message: `"description" is required ` +
-			`by the engine's schema and must be an object -- without it the game reports a missing required ` +
-			`field and refuses the whole file, so no rule is inserted`})
-		return nil
+		line, column := rulePositionOf(stripped, bodyPath+".description", bodyPath)
+		return fail(line, column, `"description" is required `+
+			`by the engine's schema and must be an object -- without it the game reports a missing required `+
+			`field and refuses the whole file, so no rule is inserted`)
 	}
 	reportUnknownKeys(description, descriptionKeys, "description", warn)
 	identifier, _ := description["identifier"].(string)
 	if identifier == "" {
-		*diags = append(*diags, features.Diagnostic{Level: "error", FileID: f.ID, Message: `description.identifier ` +
-			`is required by the engine's schema but is missing -- the game reports a missing required field ` +
-			`and refuses the whole file, so no rule is inserted`})
-		return nil
+		line, column := rulePositionOf(stripped,
+			bodyPath+".description.identifier", bodyPath+".description", bodyPath)
+		return fail(line, column, `description.identifier `+
+			`is required by the engine's schema but is missing -- the game reports a missing required field `+
+			`and refuses the whole file, so no rule is inserted`)
 	}
 	// Both engine-side identifier checks are warnings THERE -- the rule is
 	// inserted either way -- so they are warnings here, raised before the build
@@ -466,6 +500,17 @@ func parseRuleFile(f SourceFile, diags *[]features.Diagnostic) *FeatureRuleEntry
 	}
 	rule.Identifier = identifier
 	return &FeatureRuleEntry{FileID: f.ID, Identifier: identifier, Rule: rule}
+}
+
+// rulePositionOf mirrors features.positionOf -- the first of paths that exists in src, or 0,0.
+// Only ever reached on a file that is already being refused, so the extra scan is one parse of
+// one bad file in exchange for a diagnostic an editor can put a caret on.
+func rulePositionOf(src []byte, paths ...string) (line, column int) {
+	pos, ok := jsonc.FirstPathPosition(src, paths...)
+	if !ok {
+		return 0, 0
+	}
+	return pos.Line, pos.Column
 }
 
 // ruleSlot is one occupied cell of the engine's map[pass][identifier] rule
@@ -489,6 +534,7 @@ type ruleSlot struct {
 // exactly what this tool is for.
 func BuildFeatureRuleLibrary(files []SourceFile) *FeatureRuleLibrary {
 	var diagnostics []features.Diagnostic
+	var failed []features.FailedFile
 	var entries []FeatureRuleEntry
 	byIdentifier := make(map[string]*FeatureRule)
 	// The engine's own two-level store, kept only to reproduce its dedup
@@ -500,7 +546,7 @@ func BuildFeatureRuleLibrary(files []SourceFile) *FeatureRuleLibrary {
 	identifierPass := make(map[string]string)
 
 	for _, f := range files {
-		entry := parseRuleFile(f, &diagnostics)
+		entry := parseRuleFile(f, &diagnostics, &failed)
 		if entry == nil {
 			continue
 		}
@@ -552,7 +598,7 @@ func BuildFeatureRuleLibrary(files []SourceFile) *FeatureRuleLibrary {
 		identifierPass[entry.Identifier] = pass
 	}
 
-	return &FeatureRuleLibrary{Entries: entries, Diagnostics: diagnostics, byIdentifier: byIdentifier}
+	return &FeatureRuleLibrary{Entries: entries, Diagnostics: diagnostics, Failed: failed, byIdentifier: byIdentifier}
 }
 
 // ---------------------------------------------------------------------------
@@ -660,7 +706,7 @@ func PlaceFeatureRule(opts RulePlacementOptions) RulePlacementResult {
 		}
 		logFailure(ctx.LogFailure, "minecraft:feature_rules",
 			fmt.Sprintf("biome filter rejected biome %q — %s", biomeID, DescribeBiomeFilter(rule.BiomeFilter)), origin)
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopBiomeFilterRejected, profiler.NoOrdinal) {
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopBiomeFilterRejected, profiler.NoOrdinal) {
 			profiler.RecordStop(profiler.StopBiomeFilterRejected, fmt.Sprintf("biome %s rejected by filter", biomeID), profiler.NoOrdinal)
 		}
 		return RulePlacementResult{BiomeMatched: false, Iterations: 0, Placements: placements, Scope: scope}
@@ -679,8 +725,8 @@ func PlaceFeatureRule(opts RulePlacementOptions) RulePlacementResult {
 			fmt.Sprintf("places_feature %q could not be resolved -- check the spelling. Case is not the "+
 				"problem: identifiers are matched without regard to it here, exactly as the game matches "+
 				"them, so a reference that differs only in case does resolve.", rule.PlacesFeature), origin)
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
-			profiler.RecordStop(profiler.StopUnresolvedReference, rule.PlacesFeature+" not found", profiler.NoOrdinal)
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
+			profiler.RecordStop(profiler.StopUnresolvedReference, rule.PlacesFeature+" not found"+features.SuggestFeatureRef(resolver, rule.PlacesFeature), profiler.NoOrdinal)
 		}
 		return RulePlacementResult{BiomeMatched: true, Iterations: 0, Placements: placements, Scope: scope}
 	}
@@ -734,6 +780,14 @@ func PlaceFeatureRule(opts RulePlacementOptions) RulePlacementResult {
 			scope.Variable[features.WorldVarName(a)] = float64(absolute)
 		},
 		OnIteration: func(offset features.AxisOffset, _ int) {
+			// The one cancellation checkpoint outside the features package, and it is here
+			// because this loop is the one place a long run can hide from every checkpoint in
+			// there: a distribution with a large iterations count delegating to a feature whose
+			// own Place has no loop (a single_block, say) never reaches features.TickDeadline
+			// and never goes through WithRecursionGuard either, so without this the rule would
+			// run to completion after the user asked it to stop. One non-blocking channel read
+			// per iteration, against an iteration that places a whole feature.
+			features.CheckPlacementCancel("running the iterations its distribution asks for")
 			pos := wgen.BlockPos{X: origin.X + offset.X, Y: origin.Y + offset.Y, Z: origin.Z + offset.Z}
 			subCtx := &wgen.PlacementContext{
 				API: ctx.API, Origin: pos, Random: placeRandom, MolangScope: scope, Biome: ctx.Biome,

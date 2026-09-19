@@ -50,15 +50,15 @@ func (f *ScatterFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 	target := f.resolver.Resolve(f.placesFeatureRef)
 	if target == nil {
 		LogFailure(ctx, scatterTypeID, "No features could be placed")
-		if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
-			profiler.RecordStop(profiler.StopUnresolvedReference, f.placesFeatureRef+" not found", profiler.NoOrdinal)
+		if profiler.StopsActive && !profiler.StopCounted(profiler.StopUnresolvedReference, profiler.NoOrdinal) {
+			profiler.RecordStop(profiler.StopUnresolvedReference, f.placesFeatureRef+" not found"+SuggestFeatureRef(f.resolver, f.placesFeatureRef), profiler.NoOrdinal)
 		}
 		return nil
 	}
 	// Keyed on `f` (this), not `target`: see shared.go's IsAllowedToPlaceFeature.
 	if !IsAllowedToPlaceFeature(f) {
 		LogFailure(ctx, scatterTypeID, "Cannot place internal feature")
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopRecursionGuard, "already placing", profiler.NoOrdinal)
 		}
 		return nil

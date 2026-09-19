@@ -23,8 +23,32 @@ var stopsBenchFiles = []SourceFile{
 		"description":{"identifier":"bench:leaf"},"places_block":"minecraft:stone"}}`},
 }
 
-// BenchmarkStopSites times the scatter above with profiling off and on. Off is the number that
-// matters: every stop site is a single ProfilingActive branch there.
+// BenchmarkStopSites times the scatter above three ways. unarmed is the floor: every stop site is
+// a single already-false StopsActive branch. stops-only is what an ordinary generate now runs in
+// (profiler.BeginStops, no profiling) and is the number that matters -- 10,000 stops per op, the
+// densest a stop site gets, against which the tier's per-hit cost has to disappear. profiling=on
+// is the old heavyweight tier, unchanged, for comparison.
+//
+// # Measured
+//
+//	go test ./features/ -run XXX -bench BenchmarkStopSites -benchtime=300x -count=9
+//	go1.26.4, windows/amd64, AMD Ryzen 5 5600X, machine otherwise idle
+//
+//	unarmed       4.29 ms/op   (9 runs, 4.12 - 4.98)
+//	stops-only    4.46 ms/op   (9 runs, 4.07 - 4.87)
+//	profiling=on  6.39 ms/op   (9 runs, 5.63 - 7.80)
+//
+// Medians of nine, spread beside each. -benchtime=300x rather than a duration: letting the
+// framework pick its own iteration count made the two cheap rows land on wildly different
+// counts and the stops-only median came out a full millisecond high, an artefact that
+// disappeared the moment both rows ran the same number of times.
+//
+// 10,000 refusals per op, so the tier costs (4.46 - 4.29) / 10,000 = ~17 ns per refused gate --
+// agreeing with profiler.BenchmarkStopHit's isolated ~15 ns, which is the point of having both.
+// In the terms that matter, the densest stop workload anyone can construct pays ~0.17 ms, about
+// 4% of that placement, for a preview that can say which gate emptied it. Full profiling, by
+// contrast, costs ~2.1 ms on the same run -- an order of magnitude more, which is why it stays
+// opt-in and this tier does not.
 func BenchmarkStopSites(b *testing.B) {
 	palette := block.NewPalette()
 	lib := BuildLibrary(stopsBenchFiles, palette, nil)
@@ -36,7 +60,15 @@ func BenchmarkStopSites(b *testing.B) {
 	place := func() {
 		feature.Place(&wgen.PlacementContext{API: vol, Random: random.New(1), MolangScope: wgen.NewScope()})
 	}
-	b.Run("profiling=off", func(b *testing.B) {
+	b.Run("unarmed", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			place()
+		}
+	})
+	b.Run("stops-only", func(b *testing.B) {
+		profiler.BeginStops()
+		defer profiler.EndStops()
+		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			place()
 		}

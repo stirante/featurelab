@@ -3,6 +3,8 @@ package features
 import (
 	"strings"
 	"testing"
+
+	"github.com/stirante/featurelab/block"
 )
 
 // TestCheckBlockNames_FindsCaveAirWhereverItHides is the whole point of doing this as a walk
@@ -64,5 +66,116 @@ func TestCheckBlockNames_LeavesRealBlocksAlone(t *testing.T) {
 	}, &diags)
 	if len(diags) != 0 {
 		t.Fatalf("want no diagnostics, got %v", diags)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The generic "this is not a block" warning
+// ---------------------------------------------------------------------------
+
+// TestBuildLibrary_AnUnknownBlockNameIsAWarningNamingWhereItLooked is the
+// critic's second file: `places_block: "not even an id"` reached disk and check
+// said nothing at all. It is free text in the JSON, so nothing structural can
+// object -- the only thing that can is the block table.
+func TestBuildLibrary_AnUnknownBlockNameIsAWarningNamingWhereItLooked(t *testing.T) {
+	const text = `{"format_version":"1.21.110","minecraft:single_block_feature":{
+		"description":{"identifier":"wiki:x"},"enforce_placement_rules":false,"enforce_survivability_rules":false,
+		"places_block":"not even an id"}}`
+	lib := BuildLibrary([]SourceFile{{ID: "f.json", Text: text}}, block.NewPalette(), nil)
+
+	var found *Diagnostic
+	for i, d := range lib.Diagnostics {
+		if strings.Contains(d.Message, "not a block this engine knows") {
+			found = &lib.Diagnostics[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("an unparseable block name produced no diagnostic; got %+v", lib.Diagnostics)
+	}
+	if found.Level != "warning" {
+		t.Errorf("level = %q, want warning -- a pack may declare its own blocks and a name may come from another add-on", found.Level)
+	}
+	if !strings.Contains(found.Message, "not even an id") {
+		t.Errorf("the diagnostic does not quote the name: %q", found.Message)
+	}
+	// "Say what it looked in" -- a reader who cannot act on the row is worse off
+	// than one who was never told.
+	for _, where := range []string{"vanilla block catalogue", "blocks/ directory"} {
+		if !strings.Contains(found.Message, where) {
+			t.Errorf("the diagnostic does not say it consulted the %s: %q", where, found.Message)
+		}
+	}
+	// It is a warning, so the feature still builds.
+	if lib.Resolve("wiki:x") == nil {
+		t.Error("the feature did not build -- an unknown block name must not delete the feature")
+	}
+}
+
+// TestBuildLibrary_RealBlockNamesAreSilent is the half that keeps the channel
+// worth reading. Vanilla in both its spellings, a legacy aggregate, and a block
+// this pack declares itself.
+func TestBuildLibrary_RealBlockNamesAreSilent(t *testing.T) {
+	pal := block.NewPalette()
+	pal.LoadBlockTags([]block.SourceFile{{ID: "custom.json", Text: `{
+		"format_version":"1.21.70",
+		"minecraft:block":{"description":{"identifier":"wiki:custom_ore"},"components":{}}
+	}`}})
+	const text = `{"format_version":"1.21.110","minecraft:single_block_feature":{
+		"description":{"identifier":"wiki:x"},"enforce_placement_rules":false,"enforce_survivability_rules":false,
+		"places_block":"wiki:custom_ore","may_replace":["minecraft:diamond_block","stone","minecraft:air"]}}`
+	lib := BuildLibrary([]SourceFile{{ID: "f.json", Text: text}}, pal, nil)
+	for _, d := range lib.Diagnostics {
+		if strings.Contains(d.Message, "not a block this engine knows") {
+			t.Errorf("a real block name was reported as unknown: %q", d.Message)
+		}
+	}
+}
+
+// TestBuildLibrary_UnknownNameIsChargedToTheFileThatWroteIt: the palette is
+// shared across a whole pack build, so the set has to drain per file or the
+// second file's mistake is reported against the first.
+func TestBuildLibrary_UnknownNameIsChargedToTheFileThatWroteIt(t *testing.T) {
+	fine := `{"format_version":"1.21.110","minecraft:single_block_feature":{
+		"description":{"identifier":"wiki:a"},"enforce_placement_rules":false,"enforce_survivability_rules":false,
+		"places_block":"minecraft:stone"}}`
+	broken := `{"format_version":"1.21.110","minecraft:single_block_feature":{
+		"description":{"identifier":"wiki:b"},"enforce_placement_rules":false,"enforce_survivability_rules":false,
+		"places_block":"wiki:nope"}}`
+	lib := BuildLibrary([]SourceFile{
+		{ID: "a.json", Text: fine},
+		{ID: "b.json", Text: broken},
+	}, block.NewPalette(), nil)
+	for _, d := range lib.Diagnostics {
+		if !strings.Contains(d.Message, "not a block this engine knows") {
+			continue
+		}
+		if d.FileID != "b.json" {
+			t.Errorf("the unknown name was charged to %q, want b.json", d.FileID)
+		}
+	}
+}
+
+// TestBuildLibrary_CaveAirKeepsItsOwnSentenceAndDoesNotGetTwo: cave_air is in no
+// block table either, so both checks see it. The specific one is more useful and
+// the generic one stands down -- one problem reported twice reads as two.
+func TestBuildLibrary_CaveAirKeepsItsOwnSentenceAndDoesNotGetTwo(t *testing.T) {
+	const text = `{"format_version":"1.21.110","minecraft:single_block_feature":{
+		"description":{"identifier":"wiki:x"},"enforce_placement_rules":false,"enforce_survivability_rules":false,
+		"places_block":"minecraft:cave_air"}}`
+	lib := BuildLibrary([]SourceFile{{ID: "f.json", Text: text}}, block.NewPalette(), nil)
+	var specific, generic int
+	for _, d := range lib.Diagnostics {
+		if strings.Contains(d.Message, "not a block on Bedrock") {
+			specific++
+		}
+		if strings.Contains(d.Message, "not a block this engine knows") {
+			generic++
+		}
+	}
+	if specific != 1 {
+		t.Errorf("cave_air's own diagnostic count = %d, want 1", specific)
+	}
+	if generic != 0 {
+		t.Errorf("cave_air also got the generic diagnostic %d time(s) -- one problem, one row", generic)
 	}
 }

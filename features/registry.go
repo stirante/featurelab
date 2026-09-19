@@ -8,6 +8,7 @@ package features
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 
 	"github.com/stirante/featurelab/block"
@@ -82,10 +83,45 @@ func RegisteredTypes() []string {
 }
 
 // Diagnostic is one build-time message about a pack.
+//
+// Line and Column are the 1-based place in FileID the message is about, or
+// both 0 when there is no single place to point at -- which is the common
+// case: "this feature type is not implemented" is about the whole file, not
+// a character in it. They are filled in wherever the parser genuinely knows
+// the position (see jsonc.ErrorPosition), so an editor can put a squiggle
+// on the offending comma instead of only marking the file.
 type Diagnostic struct {
 	Level   string // "error" | "warning"
 	FileID  string
+	Line    int
+	Column  int
 	Message string
+}
+
+// FailedFile is one source file that produced NO Entry at all -- it could
+// not be parsed far enough to know what feature it declares (invalid JSON,
+// no type key, no description.identifier, an unreadable format_version).
+//
+// It exists because such a file is invisible everywhere else: a file that
+// parses but fails to BUILD still gets an Entry (with a nil Feature), so
+// `generate` can say "that feature is declared in x.json but failed to
+// build"; a file that does not parse gets nothing, and the pack silently
+// behaves as though the file were not there. That is the shape of the bug
+// this closes: a truncated feature file made the pack report one more file
+// than it had usable features, with nothing anywhere connecting the
+// identifier a caller asked for to the file that could not be read.
+//
+// Identifier is a BEST-EFFORT reading of the file's own
+// description.identifier, recovered by scanning the raw text (see
+// ScrapeIdentifier) rather than by parsing, since parsing is what just
+// failed. It is used ONLY to make a diagnostic say which feature the
+// unreadable file was probably meant to declare -- never to register,
+// resolve or place anything -- and is "" when the text does not contain a
+// readable one (a file truncated before its description, say).
+type FailedFile struct {
+	FileID     string
+	Identifier string
+	Message    string
 }
 
 // Entry is one built (or failed-to-build) feature —
@@ -110,6 +146,12 @@ type Entry struct {
 type Library struct {
 	Entries     []Entry
 	Diagnostics []Diagnostic
+	// Failed is every source file that produced no Entry at all -- see
+	// FailedFile. len(Entries) + len(Failed) is always the number of source
+	// files BuildLibrary was given, which is what lets a caller report
+	// "56 files, 55 loaded" instead of one number that quietly means
+	// whichever of the two is convenient.
+	Failed []FailedFile
 	// byIdentifier is keyed by the LOWER-CASED identifier -- see Resolve, and featureKey for why.
 	byIdentifier map[string]wgen.IFeature
 }
@@ -152,12 +194,42 @@ type parsedFile struct {
 	formatVersion FormatVersion
 }
 
-func parseFile(f SourceFile, diags *[]Diagnostic) *parsedFile {
-	var root map[string]any
-	if err := json.Unmarshal(jsonc.StripComments([]byte(f.Text)), &root); err != nil {
-		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Message: "invalid JSON: " + err.Error()})
+// parseFile reads one source file far enough to know what feature it
+// declares. It returns nil for a file that cannot be read that far, and
+// every such return records BOTH a Diagnostic (what is wrong, and where,
+// for a reader) and a FailedFile on failed (which file produced no entry,
+// and which identifier it was probably meant to declare, for the counts
+// and for `generate`'s "you asked for a feature whose file did not load"
+// message). failed may be nil for a caller that only wants diagnostics.
+//
+// The two are recorded together, here, on purpose: the bug this closes was
+// exactly a failure that produced a diagnostic and nothing else, so the
+// file vanished from every count and every identifier lookup while the one
+// diagnostic explaining it sat in a list nobody was reading at the time.
+func parseFile(f SourceFile, diags *[]Diagnostic, failed *[]FailedFile) *parsedFile {
+	fail := func(line, column int, message string) *parsedFile {
+		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Line: line, Column: column, Message: message})
+		if failed != nil {
+			*failed = append(*failed, FailedFile{FileID: f.ID, Identifier: ScrapeIdentifier(f.Text), Message: message})
+		}
 		return nil
 	}
+
+	if jsonc.HasUTF8BOM([]byte(f.Text)) {
+		*diags = append(*diags, Diagnostic{Level: "warning", FileID: f.ID, Message: jsonc.UTF8BOMWarning})
+	}
+	stripped := jsonc.StripComments([]byte(f.Text))
+	var root map[string]any
+	if err := json.Unmarshal(stripped, &root); err != nil {
+		pos, _ := jsonc.ErrorPosition(stripped, err)
+		return fail(pos.Line, pos.Column, jsonc.InvalidJSONMessage(stripped, err))
+	}
+	// A key written twice is not an error anywhere -- encoding/json keeps the last one and so does
+	// the game's own parser -- which is exactly why it is worth saying: the file loads, the pack
+	// works, and the copy the author is editing may be the one being thrown away. Raised here,
+	// after the parse and before anything is read out of root, so it is reported for every file
+	// that parses at all, including one that then fails to build for some unrelated reason.
+	reportDuplicateKeys(f.ID, stripped, diags)
 	var typeID string
 	for k := range root {
 		if k != "format_version" {
@@ -166,13 +238,17 @@ func parseFile(f SourceFile, diags *[]Diagnostic) *parsedFile {
 		}
 	}
 	if typeID == "" {
-		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Message: "no feature type key alongside format_version"})
-		return nil
+		return fail(0, 0, "no feature type key alongside format_version")
 	}
+	bodyPath := jsonc.FormatPath([]jsonc.PathSegment{{Key: typeID}})
 	body, ok := root[typeID].(map[string]any)
 	if !ok {
-		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Message: fmt.Sprintf("%q must be an object", typeID)})
-		return nil
+		// "The wrong type for a known key" -- the one class of failure encoding/json would have
+		// given a position for, if the decode had had a type to disappoint. Decoding into
+		// map[string]any means it never does, so the position is asked for explicitly instead of
+		// being left at 0,0 for want of anyone asking.
+		line, column := positionOf(stripped, bodyPath)
+		return fail(line, column, fmt.Sprintf("%q must be an object", typeID))
 	}
 	identifier := ""
 	if desc, ok := body["description"].(map[string]any); ok {
@@ -181,8 +257,12 @@ func parseFile(f SourceFile, diags *[]Diagnostic) *parsedFile {
 		}
 	}
 	if identifier == "" {
-		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Message: "description.identifier is missing"})
-		return nil
+		// Falls back outward: the identifier if it is there but unusable, else the description
+		// that should have held it, else the body that should have held THAT -- so the caret
+		// lands on the innermost thing that actually exists.
+		line, column := positionOf(stripped,
+			bodyPath+".description.identifier", bodyPath+".description", bodyPath)
+		return fail(line, column, "description.identifier is missing")
 	}
 
 	// `format_version` is no longer just the key to skip past while hunting for the type key
@@ -204,8 +284,8 @@ func parseFile(f SourceFile, diags *[]Diagnostic) *parsedFile {
 	// quietly closing gates the author never opted out of).
 	formatVersion, err := ParseFormatVersion(root["format_version"])
 	if err != nil {
-		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Message: err.Error()})
-		return nil
+		line, column := positionOf(stripped, "$.format_version")
+		return fail(line, column, err.Error())
 	}
 	if !formatVersion.Present {
 		*diags = append(*diags, Diagnostic{Level: "warning", FileID: f.ID, Message: "format_version is missing — the game requires it and would refuse to load this file; " +
@@ -213,6 +293,63 @@ func parseFile(f SourceFile, diags *[]Diagnostic) *parsedFile {
 	}
 
 	return &parsedFile{fileID: f.ID, typeID: typeID, identifier: identifier, body: body, formatVersion: formatVersion}
+}
+
+// positionOf is the line/column of the first of paths that exists in src, or 0,0 when none does
+// -- the shape Diagnostic.Line/Column already document as "there is no single place to point at".
+//
+// It re-scans the document, which is why it is only ever called on a path that has ALREADY
+// failed: one extra parse of one bad file, at the moment that file is being refused, against a
+// diagnostic an editor can put a caret on. It is not called for a file that loads.
+func positionOf(src []byte, paths ...string) (line, column int) {
+	pos, ok := jsonc.FirstPathPosition(src, paths...)
+	if !ok {
+		return 0, 0
+	}
+	return pos.Line, pos.Column
+}
+
+// reportDuplicateKeys raises one warning per key written more than once, at the position of the
+// occurrence that has no effect. Shared wording through jsonc.DuplicateKeyMessage, so a feature
+// file and a rule file say it identically.
+func reportDuplicateKeys(fileID string, src []byte, diags *[]Diagnostic) {
+	for _, d := range jsonc.DuplicateKeys(src) {
+		*diags = append(*diags, Diagnostic{
+			Level: "warning", FileID: fileID, Line: d.First.Line, Column: d.First.Column,
+			Message: jsonc.DuplicateKeyMessage(d),
+		})
+	}
+}
+
+// ReportDuplicateKeys is reportDuplicateKeys for the rule loader, which lives in another package
+// and raises features.Diagnostic like this one does. Exported rather than copied: the two
+// loaders reporting the same finding in two spellings is the drift this repo's shared-message
+// functions exist to prevent.
+func ReportDuplicateKeys(fileID string, src []byte, diags *[]Diagnostic) {
+	reportDuplicateKeys(fileID, src, diags)
+}
+
+// identifierScrape finds a `"identifier": "namespace:name"` pair anywhere in a file's raw text.
+// Deliberately a text scan and not a parse: the only caller is the path where parsing already
+// failed. It matches the KEY exactly (so a value that merely contains the word is not picked up)
+// and a value with no backslash in it (identifiers are namespace:name over a small character
+// set, and refusing to guess at an escaped value is cheaper than getting it subtly wrong).
+var identifierScrape = regexp.MustCompile(`"identifier"\s*:\s*"([^"\\]+)"`)
+
+// ScrapeIdentifier is a best-effort reading of the identifier a file that FAILED to parse was
+// probably meant to declare, for diagnostics only -- see FailedFile.Identifier for the contract
+// and for why this exists at all.
+//
+// It returns "" unless the file contains exactly one candidate. A file with two (an author
+// mid-copy-paste, a nested description in a malformed edit) is ambiguous, and a diagnostic that
+// confidently names the wrong feature is worse than one that names only the file: the caller's
+// fallback wording already says which files failed to load, which is true either way.
+func ScrapeIdentifier(text string) string {
+	matches := identifierScrape.FindAllStringSubmatch(text, 2)
+	if len(matches) != 1 {
+		return ""
+	}
+	return matches[0][1]
 }
 
 // BuildLibrary builds every feature in files as one library, so features
@@ -233,14 +370,15 @@ func BuildLibrary(files []SourceFile, palette *block.Palette, structureLib struc
 		legacyStructureLib = lr
 	}
 	var diags []Diagnostic
+	var failed []FailedFile
 	parsed := make([]*parsedFile, 0, len(files))
 	for _, f := range files {
-		if p := parseFile(f, &diags); p != nil {
+		if p := parseFile(f, &diags, &failed); p != nil {
 			parsed = append(parsed, p)
 		}
 	}
 
-	lib := &Library{byIdentifier: make(map[string]wgen.IFeature)}
+	lib := &Library{byIdentifier: make(map[string]wgen.IFeature), Failed: failed}
 
 	entries := make([]Entry, 0, len(parsed))
 	for _, p := range parsed {
@@ -308,7 +446,19 @@ func BuildLibrary(files []SourceFile, palette *block.Palette, structureLib struc
 				diags = append(diags, Diagnostic{Level: "warning", FileID: p.fileID, Message: message})
 			},
 		}
+		// Drained BEFORE the builder as well as after, so a name recorded by
+		// something that ran earlier against this same palette (a structure
+		// library built first, a previous BuildLibrary) is never charged to
+		// whichever feature file happens to be first here.
+		drainUnknownBlockNames(palette)
 		feature, err := builder(p.body, ctx)
+		// AFTER the builder, not inside the parsers: a block name reaches a
+		// table lookup only once it has been resolved against the palette, and
+		// that happens in three dozen places across a dozen types. This is the
+		// one point where "everything this file asked for" is knowable, and it
+		// is knowable even when the build then failed for an unrelated reason
+		// -- so the names are reported either way. See warnUnknownBlockNames.
+		warnUnknownBlockNames(drainUnknownBlockNames(palette), ctx.Warn)
 		if err != nil {
 			diags = append(diags, Diagnostic{Level: "error", FileID: p.fileID, Message: err.Error()})
 			entries = append(entries, Entry{FileID: p.fileID, Identifier: p.identifier, TypeID: p.typeID})
