@@ -163,9 +163,26 @@ func ParseCoordinateRange(raw any, jsonPath string) (CoordinateRange, error) {
 		if err != nil {
 			return CoordinateRange{}, fmt.Errorf("%s.extent[1]: %w", jsonPath, err)
 		}
-		// step_size default: unconfirmed. 1 (not 0) is the only value that
-		// makes a bare fixed_grid/jittered_grid axis non-degenerate, which
-		// matches how packs use it.
+		// Vanilla defaults, confirmed: step_size 1, grid_offset 0.
+		// The game does not keep these two on the parsed JSON object at all --
+		// they are a pair of adjacent 32-bit fields on the runtime coordinate
+		// range, initialised to (1, 0) when the range is constructed, and the
+		// JSON-to-runtime conversion writes each one ONLY when the key is
+		// present. So an absent key does not select a default so much as leave
+		// (1, 0) standing.
+		//
+		// Two consequences of that shape, both worth knowing before changing
+		// anything here:
+		//
+		//  1. A key present on a NON-grid distribution is reported as a content
+		//     error ("step_size is only valid when distribution is fixed_grid
+		//     or jittered_grid", and the matching grid_offset message) and then
+		//     NOT stored -- the field keeps 1 / 0. This tool stores the value
+		//     instead, which is invisible in placement because only the two
+		//     grid kinds ever read it, but it does mean that content error is
+		//     not reported here.
+		//  2. There is no "unset" state to tell apart: 1 and 0 are the values a
+		//     grid axis actually evaluates with, not sentinels.
 		stepSize := 1.0
 		if sv, ok := v["step_size"]; ok {
 			f, ok := toFloat(sv)
