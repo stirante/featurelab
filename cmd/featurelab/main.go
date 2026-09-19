@@ -14,6 +14,7 @@
 //	check     load a pack, print diagnostics, exit non-zero on any error
 //	textures  report on, or build, the block-texture atlas a textured preview draws from
 //	types     print the minecraft:*_feature coverage table
+//	version   print what this binary is (the start-up check a host runs before its first request)
 package main
 
 import (
@@ -52,6 +53,8 @@ func run(args []string) int {
 		return cmdTextures(args[1:])
 	case "types":
 		return cmdTypes(args[1:])
+	case "version", "--version", "-v":
+		return cmdVersion(args[1:])
 	case "-h", "--help", "help":
 		printUsage(os.Stdout)
 		return 0
@@ -67,12 +70,13 @@ func printUsage(w *os.File) {
 
 Usage:
   featurelab generate --pack <dir> (--feature <id> | --rule <id>) [flags]
-  featurelab serve
-  featurelab check --pack <dir>
-  featurelab graph --pack <dir>
+  featurelab serve [--quiet]
+  featurelab check --pack <dir> [--json]
+  featurelab graph --pack <dir> [--omit-coverage-notes]
   featurelab blocktable --pack <dir> [--resource-pack <dir>]
   featurelab textures [--pack <dir>] [--status] [--download]
   featurelab types [--json]
+  featurelab version [--json]
 
 Run "featurelab <subcommand> -h" for that subcommand's flags.`)
 }
@@ -123,9 +127,7 @@ func cmdGenerate(args []string) int {
 		fmt.Fprintln(os.Stderr, "featurelab: "+err.Error())
 		return 1
 	}
-	for _, w := range loaded.Warnings {
-		fmt.Fprintln(os.Stderr, "featurelab: warning: "+w)
-	}
+	printPackNotices(os.Stderr, loaded)
 
 	params := wire.GenerateParams{
 		Feature: *feature, Rule: *rule, Env: *envName, Origin: *origin, Size: *size,
@@ -234,10 +236,11 @@ func diagnosticsHaveError(diags []session.Diagnostic) bool {
 // cmdServe implements the `serve` subcommand.
 func cmdServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	quiet := fs.Bool("quiet", false, "emit no readiness or progress notifications -- stdout carries responses only")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if err := runServe(os.Stdin, os.Stdout); err != nil {
+	if err := runServeOptions(os.Stdin, os.Stdout, serveOptions{Quiet: *quiet}); err != nil {
 		fmt.Fprintln(os.Stderr, "featurelab: serve: "+err.Error())
 		return 1
 	}
@@ -245,12 +248,23 @@ func cmdServe(args []string) int {
 }
 
 // cmdCheck implements the `check` subcommand: load a pack, print every
-// diagnostic as a JSON array, exit non-zero if any is level "error" -- the
-// lint/CI entry point.
+// diagnostic, exit non-zero if any is level "error" -- the lint/CI entry point.
+//
+// The DEFAULT output is a text table and a summary line, and --json is the
+// machine-readable array this used to print unconditionally. That is the same
+// split `types` and `version` have always had, and it is the right way round
+// for the same reason: the human output is the one someone gets by typing the
+// command, and the program reading it is the one that can be asked to pass a
+// flag. Both are built from the identical []Diagnostic and neither can say
+// anything the other cannot.
+//
+// The exit code does not depend on the format. Anything else would make
+// `--json` mean two things.
 func cmdCheck(args []string) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	var pf packFlags
 	pf.register(fs)
+	asJSON := fs.Bool("json", false, "print the diagnostics as a JSON array instead of a text table")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -263,11 +277,17 @@ func cmdCheck(args []string) int {
 
 	diags := checkPack(loaded)
 	if diags == nil {
+		// Never null in JSON: a client that walks the array must not have to
+		// tell `null` from `[]` to find out that a pack is clean.
 		diags = []Diagnostic{}
 	}
-	if err := writeJSON(os.Stdout, diags); err != nil {
-		fmt.Fprintln(os.Stderr, "featurelab: encoding JSON: "+err.Error())
-		return 1
+	if *asJSON {
+		if err := writeJSON(os.Stdout, diags); err != nil {
+			fmt.Fprintln(os.Stderr, "featurelab: encoding JSON: "+err.Error())
+			return 1
+		}
+	} else {
+		writeCheckTable(os.Stdout, diags)
 	}
 	if diagLevelHasError(diags) {
 		return 1
@@ -290,6 +310,26 @@ func cmdTypes(args []string) int {
 		return 0
 	}
 	writeTypesTable(os.Stdout)
+	return 0
+}
+
+// cmdVersion implements the `version` subcommand -- what this binary is, for
+// a host deciding whether the executable it found is one it can drive. See
+// VersionOutput's own doc comment.
+func cmdVersion(args []string) int {
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print the version as JSON instead of one line of text")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *asJSON {
+		if err := writeVersionJSON(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "featurelab: "+err.Error())
+			return 1
+		}
+		return 0
+	}
+	writeVersionLine(os.Stdout)
 	return 0
 }
 

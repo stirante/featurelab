@@ -25,11 +25,24 @@ type atlasParams struct {
 	Dir string `json:"dir"`
 }
 
+// "Which blocks this atlas could not texture, and why" used to be attached HERE, by a
+// serve-only helper that read blocktextures' build marker and copied its rows onto the response.
+// It now comes back from wire.LoadAtlas itself, which is the only way every host gets it: this
+// method is one of three ways an atlas is delivered, and the desktop app -- which calls
+// wire.LoadAtlas straight over its Wails binding -- could not answer the one question someone
+// staring at a flat-coloured block actually has. See wire.AtlasOutput.Unresolved.
+//
+// methodAtlas is unchanged on the wire as a result: the same fields, from the same marker, with
+// the same cap and the same true total.
+
 // methodAtlas implements "atlas". "No atlas has been built" comes back as
 // an ordinary error response, NOT as a null result: the frontend's recovery
 // is the same either way (stay in flat-colour mode) but a client that wants
 // to say WHY once needs the sentence, and an error response is how every
 // other method on this contract says something is unavailable.
+//
+// It adds nothing to wire.LoadAtlas's answer -- see the note above on the one
+// thing it used to add and why that moved.
 func methodAtlas(raw json.RawMessage) (any, error) {
 	var params atlasParams
 	if len(raw) > 0 {

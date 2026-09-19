@@ -221,11 +221,16 @@ type PackSummary struct {
 }
 
 // UnresolvedTexture is one block face whose texture key produced no image.
+//
+// Code is the short, stable token for the same finding Reason spells out in a sentence -- see
+// packrender.Unresolved, where both are produced, for the vocabulary and for why a caller that
+// groups these must key off the token rather than the prose.
 type UnresolvedTexture struct {
 	Block   string `json:"block"`
 	Face    string `json:"face"`
 	Texture string `json:"texture"`
 	Reason  string `json:"reason"`
+	Code    string `json:"code,omitempty"`
 }
 
 // UnresolvedLimit caps PackSummary.Unresolved. A pack that ships no resource
@@ -235,10 +240,17 @@ type UnresolvedTexture struct {
 const UnresolvedLimit = 20
 
 // markerFile records what the atlas in a directory was built from. It sits
-// beside atlas.json/atlas.png and is ignored by wire.LoadAtlas, which reads
-// only those two names -- the seam between building and delivering stays
-// exactly where Piece C put it.
-const markerFile = ".featurelab-atlas.json"
+// beside atlas.json/atlas.png, and its NAME is declared with theirs, in
+// wire, because there is one atlas directory layout and it should only be
+// spelled once (see wire.AtlasMarkerFile).
+//
+// This package owns the file: every field in it is written here and read
+// back here. wire.LoadAtlas reads exactly two of them -- "unresolved" and
+// "unresolvedTotal" -- so that every host delivering an atlas can say why a
+// block draws as a flat colour, rather than only the ones that go through
+// `serve`. Adding, renaming or removing either of those two is a change to
+// something another package decodes; the rest of the marker is private.
+const markerFile = wire.AtlasMarkerFile
 
 // declineFile records that this machine was asked and said no. Its presence,
 // not its contents, is the answer; the contents are there so a person who
@@ -265,7 +277,21 @@ type marker struct {
 	Blocks      int                `json:"blocks"`
 	PackBlocks  int                `json:"packBlocks,omitempty"`
 	Notes       []block.RenderNote `json:"notes,omitempty"`
-	Note        string             `json:"note"`
+	// Unresolved and UnresolvedTotal are PackSummary's sample and count, kept here for the same
+	// reason Notes is: they are a fact about the atlas sitting in this directory, and the only
+	// process that can know them is the one that built it.
+	//
+	// Without this they lived exactly as long as the `textures` process that produced them. A
+	// host delivering the atlas over `serve` reads two files off disk (wire.LoadAtlas) and had
+	// no way to say why a block draws as a flat colour -- which is the one question someone
+	// looking at a flat-coloured block actually has.
+	//
+	// These two are the ONLY fields of this marker another package decodes: wire.LoadAtlas
+	// reads them back into wire.AtlasOutput, so the answer reaches every host rather than only
+	// the one that goes through `serve`. Renaming either JSON key breaks that.
+	Unresolved      []UnresolvedTexture `json:"unresolved,omitempty"`
+	UnresolvedTotal int                 `json:"unresolvedTotal,omitempty"`
+	Note            string              `json:"note"`
 }
 
 type declineRecord struct {
@@ -505,17 +531,23 @@ func Ensure(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	packBlocks := 0
+	var unresolved []UnresolvedTexture
+	unresolvedTotal := 0
 	if summary != nil {
 		packBlocks = summary.Blocks
+		unresolved = summary.Unresolved
+		unresolvedTotal = summary.UnresolvedTotal
 	}
 	m := marker{
-		Version:    markerVersion,
-		Tag:        tag,
-		Built:      time.Now().UTC().Format(time.RFC3339),
-		Pack:       packDir,
-		Blocks:     len(built.Table.Blocks),
-		PackBlocks: packBlocks,
-		Notes:      notes,
+		Version:         markerVersion,
+		Tag:             tag,
+		Built:           time.Now().UTC().Format(time.RFC3339),
+		Pack:            packDir,
+		Blocks:          len(built.Table.Blocks),
+		PackBlocks:      packBlocks,
+		Notes:           notes,
+		Unresolved:      unresolved,
+		UnresolvedTotal: unresolvedTotal,
 		Note: "Block atlas built by featurelab from Mojang's bedrock-samples sample resource pack. " +
 			"Not part of featurelab and not redistributed by it; delete this directory to remove it.",
 	}
@@ -563,6 +595,12 @@ func declined(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, declineFile))
 	return err == nil
 }
+
+// There was an UnresolvedTextures(Options) accessor here, whose only caller was `serve`'s atlas
+// method, which used it to attach those rows to the response. That made the serve path the ONLY
+// one that could say why a block draws flat, so wire.LoadAtlas reads the two fields itself now
+// and every host gets them from delivering an atlas at all. Restoring an accessor here would
+// give the same two fields a second reader, free to drift from the one hosts actually see.
 
 func readMarker(dir string) (*marker, error) {
 	buf, err := os.ReadFile(filepath.Join(dir, markerFile))
@@ -673,7 +711,7 @@ func packTable(packDir, resourcePackDir, vanillaRoot string) (*packrender.Table,
 			break
 		}
 		summary.Unresolved = append(summary.Unresolved, UnresolvedTexture{
-			Block: u.Block, Face: u.Face, Texture: u.Texture, Reason: u.Reason,
+			Block: u.Block, Face: u.Face, Texture: u.Texture, Reason: u.Reason, Code: u.Code,
 		})
 	}
 	if rp != nil {

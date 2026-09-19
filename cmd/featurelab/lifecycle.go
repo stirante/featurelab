@@ -32,6 +32,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -164,7 +165,7 @@ func methodRenameFeature(state *serverState, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("renameFeature: %s", why)
 	}
 
-	graph, err := buildGraph(state.loaded)
+	graph, err := buildGraph(context.Background(), state.loaded)
 	if err != nil {
 		return nil, fmt.Errorf("renameFeature: reading the pack's graph: %v", err)
 	}
@@ -367,7 +368,7 @@ func methodDeleteFeature(state *serverState, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("malformed params: \"id\" is required -- name the feature to delete")
 	}
 
-	graph, err := buildGraph(state.loaded)
+	graph, err := buildGraph(context.Background(), state.loaded)
 	if err != nil {
 		return nil, fmt.Errorf("deleteFeature: reading the pack's graph: %v", err)
 	}

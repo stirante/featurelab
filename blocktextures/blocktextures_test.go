@@ -344,3 +344,50 @@ func TestABrokenTableIsNotAMissingOne(t *testing.T) {
 func contains(haystack, needle string) bool {
 	return bytes.Contains([]byte(haystack), []byte(needle))
 }
+
+// TestWhatCouldNotBeTexturedSurvivesTheProcessThatBuiltIt is the writer's half of the contract
+// wire/atlas_test.go tests the reader's half of.
+//
+// "3 blocks with an unresolved texture" used to live exactly as long as the `textures` process
+// that printed it. A host loading the atlas afterwards read two files off disk and had nothing
+// to say about why a block draws as a flat colour -- which is the one question someone looking
+// at a flat-coloured block actually has. The rows are recorded in the build marker, and
+// wire.LoadAtlas reads them back; "unresolved" and "unresolvedTotal" are the only two fields of
+// that marker another package decodes, so this asserts on them together rather than trusting
+// two structs that happen to have matching tags today.
+func TestWhatCouldNotBeTexturedSurvivesTheProcessThatBuiltIt(t *testing.T) {
+	opts := isolate(t)
+	opts.Vanilla.Dir = vanillaFixture(t)
+	opts.PackDir = filepath.Join("..", "pack", "testdata", "addon", "MyAddon_bp")
+
+	result, err := Ensure(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if result.Pack == nil || result.Pack.UnresolvedTotal == 0 {
+		t.Skip("this fixture pack textured everything; there is nothing for this test to carry")
+	}
+
+	out, err := wire.LoadAtlas(opts.Dir)
+	if err != nil {
+		t.Fatalf("wire.LoadAtlas: %v", err)
+	}
+	// The TOTAL is the real count; the rows are capped at UnresolvedLimit. A host must not
+	// compute one from the other.
+	if out.UnresolvedTotal != result.Pack.UnresolvedTotal {
+		t.Errorf("delivered UnresolvedTotal = %d, built %d", out.UnresolvedTotal, result.Pack.UnresolvedTotal)
+	}
+	if len(out.Unresolved) != len(result.Pack.Unresolved) {
+		t.Fatalf("delivered %d rows, built %d", len(out.Unresolved), len(result.Pack.Unresolved))
+	}
+	if len(out.Unresolved) > UnresolvedLimit {
+		t.Errorf("delivered %d rows, above the %d cap", len(out.Unresolved), UnresolvedLimit)
+	}
+	for i, built := range result.Pack.Unresolved {
+		got := out.Unresolved[i]
+		if got.Block != built.Block || got.Face != built.Face || got.Texture != built.Texture ||
+			got.Reason != built.Reason || got.Code != built.Code {
+			t.Errorf("row %d: delivered %+v, built %+v", i, got, built)
+		}
+	}
+}
