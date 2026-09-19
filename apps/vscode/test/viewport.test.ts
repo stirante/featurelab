@@ -95,6 +95,46 @@ async function controlsTarget(page: Page): Promise<Vec> {
   })
 }
 
+/** How far two camera samples may differ and still count as "stopped". Two orders of magnitude
+ * below CAMERA_HELD, the distance a test is allowed to call "the camera did not move", so a
+ * settled camera cannot be mistaken for a moved one or the other way round. */
+const CAMERA_STILL = 0.002
+/** The most a camera that was NOT supposed to move may have drifted. */
+const CAMERA_HELD = 0.1
+/** The least a camera that WAS supposed to be re-fitted must have moved. */
+const CAMERA_MOVED = 0.5
+
+/** Waits for the camera to STOP, instead of for a number of milliseconds to pass.
+ *
+ * WHY A CONDITION AND NOT A SLEEP. OrbitControls damps after the pointer is released
+ * (viewer.ts sets `dampingFactor = 0.08`), and damping advances once per ANIMATION FRAME, not
+ * once per millisecond. A fixed wait therefore buys a number of frames that depends entirely on
+ * how fast the machine can produce them, and the gap is not small: the orbit in the test below
+ * settles in about 300 ms on the development box and took 8,220 ms on a Linux container held to
+ * a core and a half, rendering through software GL. The 900 ms this replaces was ample on the
+ * first and nine times short on the second, so the test read a camera still in motion, resized,
+ * read it again, and reported the remainder of the DRAG as a re-fit the product was not
+ * supposed to have done -- 0.542 against a ceiling of 0.5. Nothing about the product was
+ * involved.
+ *
+ * "Stopped" is two samples a tenth of a second apart that agree to within CAMERA_STILL. The
+ * deadline is generous against that 8.2 s, and it is a FAILURE rather than a fallback: a camera
+ * that never stops is a finding, and carrying on quietly would put the flake straight back. */
+async function settleCamera(page: Page, timeoutMs = 25_000): Promise<Vec> {
+  const deadline = Date.now() + timeoutMs
+  let previous = await cameraPosition(page)
+  for (;;) {
+    await page.waitForTimeout(100)
+    const current = await cameraPosition(page)
+    const moved = distance(previous, current)
+    if (moved < CAMERA_STILL) return current
+    previous = current
+    if (Date.now() > deadline) {
+      throw new Error(`the camera never stopped moving: still travelling ${moved.toFixed(4)} per 100 ms after ${String(timeoutMs)} ms`)
+    }
+  }
+}
+
 /** Resizes the whole window, which is what dragging the VS Code panel or moving the preview into
  * a different editor group does to this webview -- and, unlike setting the sidebar's own flex
  * basis, is not something splitter.ts's container-width-aware observer immediately puts back.
@@ -102,6 +142,13 @@ async function controlsTarget(page: Page): Promise<Vec> {
 async function resizeWindow(page: Page, width: number, height: number): Promise<void> {
   await page.setViewportSize({ width, height })
   await page.waitForTimeout(300)
+}
+
+/** As `resizeWindow`, and then waits out whatever the resize started. A re-fit that glides is
+ * still a re-fit; reading the camera mid-glide measures the clock, not the fit. */
+async function resizeAndSettle(page: Page, width: number, height: number): Promise<Vec> {
+  await resizeWindow(page, width, height)
+  return settleCamera(page)
 }
 
 describe('viewport: framing, controls and the busy state, in a real browser', () => {
@@ -139,34 +186,39 @@ describe('viewport: framing, controls and the busy state, in a real browser', ()
     await page.mouse.down()
     await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 + 40, { steps: 8 })
     await page.mouse.up()
-    // OrbitControls damps for a while after the pointer is released; let it settle so a later
-    // "did the camera move" comparison is measuring a re-fit rather than the tail of a drag.
-    await page.waitForTimeout(900)
+    // OrbitControls damps for a while after the pointer is released. Waited OUT rather than
+    // waited FOR a duration -- see settleCamera, and the flake that made the difference matter.
+    await settleCamera(page)
   }
 
   it('re-fits on resize while the camera is untouched, and stops once the user has moved it', async () => {
     const page = await loadWithResult()
     try {
-      const framed = await cameraPosition(page)
+      const framed = await settleCamera(page)
 
       // Widening the canvas (a narrower sidebar) used to change only the aspect: the same content
       // at the same size, with more empty space beside it.
-      await resizeWindow(page, 700, 900)
-      const afterNarrow = await cameraPosition(page)
-      expect(distance(framed, afterNarrow)).toBeGreaterThan(0.5)
+      const afterNarrow = await resizeAndSettle(page, 700, 900)
+      expect(distance(framed, afterNarrow)).toBeGreaterThan(CAMERA_MOVED)
 
       // ...and the reverse, still untouched: it keeps tracking the box it framed.
-      await resizeWindow(page, 1600, 500)
-      const afterWiden = await cameraPosition(page)
-      expect(distance(afterNarrow, afterWiden)).toBeGreaterThan(0.5)
+      const afterWiden = await resizeAndSettle(page, 1600, 500)
+      expect(distance(afterNarrow, afterWiden)).toBeGreaterThan(CAMERA_MOVED)
 
       // Now the user places the camera themselves. That is a decision, and a panel resize is not
       // a reason to overrule it.
+      //
+      // TIGHTER THAN IT WAS, and deliberately. Both ends of this comparison are now settled
+      // cameras (settleCamera), so a camera that is genuinely left alone reads as EQUAL rather
+      // than as "nearly equal". CAMERA_HELD is 0.1, a fifth of the distance the re-fits above
+      // have to cover, so the two halves of this test can no longer be satisfied by the same
+      // reading: nothing can count as both "moved" and "held". The 0.5 it replaces was the SAME
+      // constant as the one above -- which is how a camera still gliding 0.542 of a unit came to
+      // be reported as a re-fit the product was not supposed to have done.
       await orbit(page)
       const chosen = await cameraPosition(page)
-      await resizeWindow(page, 900, 700)
-      const afterResize = await cameraPosition(page)
-      expect(distance(chosen, afterResize)).toBeLessThan(0.5)
+      const afterResize = await resizeAndSettle(page, 900, 700)
+      expect(distance(chosen, afterResize)).toBeLessThan(CAMERA_HELD)
     } finally {
       await page.close()
     }
