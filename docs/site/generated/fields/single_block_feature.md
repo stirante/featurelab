@@ -66,79 +66,61 @@ An empty list, and an absent key, both mean no constraint at all.
 
 **Neighbour blocks that make this a valid position to place in.**
 
-Writing the key at all -- even as `{}` -- switches the whole attach test on, and with it auto_rotate. Top, bottom and the four diagonals are hard gates; north, east, south and west are counted against min_sides_must_attach instead.
+Writing the key at all -- even as `{}` -- switches the whole attach test on, and with it auto_rotate. Its keys are not all read alike. `top`, `bottom` and `diagonal` are hard gates: a list configured there whose neighbour does not match means the block is not placed at all. `north`, `east`, `south` and `west` are counted instead -- each matches or it does not, the number that match has to reach min_sides_must_attach, and a side with no list configured counts as matching for free. `all` and `sides` are group keys rather than directions: `all` covers all ten neighbours at once -- the six faces plus the four horizontal diagonals -- and `sides` the four cardinal ones, each consulted in addition to whatever the specific direction key says.
 
 #### `may_attach_to.top` {#may_attach_to-top}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to directly above.**
-
-This is a hard gate: if the list is configured and the neighbour does not match, the block is not placed at all.
+**Blocks that count as an attachment directly above -- a hard gate on its own.**
 
 #### `may_attach_to.bottom` {#may_attach_to-bottom}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to directly below.**
-
-This is a hard gate: if the list is configured and the neighbour does not match, the block is not placed at all.
+**Blocks that count as an attachment directly below -- a hard gate on its own.**
 
 #### `may_attach_to.north` {#may_attach_to-north}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to to the north.**
-
-This is one of the four counted sides. It is not a gate on its own -- north, east, south and west each match or not, and the number that match has to reach min_sides_must_attach. A side with no list configured counts as matching for free.
+**Blocks that count as an attachment to the north -- one of the four sides counted against min_sides_must_attach.**
 
 #### `may_attach_to.east` {#may_attach_to-east}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to to the east.**
-
-This is one of the four counted sides. It is not a gate on its own -- north, east, south and west each match or not, and the number that match has to reach min_sides_must_attach. A side with no list configured counts as matching for free.
+**Blocks that count as an attachment to the east -- one of the four sides counted against min_sides_must_attach.**
 
 #### `may_attach_to.south` {#may_attach_to-south}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to to the south.**
-
-This is one of the four counted sides. It is not a gate on its own -- north, east, south and west each match or not, and the number that match has to reach min_sides_must_attach. A side with no list configured counts as matching for free.
+**Blocks that count as an attachment to the south -- one of the four sides counted against min_sides_must_attach.**
 
 #### `may_attach_to.west` {#may_attach_to-west}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to to the west.**
-
-This is one of the four counted sides. It is not a gate on its own -- north, east, south and west each match or not, and the number that match has to reach min_sides_must_attach. A side with no list configured counts as matching for free.
+**Blocks that count as an attachment to the west -- one of the four sides counted against min_sides_must_attach.**
 
 #### `may_attach_to.all` {#may_attach_to-all}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to in any direction.**
-
-A group key, not a direction: it applies to all ten neighbours at once -- the six faces plus the four horizontal diagonals. It is consulted in addition to whatever the specific direction key says.
+**Blocks that count as an attachment in any direction -- a group key over all ten neighbours rather than a direction.**
 
 #### `may_attach_to.sides` {#may_attach_to-sides}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that count as something to attach to to any side.**
-
-A group key covering the four cardinal sides only -- north, east, south and west. It is consulted in addition to each of those four keys, and does not touch top, bottom or the diagonals.
+**Blocks that count as an attachment to any side -- a group key over the four cardinal sides rather than a direction.**
 
 #### `may_attach_to.diagonal` {#may_attach_to-diagonal}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list · from format_version 1.21.40</p>
 
-**Blocks that count as something to attach to at a horizontal diagonal.**
-
-This is a hard gate: if the list is configured and the neighbour does not match, the block is not placed at all.
+**Blocks that count as an attachment at a horizontal diagonal -- a hard gate on its own.**
 
 A group key covering the diagonal attachment directions. Registered only at format_version 1.21.40 and above.
 
@@ -160,79 +142,61 @@ Defaults to TRUE, so a bare `may_attach_to: {}` rotates. With all four sides mat
 
 **Neighbour blocks that make this an invalid position.**
 
-The mirror image of may_attach_to and much blunter: there is no counting and no minimum. One configured list matching its neighbour refuses the placement outright. Note that this key only exists from format_version 1.21.40; in an older file it is dropped, and dropped with it is its power to switch the attach test on at all.
+The mirror image of may_attach_to and much blunter: there is no counting and no minimum. One configured list matching its neighbour refuses the placement outright, whichever key it was written under -- so the counted sides are not counted here and an unconfigured side gets no free pass. `all` and `sides` are group keys rather than directions here too, denying against all ten neighbours and against the four cardinal sides respectively, in addition to the specific direction keys. Note that this key only exists from format_version 1.21.40; in an older file it is dropped, and dropped with it is its power to switch the attach test on at all.
 
 #### `may_not_attach_to.top` {#may_not_attach_to-top}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found directly above.**
-
-One match here is enough on its own: the placement is refused the moment any configured deny list matches its neighbour.
+**Blocks that BLOCK placement when found directly above -- one match is enough to refuse the placement.**
 
 #### `may_not_attach_to.bottom` {#may_not_attach_to-bottom}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found directly below.**
-
-One match here is enough on its own: the placement is refused the moment any configured deny list matches its neighbour.
+**Blocks that BLOCK placement when found directly below -- one match is enough to refuse the placement.**
 
 #### `may_not_attach_to.north` {#may_not_attach_to-north}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found to the north.**
-
-One match here is enough on its own. Unlike may_attach_to, nothing is counted -- there is no minimum to reach and no free pass for an unconfigured side.
+**Blocks that BLOCK placement when found to the north -- one match is enough to refuse the placement, and nothing is counted in this map.**
 
 #### `may_not_attach_to.east` {#may_not_attach_to-east}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found to the east.**
-
-One match here is enough on its own. Unlike may_attach_to, nothing is counted -- there is no minimum to reach and no free pass for an unconfigured side.
+**Blocks that BLOCK placement when found to the east -- one match is enough to refuse the placement, and nothing is counted in this map.**
 
 #### `may_not_attach_to.south` {#may_not_attach_to-south}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found to the south.**
-
-One match here is enough on its own. Unlike may_attach_to, nothing is counted -- there is no minimum to reach and no free pass for an unconfigured side.
+**Blocks that BLOCK placement when found to the south -- one match is enough to refuse the placement, and nothing is counted in this map.**
 
 #### `may_not_attach_to.west` {#may_not_attach_to-west}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found to the west.**
-
-One match here is enough on its own. Unlike may_attach_to, nothing is counted -- there is no minimum to reach and no free pass for an unconfigured side.
+**Blocks that BLOCK placement when found to the west -- one match is enough to refuse the placement, and nothing is counted in this map.**
 
 #### `may_not_attach_to.all` {#may_not_attach_to-all}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found in any direction.**
-
-A group key, not a direction: it denies against all ten neighbours at once -- the six faces plus the four horizontal diagonals.
+**Blocks that BLOCK placement when found in any direction -- a group key over all ten neighbours rather than a direction.**
 
 #### `may_not_attach_to.sides` {#may_not_attach_to-sides}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**Blocks that BLOCK placement when found to any side.**
-
-A group key covering the four cardinal sides only -- north, east, south and west.
+**Blocks that BLOCK placement when found to any side -- a group key over the four cardinal sides rather than a direction.**
 
 #### `may_not_attach_to.diagonal` {#may_not_attach_to-diagonal}
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list · from format_version 1.21.40</p>
 
-**Blocks that BLOCK placement when found at a horizontal diagonal.**
-
-One match here is enough on its own: the placement is refused the moment any configured deny list matches its neighbour.
+**Blocks that BLOCK placement when found at a horizontal diagonal -- one match is enough to refuse the placement.**
 
 A group key covering the diagonal attachment directions. Registered only at format_version 1.21.40 and above.
 

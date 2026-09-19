@@ -459,7 +459,10 @@ const COORDINATE_EVAL_ORDER_FIELD: FieldSpec = {
   required: false,
   values: ['xyz', 'xzy', 'yxz', 'yzx', 'zxy', 'zyx'],
   default: 'xzy',
-  doc: 'The order axes are evaluated in. Load-bearing rather than cosmetic: it permutes which random draw feeds which axis, so placements MOVE, and it decides which variable.world{x,y,z} are already set when a later axis evaluates.',
+  // No `doc` here, deliberately. What this key does is the one explanation six values all rest
+  // on, so it is written ONCE in docs/catalog.ts -- as the field's own entry, which both the page
+  // and the `?` panel render immediately above the list of values. A copy here would be the same
+  // paragraph a second time, directly under the first, on every surface that shows both.
   source: 'builder',
 }
 

@@ -32,13 +32,13 @@ Rolled independently per position, which is what makes the blob ragged instead o
 
 **The one direction the blob is allowed to touch water in.**
 
-Every other neighbour, and the position itself, must not be water. So this is not a facing or an orientation -- it is the single exemption from an otherwise all-round water test.
+The position itself and its other five neighbours must each NOT be water, or nothing is placed there. The named face is simply skipped -- neither required to be water nor required not to be -- which is what "exposed" means here. So this is not a facing or an orientation: it is the single exemption from an otherwise all-round water test, and the six values below differ only in which neighbour gets it.
 
 Values, in the order the engine lists them:
 
-- `up` — Leaves the upward neighbour out of the water test. The position itself and its other five neighbours must each NOT be water, or nothing is placed there. The named face is simply skipped -- it is neither required to be water nor required not to be -- which is what "exposed" means here: the blob may legitimately touch water in this one direction and nowhere else.
-- `down` — Leaves the downward neighbour out of the water test. The position itself and its other five neighbours must each NOT be water, or nothing is placed there. The named face is simply skipped -- it is neither required to be water nor required not to be -- which is what "exposed" means here: the blob may legitimately touch water in this one direction and nowhere else.
-- `north` — Leaves the north neighbour out of the water test. The position itself and its other five neighbours must each NOT be water, or nothing is placed there. The named face is simply skipped -- it is neither required to be water nor required not to be -- which is what "exposed" means here: the blob may legitimately touch water in this one direction and nowhere else.
-- `south` — Leaves the south neighbour out of the water test. The position itself and its other five neighbours must each NOT be water, or nothing is placed there. The named face is simply skipped -- it is neither required to be water nor required not to be -- which is what "exposed" means here: the blob may legitimately touch water in this one direction and nowhere else.
-- `east` — Leaves the east neighbour out of the water test. The position itself and its other five neighbours must each NOT be water, or nothing is placed there. The named face is simply skipped -- it is neither required to be water nor required not to be -- which is what "exposed" means here: the blob may legitimately touch water in this one direction and nowhere else.
-- `west` — Leaves the west neighbour out of the water test. The position itself and its other five neighbours must each NOT be water, or nothing is placed there. The named face is simply skipped -- it is neither required to be water nor required not to be -- which is what "exposed" means here: the blob may legitimately touch water in this one direction and nowhere else.
+- `up` — Leaves the upward neighbour out of the water test.
+- `down` — Leaves the downward neighbour out of the water test.
+- `north` — Leaves the north neighbour out of the water test.
+- `south` — Leaves the south neighbour out of the water test.
+- `east` — Leaves the east neighbour out of the water test.
+- `west` — Leaves the west neighbour out of the water test.

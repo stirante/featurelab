@@ -718,6 +718,42 @@ describe('what a section\'s documentation lists', () => {
     expect(chance.facts.some((fact) => fact.startsWith('Absent:'))).toBe(true)
   })
 
+  it('says a value family\'s shared mechanism once, on the field, not once per value', () => {
+    // THE DEFECT THIS PINS. `coordinate_eval_order` has six values that differ only in which axis
+    // goes where. Written out per value, the consequences of the mechanism were one ~95-word
+    // paragraph six times over -- six near-identical walls, on the page and in this panel.
+    //
+    // The mechanism belongs to the FIELD, which this panel renders in the same article, directly
+    // above the value list, so a reader looking at one value has it in front of them either way.
+    // A value carries only what is genuinely different about it.
+    const form = buildNodeForm({
+      typeId: 'minecraft:scatter_feature',
+      formatVersion: '1.21.110',
+      fields: { distribution: { iterations: 4, coordinate_eval_order: 'zyx', x: 0, y: 0, z: 0 } },
+    })
+    const section = sectionsOf(form, new Set()).find((candidate) => candidate.key.startsWith('group:'))!
+    const order = sectionDocEntries(form, section).find((entry) => entry.name === 'coordinate_eval_order')!
+    const textOf = (blocks: readonly { spans: readonly { text: string }[] }[]): string =>
+      blocks.map((block) => block.spans.map((span) => span.text).join('')).join(' ')
+
+    // The field itself carries the mechanism, all of it.
+    const field = textOf(order.blocks)
+    expect(field).toMatch(/variable\.worldx/)
+    expect(field).toMatch(/lattice/)
+    expect(field).toMatch(/placements MOVE/)
+
+    // Every value still says something -- an entry in this list with nothing under it is the gap
+    // the catalogue exists to close -- and none of them restates the mechanism.
+    expect(order.values.map((value) => value.name)).toEqual(['xyz', 'xzy', 'yxz', 'yzx', 'zxy', 'zyx'])
+    for (const value of order.values) {
+      const text = textOf(value.blocks)
+      expect(text, `${value.name} has nothing under it`).not.toBe('')
+      expect(text, `${value.name} repeats the field's own paragraph`).not.toMatch(/lattice|cosmetic/)
+      // Two short lines, not a paragraph. This is the number that regressed.
+      expect(text.length, `${value.name} is back to a paragraph of its own`).toBeLessThan(140)
+    }
+  })
+
   it('lists a version-gated key the form hides, with its band, because this is documentation of the type', () => {
     const form = buildNodeForm({ typeId: 'minecraft:snap_to_surface_feature', formatVersion: '1.21.110', fields: { surface: 'floor' } })
     const general = sectionsOf(form, new Set())[0]!
@@ -2922,6 +2958,27 @@ window.__ready = true
       expect(await docs.locator('.flg-ins-docs-title').textContent()).toBe('General')
       // The form did not move.
       expect(await page.$$eval('.flg-ins-row', (els) => els.map((el) => JSON.stringify(el.getBoundingClientRect())))).toEqual(rowsBefore)
+      expect(await changesOf(page)).toEqual([])
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  // The way out of the short form and into the long one. The href is not written down anywhere
+  // -- it is built from the type id and the section's own JSON path by src/graph/docs/url.ts,
+  // which is the site's route contract in twenty lines -- so what this asserts is that the panel
+  // hands that helper the right two things: the node's type, and the GROUP's path rather than
+  // the first field's. docsUrl.test.ts holds the helper itself against the site's own files.
+  it('offers the published page for whatever the panel is showing, anchored at the open group', async () => {
+    const page = await load(formFor('wiki:pumpkin_patch'))
+    try {
+      await page.locator('[data-section="group:[\\"distribution\\"]"] .flg-ins-help').click()
+      const link = page.locator('.flg-ins-docs-bar .flg-ins-docs-page')
+      expect(await link.textContent()).toBe('Read the full page')
+      expect(await link.getAttribute('href')).toBe('https://stirante.github.io/featurelab/features/scatter_feature#distribution')
+      // Back on the overview it is the page itself: nothing narrower is open.
+      await page.locator('.flg-ins-docs-back').click()
+      expect(await link.getAttribute('href')).toBe('https://stirante.github.io/featurelab/features/scatter_feature')
       expect(await changesOf(page)).toEqual([])
     } finally {
       await page.close()

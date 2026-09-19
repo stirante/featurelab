@@ -20,10 +20,10 @@ Named the way the structure is stored in the pack, without a file extension.
 
 Values, in the order the engine lists them:
 
-- `south` — Place the structure exactly as it was saved. The unrotated orientation, and the default when the key is absent.
-- `west` — Turn the structure one quarter turn from how it was saved. No random draw is taken for an explicit direction.
-- `north` — Turn the structure a half turn from how it was saved. No random draw is taken for an explicit direction.
-- `east` — Turn the structure three quarter turns from how it was saved. No random draw is taken for an explicit direction.
+- `south` — Place the structure exactly as it was saved, unrotated.
+- `west` — Turn the structure one quarter turn from how it was saved.
+- `north` — Turn the structure a half turn from how it was saved.
+- `east` — Turn the structure three quarter turns from how it was saved.
 - `random` — Pick one of the four orientations at random. The only value here that costs a random draw, and the draw happens before the position search and before any constraint is checked -- so it is spent even on a placement that then fails.
 
 #### `rotate_around_center` {#rotate_around_center}

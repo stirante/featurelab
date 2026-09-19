@@ -103,8 +103,11 @@ export interface ValueDoc {
 // Small builders -- shared text, generated once, never pasted
 // ---------------------------------------------------------------------------
 
-/** One value of `coordinate_eval_order`. The six differ only in which axis goes where, and every
- * consequence follows from that, so they are generated from the order string itself. */
+/** One value of `coordinate_eval_order`. The six differ only in which axis goes where -- which is
+ * exactly why the mechanism they share is NOT generated six times over. It is said once, on the
+ * field itself (SHARED_FIELD_DOCS.coordinate_eval_order), which both surfaces render immediately
+ * above the value list; what is left here is the one thing that genuinely changes from value to
+ * value, which is which axis can read which. */
 function evalOrderDoc(order: string): DocEntry {
   const first = order[0] as string
   const second = order[1] as string
@@ -112,60 +115,52 @@ function evalOrderDoc(order: string): DocEntry {
   return {
     summary: `Evaluates ${first}, then ${second}, then ${third}.`,
     detail:
-      `Each axis draws when its turn comes, so the order decides which draw feeds which axis and ` +
-      `placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes ` +
-      `variable.world${first} as soon as ${first} is known, so ${second} and ${third} can read it while ` +
-      `${first}'s own expression can read neither of theirs. For grid distributions the cell index is ` +
-      `handed on in this same order, which is what makes two or three grid axes walk a lattice ` +
-      `together rather than repeat the same row.`,
+      `${second} and ${third} can read variable.world${first}; ${first}'s own expression can read ` +
+      `neither of theirs.`,
   }
 }
 
-/** One direction key of `may_attach_to` / `may_not_attach_to`. The two maps run the same ten
- * neighbours through opposite tests, so both sets are generated from one description of the
- * neighbour and one description of the test. */
+/** One direction key of `may_attach_to` / `may_not_attach_to`.
+ *
+ * WHAT A HARD GATE, A COUNTED SIDE AND A GROUP KEY MEAN IS SAID ON THE MAP, ONCE -- see the two
+ * entries under minecraft:single_block_feature below. Nine of these keys are generated per map,
+ * and only three roles exist between them, so a per-key paragraph was the same paragraph three and
+ * four times over under nine headings. A key names its neighbour and which of the three roles it
+ * has, in one line, and leaves the mechanism to the map it belongs to. */
 function attachDirectionDoc(
   map: 'may_attach_to' | 'may_not_attach_to',
   what: string,
   role: 'hard' | 'counted' | 'group-all' | 'group-sides',
 ): DocEntry {
   const allow = map === 'may_attach_to'
+  // `what` is a complete phrase of place ("to the north", "directly above"), so the allow head is
+  // worded to take one without doubling the preposition.
   const head = allow
-    ? `Blocks that count as something to attach to ${what}.`
-    : `Blocks that BLOCK placement when found ${what}.`
+    ? `Blocks that count as an attachment ${what}`
+    : `Blocks that BLOCK placement when found ${what}`
   const tail = allow
     ? {
-        hard: 'This is a hard gate: if the list is configured and the neighbour does not match, the block is not placed at all.',
-        counted:
-          'This is one of the four counted sides. It is not a gate on its own -- north, east, south and west each match or not, and the number that match has to reach min_sides_must_attach. A side with no list configured counts as matching for free.',
-        'group-all':
-          'A group key, not a direction: it applies to all ten neighbours at once -- the six faces plus the four horizontal diagonals. It is consulted in addition to whatever the specific direction key says.',
-        'group-sides':
-          'A group key covering the four cardinal sides only -- north, east, south and west. It is consulted in addition to each of those four keys, and does not touch top, bottom or the diagonals.',
+        hard: 'a hard gate on its own',
+        counted: 'one of the four sides counted against min_sides_must_attach',
+        'group-all': 'a group key over all ten neighbours rather than a direction',
+        'group-sides': 'a group key over the four cardinal sides rather than a direction',
       }[role]
     : {
-        hard: 'One match here is enough on its own: the placement is refused the moment any configured deny list matches its neighbour.',
-        counted:
-          'One match here is enough on its own. Unlike may_attach_to, nothing is counted -- there is no minimum to reach and no free pass for an unconfigured side.',
-        'group-all':
-          'A group key, not a direction: it denies against all ten neighbours at once -- the six faces plus the four horizontal diagonals.',
-        'group-sides':
-          'A group key covering the four cardinal sides only -- north, east, south and west.',
+        hard: 'one match is enough to refuse the placement',
+        counted: 'one match is enough to refuse the placement, and nothing is counted in this map',
+        'group-all': 'a group key over all ten neighbours rather than a direction',
+        'group-sides': 'a group key over the four cardinal sides rather than a direction',
       }[role]
-  return { summary: head, detail: tail }
+  return { summary: `${head} -- ${tail}.` }
 }
 
 /** One value of search_feature's `search_axis`. Every value is the same triple-nested scan with a
- * different (outer, middle, inner) assignment, and the assignment is the whole content. */
+ * different (outer, middle, inner) assignment, and the assignment is the WHOLE content -- so the
+ * assignment is all a value says. What the scan does with that order, and the two patterns none of
+ * the value names give away, are on the `search_axis` field itself, above the list. */
 function searchAxisDoc(outer: string, middle: string, inner: string): DocEntry {
   return {
     summary: `Scans ${outer} on the outside, ${middle} in the middle and ${inner} innermost.`,
-    detail:
-      `The scan stops at the first position that satisfies the wrapped feature (or at the ` +
-      `required_successes-th one), so this order is what decides WHICH of several workable ` +
-      `positions gets used. Two patterns are worth knowing because neither is guessable from the ` +
-      `value name: the innermost loop always counts upward whatever the axis sign says, and for ` +
-      `the two z values the middle loop runs opposite to the outer one.`,
   }
 }
 
@@ -195,26 +190,21 @@ function attachMapDocs(): Record<string, DocEntry> {
   return out
 }
 
-/** One value of partially_exposed_blob_feature's `exposed_face`. */
+/** One value of partially_exposed_blob_feature's `exposed_face`. Which face is exempted is the
+ * only thing that changes; what the exemption IS belongs to `exposed_face` itself. */
 function exposedFaceDoc(face: string): DocEntry {
   return {
     summary: `Leaves the ${face} neighbour out of the water test.`,
-    detail:
-      `The position itself and its other five neighbours must each NOT be water, or nothing is ` +
-      `placed there. The named face is simply skipped -- it is neither required to be water nor ` +
-      `required not to be -- which is what "exposed" means here: the blob may legitimately touch ` +
-      `water in this one direction and nowhere else.`,
   }
 }
 
-/** One value of multipart_block_column_feature's `direction`. */
+/** One value of multipart_block_column_feature's `direction`. The order the parts are laid in is
+ * the same whichever way the column runs, and lives on `direction` itself; what changes per value
+ * is the way and, with it, where the block holding the column up has to be. */
 function columnDirectionDoc(direction: string, support: string): DocEntry {
   return {
     summary: `Builds the column ${direction} from the origin.`,
-    detail:
-      `Every part is written one step further along that line: the base first, then any middle ` +
-      `parts, then the frustum, then the tip at the far end. The block that has to support the ` +
-      `column is the one ${support} -- one step BEHIND the origin, against the build direction.`,
+    detail: `Its support is the block ${support}.`,
   }
 }
 
@@ -250,6 +240,25 @@ const SHARED_FIELD_DOCS: Readonly<Record<string, DocEntry>> = {
     detail:
       'Relative, not a percentage: an entry is picked with its weight divided by the total of all ' +
       'the weights in the list. Weights need not add to anything in particular.',
+  },
+
+  // ---- the axis order, the same key on a scatter and on a placement rule ----
+  //
+  // THE SHARED HALF OF SIX VALUES LIVES HERE. `coordinate_eval_order` has six values that differ
+  // only in which axis goes where, and every consequence of the mechanism follows from the
+  // mechanism rather than from the permutation. Said per value it was one paragraph six times
+  // over, which reads as six copies of the same thing; said here it is read once, immediately
+  // above the list, on the page and in the `?` panel alike.
+  coordinate_eval_order: {
+    summary: 'The order the three axes are worked out in, and so what each one can already see.',
+    detail:
+      'Each axis draws when its turn comes, so the order decides which draw feeds which axis and ' +
+      'placements MOVE when you change it -- this is not a cosmetic setting. ' +
+      'variable.worldx, variable.worldy and variable.worldz are each written as soon as that axis ' +
+      'is known, so a later axis can read an earlier one while the first can read neither of the ' +
+      'others. For grid distributions the cell index is handed on in this same order too, which is ' +
+      'what makes two or three grid axes walk a lattice together rather than repeat the same row. ' +
+      'The six values below differ only in which axis goes where.',
   },
 
   // ---- the scatter distribution axes, reached at several paths ----
@@ -407,26 +416,13 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
         'Everything about WHERE and HOW OFTEN lives in here, and so does the count: `iterations` ' +
         'belongs to the connection to the placed feature, where it can also carry the setup script ' +
         'real packs write into it, and the same box is drawn in this section so the value is ' +
-        'reachable from the place the file keeps it.',
+        'reachable from the place the file keeps it. The three axes below are read the same way as ' +
+        'each other: a bare number or Molang string pins that axis to a fixed offset with no draw ' +
+        'at all, and the object form `{distribution, extent, ...}` is what makes it vary.',
     },
-    'distribution.x': {
-      summary: 'How far east/west of the origin each iteration lands.',
-      detail:
-        'A bare number or Molang string pins the axis to that offset with no draw at all. The object ' +
-        'form `{distribution, extent, ...}` is what makes it vary.',
-    },
-    'distribution.y': {
-      summary: 'How far above/below the origin each iteration lands.',
-      detail:
-        'A bare number or Molang string pins the axis to that offset with no draw at all. The object ' +
-        'form `{distribution, extent, ...}` is what makes it vary.',
-    },
-    'distribution.z': {
-      summary: 'How far north/south of the origin each iteration lands.',
-      detail:
-        'A bare number or Molang string pins the axis to that offset with no draw at all. The object ' +
-        'form `{distribution, extent, ...}` is what makes it vary.',
-    },
+    'distribution.x': { summary: 'How far east/west of the origin each iteration lands.' },
+    'distribution.y': { summary: 'How far above/below the origin each iteration lands.' },
+    'distribution.z': { summary: 'How far north/south of the origin each iteration lands.' },
     x: {
       summary: 'How far east/west of the origin each iteration lands (the pre-1.21.10 flat spelling).',
       detail: 'Identical in meaning to `distribution.x`; only the place it is written differs.',
@@ -461,8 +457,12 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
       detail:
         'It does not restrict the search to one axis: every position in the volume is still visited. ' +
         'What it picks is which axis is the outermost loop and which way each loop counts -- and ' +
-        'because the search stops at the first position that works, that is what decides which ' +
-        'position gets used.',
+        'because the scan stops at the first position that satisfies the wrapped feature (or at the ' +
+        'required_successes-th one), that is what decides WHICH of several workable positions gets ' +
+        'used. Two patterns are worth knowing because neither is guessable from the value names: ' +
+        'the innermost loop always counts upward whatever the axis sign says, and for the two z ' +
+        'values the middle loop runs opposite to the outer one. Each value below is just its own ' +
+        '(outer, middle, inner) assignment.',
     },
     required_successes: {
       summary: 'How many positions have to work before the search commits.',
@@ -493,20 +493,33 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
       summary: 'The blocks this feature is allowed to overwrite.',
       detail: 'An empty list, and an absent key, both mean no constraint at all.',
     },
+    // The two maps carry the explanation of the three ROLES their direction keys have, because
+    // nine keys share three roles between them and a role written out per key is the same
+    // paragraph three and four times over. Each key then says which role it has, in a line.
     may_attach_to: {
       summary: 'Neighbour blocks that make this a valid position to place in.',
       detail:
         'Writing the key at all -- even as `{}` -- switches the whole attach test on, and with it ' +
-        'auto_rotate. Top, bottom and the four diagonals are hard gates; north, east, south and west ' +
-        'are counted against min_sides_must_attach instead.',
+        'auto_rotate. Its keys are not all read alike. `top`, `bottom` and `diagonal` are hard ' +
+        'gates: a list configured there whose neighbour does not match means the block is not ' +
+        'placed at all. `north`, `east`, `south` and `west` are counted instead -- each matches or ' +
+        'it does not, the number that match has to reach min_sides_must_attach, and a side with no ' +
+        'list configured counts as matching for free. `all` and `sides` are group keys rather than ' +
+        'directions: `all` covers all ten neighbours at once -- the six faces plus the four ' +
+        'horizontal diagonals -- and `sides` the four cardinal ones, each consulted in addition to ' +
+        'whatever the specific direction key says.',
     },
     may_not_attach_to: {
       summary: 'Neighbour blocks that make this an invalid position.',
       detail:
         'The mirror image of may_attach_to and much blunter: there is no counting and no minimum. ' +
-        'One configured list matching its neighbour refuses the placement outright. Note that this ' +
-        'key only exists from format_version 1.21.40; in an older file it is dropped, and dropped ' +
-        'with it is its power to switch the attach test on at all.',
+        'One configured list matching its neighbour refuses the placement outright, whichever key ' +
+        'it was written under -- so the counted sides are not counted here and an unconfigured side ' +
+        'gets no free pass. `all` and `sides` are group keys rather than directions here too, ' +
+        'denying against all ten neighbours and against the four cardinal sides respectively, in ' +
+        'addition to the specific direction keys. Note that this key only exists from ' +
+        'format_version 1.21.40; in an older file it is dropped, and dropped with it is its power ' +
+        'to switch the attach test on at all.',
     },
     // The schema puts min_sides_must_attach and auto_rotate on BOTH attach objects, because both
     // are built from the same node shape. What the copies under may_not_attach_to do is a real
@@ -707,8 +720,11 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
     exposed_face: {
       summary: 'The one direction the blob is allowed to touch water in.',
       detail:
-        'Every other neighbour, and the position itself, must not be water. So this is not a facing ' +
-        'or an orientation -- it is the single exemption from an otherwise all-round water test.',
+        'The position itself and its other five neighbours must each NOT be water, or nothing is ' +
+        'placed there. The named face is simply skipped -- neither required to be water nor ' +
+        'required not to be -- which is what "exposed" means here. So this is not a facing or an ' +
+        'orientation: it is the single exemption from an otherwise all-round water test, and the ' +
+        'six values below differ only in which neighbour gets it.',
     },
   },
 
@@ -1163,8 +1179,10 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
     direction: {
       summary: 'Which way the column is built from the origin.',
       detail:
-        'It is a direction of travel, not a facing: the parts are laid out along it in order, and ' +
-        'the support the column needs is on the OPPOSITE side of the origin.',
+        'It is a direction of travel, not a facing. Every part is written one step further along ' +
+        'that line -- the base first, then any middle parts, then the frustum, then the tip at the ' +
+        'far end -- and the block that has to support the column is one step BEHIND the origin, ' +
+        'against the build direction. The six values below differ only in which way that is.',
     },
   },
 
@@ -1198,7 +1216,9 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
         'The engine treats this whole object as optional, and a rule without one is the quietest ' +
         'failure this file format has: it loads, attaches to its pass and its biomes, and then ' +
         'places nothing in every chunk forever, because the parameters it falls back on have an ' +
-        'iteration count of zero.',
+        'iteration count of zero. Its three axes are read the same way as each other: a bare number ' +
+        'or Molang string pins that axis to a fixed offset with no draw at all, and the object form ' +
+        '`{distribution, extent, ...}` is what spreads placements across the chunk.',
     },
     'distribution.iterations': {
       summary: 'How many placements the rule attempts in each chunk it applies to.',
@@ -1207,24 +1227,14 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
         'the first thing to check on a rule that appears to do nothing. An attempt is not a ' +
         'guarantee: the feature it places can still refuse the position it is handed.',
     },
-    'distribution.x': {
-      summary: 'How far east/west of the chunk position each iteration lands.',
-      detail:
-        'A bare number or Molang string pins the axis to that offset with no draw at all. The object ' +
-        'form `{distribution, extent, ...}` is what spreads placements across the chunk.',
-    },
+    'distribution.x': { summary: 'How far east/west of the chunk position each iteration lands.' },
     'distribution.y': {
       summary: 'The height each iteration is placed at.',
       detail:
         'Usually the axis that matters most on a rule: it is what puts ore underground and a tree ' +
-        'on the surface. A bare number pins every iteration to that height with no draw at all.',
+        'on the surface.',
     },
-    'distribution.z': {
-      summary: 'How far north/south of the chunk position each iteration lands.',
-      detail:
-        'A bare number or Molang string pins the axis to that offset with no draw at all. The object ' +
-        'form `{distribution, extent, ...}` is what spreads placements across the chunk.',
-    },
+    'distribution.z': { summary: 'How far north/south of the chunk position each iteration lands.' },
     'distribution.scatter_chance': {
       summary: 'A gate on the whole rule, rolled before any iteration runs.',
       detail:
@@ -1232,13 +1242,9 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
         'Use it for "roughly one chunk in twenty"; use iterations for how many appear once a chunk ' +
         'has been chosen.',
     },
-    'distribution.coordinate_eval_order': {
-      summary: 'Which axis is drawn first when the three are evaluated.',
-      detail:
-        'It changes results rather than tidiness: it permutes which random draw feeds which axis, ' +
-        'so the placements move, and it decides which axes are already known when a later one is ' +
-        'evaluated against them.',
-    },
+    // No `distribution.coordinate_eval_order` entry: the key means exactly what it means on a
+    // scatter, so it resolves to the ONE shared entry rather than to a second paragraph that would
+    // say the same thing and then drift from it.
   },
 }
 
@@ -1404,10 +1410,12 @@ const TYPE_VALUE_DOCS: Readonly<
 
   'minecraft:structure_template_feature': {
     facing_direction: {
-      south: { summary: 'Place the structure exactly as it was saved.', detail: 'The unrotated orientation, and the default when the key is absent.' },
-      west: { summary: 'Turn the structure one quarter turn from how it was saved.', detail: 'No random draw is taken for an explicit direction.' },
-      north: { summary: 'Turn the structure a half turn from how it was saved.', detail: 'No random draw is taken for an explicit direction.' },
-      east: { summary: 'Turn the structure three quarter turns from how it was saved.', detail: 'No random draw is taken for an explicit direction.' },
+      // No detail on the three explicit turns: what they have in common -- that none of them costs
+      // a draw -- is on `facing_direction` itself, and the turn is the whole of what each one says.
+      south: { summary: 'Place the structure exactly as it was saved, unrotated.' },
+      west: { summary: 'Turn the structure one quarter turn from how it was saved.' },
+      north: { summary: 'Turn the structure a half turn from how it was saved.' },
+      east: { summary: 'Turn the structure three quarter turns from how it was saved.' },
       random: {
         summary: 'Pick one of the four orientations at random.',
         detail:

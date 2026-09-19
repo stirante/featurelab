@@ -177,4 +177,28 @@ describe('updateDiagnostics', () => {
     expect(sets).toHaveLength(0)
     expect(deletes).toHaveLength(1)
   })
+
+  // The Problems panel renders a `code` carrying a `target` as a link. A diagnostic says what
+  // the engine declined to do; the type's page says why the rule is what it is. The link is
+  // built from the type id the engine already sends -- see src/graph/docs/url.ts -- so it exists
+  // only when the engine named a type, and a parse error (which names none) gets no link rather
+  // than a guessed one.
+  it('links a typed diagnostic to that type\'s documentation page', () => {
+    const { collection, sets } = fakeCollection()
+    updateDiagnostics(
+      collection,
+      fakeDocument(),
+      ['pumpkin_patch.json'],
+      [{ level: 'warning', fileId: 'pumpkin_patch.json', typeId: 'minecraft:scatter_feature', message: 'iterations evaluated to zero' }],
+    )
+    const code = (sets[0]!.diagnostics[0] as { code?: { value: string; target: { toString(): string } } }).code
+    expect(code?.value).toBe('minecraft:scatter_feature')
+    expect(code?.target.toString()).toBe('https://stirante.github.io/featurelab/features/scatter_feature')
+  })
+
+  it('leaves a diagnostic that names no type without a link', () => {
+    const { collection, sets } = fakeCollection()
+    updateDiagnostics(collection, fakeDocument(), ['pumpkin_patch.json'], [{ ...buildTime, typeId: '' }])
+    expect((sets[0]!.diagnostics[0] as { code?: unknown }).code).toBeUndefined()
+  })
 })
