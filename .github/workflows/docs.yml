@@ -1,0 +1,124 @@
+name: Docs site
+
+# Builds docs/site with VitePress and publishes it to GitHub Pages. Provisional alongside the
+# docs/wiki set: this workflow does not touch docs/wiki, and ci.yml's own
+# `node docs/wiki/tools/check-links.mjs` step keeps guarding the pages that have not moved.
+#
+# Three things run before the build and each one can fail it:
+#   1. tools/extract-coverage.mjs  -- `featurelab types --json` -> generated/coverage.json. Needs Go.
+#   2. tools/extract-catalog.mjs   -- the extension's catalogue -> generated/fields/*.md. Needs
+#                                     only Node and esbuild; reads apps/vscode/src as text.
+#      Both outputs are committed. If regenerating them changes anything, the build fails: the
+#      committed copy is what reviewers read, and drift between it and the source it was
+#      generated from is exactly what the one-source mechanism exists to prevent.
+#   3. tools/check-template.mjs     -- every page with a typeId follows TEMPLATE.md: the required
+#                                     section order, a Fields row for every key the generated
+#                                     reference knows, and no engine-internals language above the
+#                                     Advanced section.
+#   4. the two link checkers, in both directions -- site -> site (with --verify-dist, after the
+#      build, so the anchor rule is proved against what VitePress actually wrote) and
+#      product -> docs.
+#
+# The image pipeline (docs/wiki/tools/generate-images.mjs) is deliberately NOT run here. It
+# needs Playwright's Chromium and software WebGL, takes minutes, and its output is committed;
+# regenerating it is a maintainer action whose diff is reviewed, not a build step.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/site/**'
+      - 'docs/wiki/images/**'
+      - 'apps/vscode/src/graph/typeCatalog.ts'
+      - 'apps/vscode/src/graph/docs/catalog.ts'
+      - 'apps/vscode/src/graph/tree*.ts'
+      - 'features/coverage.go'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/site/**'
+      - 'docs/wiki/images/**'
+      - 'apps/vscode/src/graph/typeCatalog.ts'
+      - 'apps/vscode/src/graph/docs/catalog.ts'
+      - 'apps/vscode/src/graph/tree*.ts'
+      - 'features/coverage.go'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs/site/package-lock.json
+
+      - name: npm ci (docs/site only)
+        run: npm ci --no-audit --no-fund
+        working-directory: docs/site
+
+      - name: Regenerate coverage.json and the field references
+        run: npm run generate
+        working-directory: docs/site
+
+      - name: Fail if the committed generated files are stale
+        run: |
+          if ! git diff --exit-code -- docs/site/generated; then
+            echo "docs/site/generated is out of date. Run 'npm run generate' under docs/site and commit the result." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Check every type page against the template (section order, field-table coverage, internals below the line)
+        run: node tools/check-template.mjs
+        working-directory: docs/site
+
+      - name: Check product -> docs links and the type-id contract
+        run: node tools/check-product-links.mjs
+        working-directory: docs/site
+
+      - name: Build
+        run: npm run build
+        working-directory: docs/site
+
+      - name: Check site links and anchors against the built HTML
+        run: node tools/check-links.mjs --verify-dist
+        working-directory: docs/site
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

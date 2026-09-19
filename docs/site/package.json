@@ -1,0 +1,19 @@
+{
+  "name": "featurelab-docs-site",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The Feature Lab documentation site (VitePress). Deliberately NOT a workspace of the repo root: it has its own lockfile and is installed on its own, so adding it changes nothing about how the engine, the viewer or the extension build.",
+  "scripts": {
+    "generate": "node tools/extract-coverage.mjs && node tools/extract-catalog.mjs",
+    "check": "node tools/check-template.mjs && node tools/check-links.mjs && node tools/check-product-links.mjs",
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5",
+    "markdown-it-container": "^4.0.0",
+    "vitepress": "^1.6.4"
+  }
+}
