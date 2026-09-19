@@ -40,6 +40,28 @@ const (
 	AtlasImageFile = "atlas.png"
 )
 
+// AtlasMarkerFile is the third, OPTIONAL file of the layout: the record the builder leaves
+// beside the other two saying what it built from and what it could not do. blocktextures writes
+// it (and owns every other field in it); this package reads exactly the two fields below and
+// nothing else, so the seam this file's header describes still holds -- reading a record left
+// next to an atlas is not the same as knowing anything about resource packs.
+//
+// The name is declared HERE, with the two names that sit beside it, because there is only one
+// atlas directory layout and it should only be spelled once. blocktextures refers to this
+// constant rather than repeating the string.
+//
+// An atlas without one is entirely ordinary: every atlas built before this was recorded has no
+// marker, and so does any directory assembled by hand or by a test.
+const AtlasMarkerFile = ".featurelab-atlas.json"
+
+// atlasMarker is the SUBSET of the build marker this package understands. Decoded into its own
+// type rather than into a map so the two field names are written once, next to the wire fields
+// they fill; every other key in the file is ignored by construction.
+type atlasMarker struct {
+	Unresolved      []AtlasUnresolved `json:"unresolved"`
+	UnresolvedTotal int               `json:"unresolvedTotal"`
+}
+
 // MaxAtlasImageBytes caps what this package is willing to read and base64 into a single JSON
 // response. A vanilla block atlas is a few hundred kilobytes of PNG; 64 MiB is far above any
 // plausible one and far below the point where encoding it would be a problem, so this is a guard
@@ -73,6 +95,56 @@ type AtlasOutput struct {
 	// PNG is standard base64 of atlas.png. The ~33% expansion is paid once per session, in
 	// exchange for not building three host-specific asset paths -- see this file's header.
 	PNG string `json:"png"`
+
+	// Unresolved and UnresolvedTotal say which blocks the atlas could not texture, and why.
+	//
+	// ADDITIVE AMENDMENT, and both omitempty: an atlas that textured everything carries neither
+	// key, and a client written before they existed decodes exactly what it always did.
+	//
+	// They exist because the preview can now say WHY a block draws as a flat colour and had no
+	// data to say it with. "3 blocks with an unresolved texture" was the whole of what a host
+	// could report -- no way to find out which three, and no way to tell a resource pack nobody
+	// found (fix the pack pairing) from one PNG that was never exported (export it). Both draw
+	// identically, and identically to the tool simply not having textures at all.
+	//
+	// Unresolved is a CAPPED SAMPLE and UnresolvedTotal is the real count. A pack that ships no
+	// resource pack at all has one row per face of every block it defines, which is hundreds of
+	// rows saying the same thing; a host renders "N of M blocks have no texture" from the total
+	// and names the first few. It must not compute the total from len(Unresolved).
+	//
+	// LoadAtlas FILLS THESE IN, from the build marker beside the two files (AtlasMarkerFile).
+	// It used to be the `serve` atlas method that attached them, on the grounds that only the
+	// build knows them -- and the consequence was that the ONLY host able to say why a block
+	// draws flat was the one that went through `serve`. apps/desktop calls LoadAtlas directly
+	// over its Wails binding, so in the desktop app the question had no answer at all, and any
+	// future host would have started in the same hole and had to rediscover the same join.
+	// Reading a record the builder left next to the atlas is still not producing one: what is
+	// known only to the build is still written only by the build.
+	Unresolved      []AtlasUnresolved `json:"unresolved,omitempty"`
+	UnresolvedTotal int               `json:"unresolvedTotal,omitempty"`
+}
+
+// AtlasUnresolved is one block face the atlas has no image for.
+//
+// Reason is a sentence to show; Code is the same finding as one stable token, for a host that
+// groups or filters rather than prints. A host that matched on the prose would be keyed to an
+// English sentence -- the thing ResponseError.Code exists to avoid on this same contract.
+//
+// The code vocabulary is packrender's (no-resource-pack, not-vanilla-no-resource-pack,
+// key-not-declared, key-skipped, no-texture-path, image-missing, no-texture-root), and a host
+// must treat an unknown code as "unresolved, reason unclassified" rather than as an error --
+// that is what lets a new failure mode be added without breaking one.
+type AtlasUnresolved struct {
+	// Block is the block identifier, e.g. "wiki:glow_moss".
+	Block string `json:"block"`
+	// Face is which of the block's render faces, e.g. "up".
+	Face string `json:"face"`
+	// Texture is the texture key that produced no image.
+	Texture string `json:"texture"`
+	// Reason is the sentence.
+	Reason string `json:"reason"`
+	// Code is the token. Empty for an atlas built before codes existed.
+	Code string `json:"code,omitempty"`
 }
 
 // AtlasDir reports where a built atlas lives: FEATURELAB_ATLAS_DIR when set, otherwise
@@ -136,5 +208,36 @@ func LoadAtlas(dir string) (*AtlasOutput, error) {
 		return nil, fmt.Errorf("reading %s: %w", imagePath, err)
 	}
 
-	return &AtlasOutput{Table: json.RawMessage(table), PNG: base64.StdEncoding.EncodeToString(image)}, nil
+	out := &AtlasOutput{Table: json.RawMessage(table), PNG: base64.StdEncoding.EncodeToString(image)}
+	out.Unresolved, out.UnresolvedTotal = atlasUnresolved(dir)
+	return out, nil
+}
+
+// atlasUnresolved reads "which blocks this atlas could not texture, and why" out of the build
+// marker in dir -- see AtlasOutput.Unresolved for the shape and why it is worth carrying.
+//
+// SILENT ON EVERY FAILURE, and that is the whole contract. An atlas built before this was
+// recorded, an unreadable or half-written marker, a directory holding only the two files: all of
+// them answer with nothing, and the atlas is delivered exactly as it was. This is extra
+// information about a preview and must never be the reason a preview has no textures.
+//
+// The rows are already capped -- blocktextures.UnresolvedLimit, 20 -- by whatever wrote them,
+// and the total is the real count behind them. Nothing here recomputes either: a host rendering
+// "N of M blocks have no texture" from len(Unresolved) would quietly under-report every pack
+// with more than the cap, which is most packs that ship no resource pack at all.
+func atlasUnresolved(dir string) ([]AtlasUnresolved, int) {
+	buf, err := os.ReadFile(filepath.Join(dir, AtlasMarkerFile))
+	if err != nil {
+		return nil, 0
+	}
+	var m atlasMarker
+	if err := json.Unmarshal(buf, &m); err != nil {
+		return nil, 0
+	}
+	// Both stay omitted when there is nothing to say, so an atlas that textured everything is
+	// byte-identical on the wire to one from before these fields existed.
+	if len(m.Unresolved) == 0 && m.UnresolvedTotal == 0 {
+		return nil, 0
+	}
+	return m.Unresolved, m.UnresolvedTotal
 }

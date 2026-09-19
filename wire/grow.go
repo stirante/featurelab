@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/stirante/featurelab/pack"
@@ -38,8 +39,17 @@ func RunGenerateGrown(loaded *pack.Pack, params GenerateParams) (*GrownGenerateO
 // session.Workspace across both the initial and the grown call exactly like RunGenerateFromWorkspace
 // itself does for a single call (see that function's own doc comment).
 func RunGenerateGrownFromWorkspace(ws *session.Workspace, params GenerateParams) (*GrownGenerateOutput, error) {
+	return RunGenerateGrownFromWorkspaceContext(context.Background(), ws, params)
+}
+
+// RunGenerateGrownFromWorkspaceContext is RunGenerateGrownFromWorkspace with a cancellation
+// signal. Both of the two placements it may run are covered, and cancelling between them stops
+// the second from starting -- which matters more here than anywhere else in this package,
+// because a grow-and-regenerate is by construction the longest thing this engine does: a run
+// that already overflowed, followed by a bigger one.
+func RunGenerateGrownFromWorkspaceContext(ctx context.Context, ws *session.Workspace, params GenerateParams) (*GrownGenerateOutput, error) {
 	return runGenerateGrown(params, func(p GenerateParams) (*GenerateOutput, error) {
-		return RunGenerateFromWorkspace(ws, p)
+		return RunGenerateFromWorkspaceContext(ctx, ws, p)
 	})
 }
 

@@ -107,11 +107,16 @@
 //	                             when biomeId was "" or unresolved (see "biomeId" above)
 //	molangScope       see "MolangScope" below
 //	profile           see "Profile" below -- absent/null unless GenerateParams.Profile was true
+//	stops             see "Stops" below -- absent when nothing stopped, on EVERY generate
 //
 // entries/ruleEntries/biomeEntries are null when the request set `omitCatalogs` (see
 // GenerateParams.OmitCatalogs): they describe the loaded PACK rather than the run, so a client
 // driving repeated generates against one loaded pack can ask for them once. Nothing else in the
 // response changes.
+//
+// diagnostics carries only its scope:"run" entries when the request set `omitPackDiagnostics`
+// (see GenerateParams.OmitPackDiagnostics) -- the same bargain, for the field that is usually
+// much the largest of the two.
 //
 // # Block array indexing
 //
@@ -358,6 +363,21 @@
 // per-field shape, including the sparse cell/feature/count parallel-array attribution table.
 // Each features[] row may carry stops ({reason, detail, count, ordinal?}), omitted when the
 // feature never stopped at a gate -- see profiler.StopStat.
+//
+// # Stops
+//
+// stops is a TOP-LEVEL []{identifier, reason, detail, count, ordinal?} on every generate and
+// generateGrown response -- the gates that ended a feature's work early, so a client can answer
+// "placed nothing" with WHY ("iterations = 0 x412") without asking for a profiled run. identifier
+// is the feature the stop was credited to (the innermost one executing), reason one of
+// profiler.StopStat's codes, detail the first occurrence's evaluated value, count how many times
+// that exact (identifier, reason, ordinal) triple was hit. Heaviest first, capped at
+// profiler.MaxStopRows rows.
+//
+// Absent (omitted, not null) when nothing stopped, which is the healthy case -- so a client must
+// treat a missing field as "no stops", never as an older engine. The field is purely additive:
+// a client that does not know it ignores it, and profile.features[].stops (above) is unchanged
+// and still profiling-only.
 package wire
 
 import "github.com/stirante/featurelab/session"
@@ -453,6 +473,41 @@ type GenerateParams struct {
 	// this keep getting the complete response they always got. Omission is a null field rather
 	// than an absent one, so a decoder that ignores the flag's existence still sees the key.
 	OmitCatalogs bool `json:"omitCatalogs,omitempty"`
+
+	// OmitPackDiagnostics drops every diagnostic whose scope is "pack" from the response,
+	// leaving the ones about THIS run.
+	//
+	// Same argument as OmitCatalogs above and, on a pack with anything wrong with it, a much
+	// larger effect. A pack-scoped diagnostic is raised while BUILDING a library out of the
+	// pack's source files, so it is a fact about the pack and cannot change between two
+	// generates -- and "loadPack" and "reloadFile" already answer with exactly that set, keyed
+	// by file. Measured on a 3,126-node pack whose files raise ordinary build warnings, a
+	// generate response was 5.83MB of compact JSON, of which 5.55MB (95.3%) was diagnostics and
+	// 5.548MB of THAT was pack scope -- the same bytes the client had already received from its
+	// loadPack, re-serialised, re-piped and re-parsed on every regenerate. The run-scoped
+	// remainder was 239 bytes.
+	//
+	// What is dropped is a strict subset and nothing else moves: the run-scoped diagnostics
+	// keep their order and their contents, so a client that renders "what happened in this run"
+	// sees exactly what it saw before. A client that renders the pack's own problems reads them
+	// from the loadPack/reloadFile response, which is where they are authoritative anyway --
+	// they are keyed by file there, and a file that has since been reloaded has a fresh set.
+	//
+	// Off by default, for the same reason: a caller that has not been taught about this keeps
+	// getting the complete response it always got.
+	OmitPackDiagnostics bool `json:"omitPackDiagnostics,omitempty"`
+
+	// PackDir is the pack root this run's diagnostics spell their fileId relative to -- see
+	// session.Config.PackDir, which is where it goes and what it changes.
+	//
+	// `json:"-"` is the point of it, not an oversight: this is the HOST's knowledge, not the
+	// client's. RunGenerate fills it in from the pack it was handed; serve fills it in from the
+	// pack it has open. A client cannot set it, cannot change which pack a loaded session is
+	// about by asking, and cannot make the engine quote a directory back at it.
+	//
+	// Left empty, every fileId is the loader's kind-relative id -- exactly what every response
+	// carried before this field existed.
+	PackDir string `json:"-"`
 }
 
 // Materials is GenerateParams.Materials's shape -- session.Config.MaterialOverride

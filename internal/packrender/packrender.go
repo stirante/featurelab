@@ -197,12 +197,49 @@ func (b Block) Fully() bool {
 }
 
 // Unresolved is one face whose texture key produced no image.
+//
+// Reason is a sentence for a person; Code is the same finding as one token, for a caller that has
+// to GROUP or FILTER these rather than print them. A preview showing "4 of 24 blocks have no
+// texture" wants to say which kind of missing it is -- a resource pack nobody found is a
+// different action from one PNG that was never exported -- and matching on the prose to find out
+// would be a UI keyed to an English sentence, which is what this repo's error codes exist to
+// avoid (see cmd/featurelab/serve.go's errCancelledCode for the same argument).
+//
+// The codes are the constants below and no others. A new failure mode gets a new constant; it
+// never reuses a near-enough one, because a caller grouping by code would silently fold two
+// different fixes into one bucket.
 type Unresolved struct {
 	Block   string `json:"block"`
 	Face    string `json:"face"`
 	Texture string `json:"texture"`
 	Reason  string `json:"reason"`
+	Code    string `json:"code,omitempty"`
 }
+
+// The Unresolved.Code vocabulary. Each one names a DIFFERENT thing for the author to do, which is
+// the only justification for a code being separate from its neighbour.
+const (
+	// CodeNoResourcePack -- no terrain_texture.json was loaded at all, because no resource pack
+	// was found for this behaviour pack. Nothing about the block is wrong; the pack pairing is.
+	CodeNoResourcePack = "no-resource-pack"
+	// CodeNotVanillaNoResourcePack -- the key is not one of vanilla's, and the pack's own
+	// resource pack (which would have declared it) was not found.
+	CodeNotVanillaNoResourcePack = "not-vanilla-no-resource-pack"
+	// CodeKeyNotDeclared -- a resource pack WAS found and its terrain_texture.json does not
+	// mention this key. The fix is an entry in that file.
+	CodeKeyNotDeclared = "key-not-declared"
+	// CodeKeySkipped -- the key is in terrain_texture.json but that entry could not be read (see
+	// rptex.Terrain.Skipped). The fix is in the entry, not in adding one.
+	CodeKeySkipped = "key-skipped"
+	// CodeNoTexturePath -- the key is declared and declares no path.
+	CodeNoTexturePath = "no-texture-path"
+	// CodeImageMissing -- the key is declared, names a path, and there is no image (and no usable
+	// texture set) behind it. The commonest real one: the author has not exported the PNG.
+	CodeImageMissing = "image-missing"
+	// CodeNoTextureRoot -- the key resolves to a path but this build was given no root to look it
+	// up in. A configuration problem in whatever called the builder, not in the pack.
+	CodeNoTextureRoot = "no-texture-root"
+)
 
 // Build assembles the table. It returns an error only for a
 // terrain_texture.json that exists but cannot be read or parsed -- a
@@ -242,17 +279,17 @@ func Build(opts Options) (*Table, error) {
 	// resolveKey is memoised over the whole build: a pack's blocks share
 	// texture keys heavily (every ore variant of one stone type names the
 	// same base texture), and each key's file probe is a stat call.
-	resolved := map[string]string{} // key -> reason it failed, "" when it did not
-	resolveKey := func(key string) string {
-		if reason, done := resolved[key]; done {
-			return reason
+	resolved := map[string]keyFailure{} // key -> why it failed, zero value when it did not
+	resolveKey := func(key string) keyFailure {
+		if failure, done := resolved[key]; done {
+			return failure
 		}
-		reason := ""
+		var reason, code string
 		switch {
 		case packTable.has(key):
-			reason = addTexture(t, packTable, key, "pack")
+			reason, code = addTexture(t, packTable, key, "pack")
 		case vanillaTable.has(key):
-			reason = addTexture(t, vanillaTable, key, "vanilla")
+			reason, code = addTexture(t, vanillaTable, key, "vanilla")
 
 		// A key the file DECLARED but rptex could not read is not the same
 		// thing as a key nobody wrote down, and saying "not declared" about it
@@ -261,21 +298,24 @@ func Build(opts Options) (*Table, error) {
 		// rptex.Terrain.Skipped), which only helps if the reason travels the
 		// last stretch to the author, and this is that stretch.
 		case packTable.skipReason(key) != "":
-			reason = fmt.Sprintf("texture key %q is declared in the resource pack's terrain_texture.json but was skipped: %s",
-				key, packTable.skipReason(key))
+			reason, code = fmt.Sprintf("texture key %q is declared in the resource pack's terrain_texture.json but was skipped: %s",
+				key, packTable.skipReason(key)), CodeKeySkipped
 		case vanillaTable.skipReason(key) != "":
-			reason = fmt.Sprintf("texture key %q is declared in the vanilla terrain_texture.json but was skipped: %s",
-				key, vanillaTable.skipReason(key))
+			reason, code = fmt.Sprintf("texture key %q is declared in the vanilla terrain_texture.json but was skipped: %s",
+				key, vanillaTable.skipReason(key)), CodeKeySkipped
 
 		case packTerrain == nil && vanillaTerrain == nil:
-			reason = "no terrain_texture.json was loaded -- the pack's resource pack was not found"
+			reason, code = "no terrain_texture.json was loaded -- the pack's resource pack was not found", CodeNoResourcePack
 		case packTerrain == nil:
-			reason = fmt.Sprintf("texture key %q is not a vanilla texture and the pack's resource pack was not found", key)
+			reason, code = fmt.Sprintf("texture key %q is not a vanilla texture and the pack's resource pack was not found", key),
+				CodeNotVanillaNoResourcePack
 		default:
-			reason = fmt.Sprintf("texture key %q is not declared in the resource pack's terrain_texture.json", key)
+			reason, code = fmt.Sprintf("texture key %q is not declared in the resource pack's terrain_texture.json", key),
+				CodeKeyNotDeclared
 		}
-		resolved[key] = reason
-		return reason
+		failure := keyFailure{reason: reason, code: code}
+		resolved[key] = failure
+		return failure
 	}
 
 	for _, name := range opts.Palette.BlockRenderNames() {
@@ -315,10 +355,13 @@ func Build(opts Options) (*Table, error) {
 				if inst.DoubleSided {
 					row.DoubleSided = true
 				}
-				if reason := resolveKey(inst.Texture); reason != "" {
+				if failure := resolveKey(inst.Texture); failure.reason != "" {
 					if key := face + "\x00" + inst.Texture; !reported[key] {
 						reported[key] = true
-						t.Unresolved = append(t.Unresolved, Unresolved{Block: name, Face: face, Texture: inst.Texture, Reason: reason})
+						t.Unresolved = append(t.Unresolved, Unresolved{
+							Block: name, Face: face, Texture: inst.Texture,
+							Reason: failure.reason, Code: failure.code,
+						})
 					}
 					continue
 				}
@@ -402,10 +445,17 @@ func loadTerrain(path string) (*rptex.Terrain, error) {
 // value at all, so there is nothing here to pick with. rptex.Terrain keeps
 // every variant, so the ones not taken are still reachable by anything that
 // later learns how to choose.
-func addTexture(t *Table, table *keyTable, key, from string) string {
+// keyFailure is one resolveKey answer: the sentence and the token for the same finding, memoised
+// together so the two can never be computed from different branches of the same switch.
+type keyFailure struct {
+	reason string
+	code   string
+}
+
+func addTexture(t *Table, table *keyTable, key, from string) (reason, code string) {
 	variants := table.terrain.Keys[key]
 	if len(variants) == 0 {
-		return fmt.Sprintf("texture key %q declares no texture path", key)
+		return fmt.Sprintf("texture key %q declares no texture path", key), CodeNoTexturePath
 	}
 	v := variants[0]
 	src := TextureSource{Path: v.Path, From: from, Variants: len(variants) > 1}
@@ -425,17 +475,18 @@ func addTexture(t *Table, table *keyTable, key, from string) string {
 			// A key that IS declared but whose image is missing is a
 			// different problem from a key that was never declared, and
 			// gets a different sentence for that reason.
-			return err.Error()
+			return err.Error(), CodeImageMissing
 		}
 		src.File, src.TextureSets = tex.File, tex.Sets
 		if tex.Color != nil {
 			src.Color = tex.Color.Hex()
 		}
 	} else if from == "pack" {
-		return fmt.Sprintf("texture key %q resolves to %s but no resource pack root was given to look it up in", key, v.Path)
+		return fmt.Sprintf("texture key %q resolves to %s but no resource pack root was given to look it up in", key, v.Path),
+			CodeNoTextureRoot
 	}
 	t.Textures[key] = src
-	return ""
+	return "", ""
 }
 
 // tintChannel is the per-face tint channel the contract's table carries:

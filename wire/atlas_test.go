@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -117,5 +118,105 @@ func TestLoadAtlasWithAnEmptyDirUsesAtlasDir(t *testing.T) {
 	}
 	if string(out.Table) != table {
 		t.Errorf("table = %q, want %q", string(out.Table), table)
+	}
+}
+
+// writeAtlasMarker drops a build marker beside an already-written atlas -- the optional third
+// file of the layout (AtlasMarkerFile), which blocktextures writes and this package reads two
+// fields out of.
+func writeAtlasMarker(t *testing.T, dir, marker string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, AtlasMarkerFile), []byte(marker), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLoadAtlasCarriesWhatCouldNotBeTexturedFromTheMarker is why this reads the marker at all.
+// These rows used to be attached by `serve`'s atlas method, so the ONLY host that could say why
+// a block draws as a flat colour was the one that went through `serve` -- apps/desktop calls
+// LoadAtlas directly and had no answer to the one question someone staring at a flat-coloured
+// block actually has.
+func TestLoadAtlasCarriesWhatCouldNotBeTexturedFromTheMarker(t *testing.T) {
+	dir := writeAtlas(t, `{"version":1}`, []byte("x"))
+	writeAtlasMarker(t, dir, `{"version":1,"blocks":1,"unresolvedTotal":24,"unresolved":[
+		{"block":"wiki:glow_moss","face":"up","texture":"glow_moss","reason":"not declared","code":"key-not-declared"}
+	],"note":"x"}`)
+
+	out, err := LoadAtlas(dir)
+	if err != nil {
+		t.Fatalf("LoadAtlas: %v", err)
+	}
+	// The TOTAL is the real count and the rows are a capped sample of it -- a host rendering
+	// "N of M blocks" off len(Unresolved) would under-report every pack with more than the cap,
+	// which is most packs that ship no resource pack at all.
+	if out.UnresolvedTotal != 24 {
+		t.Errorf("UnresolvedTotal = %d, want 24 -- the real count, not len(Unresolved)", out.UnresolvedTotal)
+	}
+	if len(out.Unresolved) != 1 {
+		t.Fatalf("Unresolved = %+v, want the one sample row", out.Unresolved)
+	}
+	got := out.Unresolved[0]
+	if got.Block != "wiki:glow_moss" || got.Face != "up" || got.Texture != "glow_moss" {
+		t.Errorf("row = %+v", got)
+	}
+	if got.Code != "key-not-declared" {
+		t.Errorf("Code = %q, want the stable token a host groups on rather than the prose", got.Code)
+	}
+	if got.Reason == "" {
+		t.Error("Reason is empty -- the sentence is kept beside the code, not replaced by it")
+	}
+}
+
+// Every failure here is silent and the atlas is delivered regardless. This is extra information
+// about a preview and must never be the reason a preview has no textures.
+func TestLoadAtlasSurvivesAMarkerItCannotUse(t *testing.T) {
+	for _, tc := range []struct{ name, marker string }{
+		{"no marker at all", ""},
+		{"not JSON", "{ this is not json"},
+		{"marker from before these fields existed", `{"version":1,"blocks":1,"note":"x"}`},
+		{"wrong types for both fields", `{"unresolved":"lots","unresolvedTotal":"many"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeAtlas(t, `{"version":1}`, []byte("x"))
+			if tc.marker != "" {
+				writeAtlasMarker(t, dir, tc.marker)
+			}
+			out, err := LoadAtlas(dir)
+			if err != nil {
+				t.Fatalf("LoadAtlas: %v", err)
+			}
+			if out.PNG == "" || len(out.Table) == 0 {
+				t.Errorf("the atlas itself did not come back: png=%d table=%d", len(out.PNG), len(out.Table))
+			}
+			if len(out.Unresolved) != 0 || out.UnresolvedTotal != 0 {
+				t.Errorf("got %+v / %d, want nothing", out.Unresolved, out.UnresolvedTotal)
+			}
+		})
+	}
+}
+
+// TestLoadAtlasOmitsBothKeysWhenNothingIsUnresolved pins the additive half of the amendment: an
+// atlas that textured everything is byte-identical on the wire to one from before these fields
+// existed, so a client written against that shape decodes exactly what it always did.
+func TestLoadAtlasOmitsBothKeysWhenNothingIsUnresolved(t *testing.T) {
+	dir := writeAtlas(t, `{"version":1}`, []byte("x"))
+	writeAtlasMarker(t, dir, `{"version":1,"blocks":1,"note":"x"}`)
+	out, err := LoadAtlas(dir)
+	if err != nil {
+		t.Fatalf("LoadAtlas: %v", err)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := decoded["unresolved"]; has {
+		t.Errorf("payload carries an empty \"unresolved\": %s", raw)
+	}
+	if _, has := decoded["unresolvedTotal"]; has {
+		t.Errorf("payload carries a zero \"unresolvedTotal\": %s", raw)
 	}
 }

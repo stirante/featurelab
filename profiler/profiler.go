@@ -97,12 +97,32 @@
 //
 // RecordStop credits the innermost frame with a gate that ended its work early (an iterations
 // expression that rounded to 0, a conditional_list entry whose condition was 0, a biome filter
-// that rejected), aggregated into FeatureProfileStats.Stops. Like RecordDelegation it is
-// profiling-only, and every call site checks ProfilingActive itself before formatting a detail.
+// that rejected), aggregated into FeatureProfileStats.Stops.
+//
+// Stops are the one thing here an ORDINARY run needs: "placed nothing" is only actionable once
+// something says which gate said no. They therefore have their own arming tier, independent of
+// full profiling -- BeginStops/EndStops, gated by StopsActive, which every stop site reads
+// INSTEAD of ProfilingActive (BeginProfiling raises StopsActive too, so a profiled run fills both
+// stores and profile.features[].stops keeps its exact former contents).
+//
+// The stops tier costs what full profiling deliberately does not: no touchCounts array sized to
+// the volume, no per-cell attribution map, no stats map, no time.Now(). All it keeps is one flat
+// slice of (identifier, reason, ordinal) rows, appended to at most maxTrackedStopRows times and
+// searched hint-first, so a gate that trips a million times is one integer increment per trip
+// after the first. An unarmed run is unchanged: one already-false boolean read at each site.
+//
+// Measured, not assumed: a refused gate costs ~4 ns with the tier off and ~19 ns with it on, so
+// arming it adds ~15 ns per refusal -- and a placement that refuses 10,000 times, the densest
+// case that can be built, goes from 4.29 ms to 4.46 ms. Full profiling on that same placement
+// costs ~2.1 ms more, an order of magnitude above this, which is the whole reason the two tiers
+// are separate and only this one is always on. Both numbers, their spread, and how to reproduce
+// them are in the benchmarks themselves: BenchmarkStopHit (stops_test.go, this package) and
+// features.BenchmarkStopSites.
 package profiler
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/stirante/featurelab/rle"
@@ -154,6 +174,21 @@ type StopStat struct {
 	// Ordinal is the entry index the stop applies to (a conditional_list
 	// entry, a sequence position), or nil when it applies to the whole
 	// feature. A pointer so a real index of 0 is still encoded.
+	Ordinal *int `json:"ordinal,omitempty"`
+}
+
+// StopRow is one aggregated stop on the top-level `stops` array an ordinary generate response
+// carries (session.Result.Stops) -- a StopStat plus the identifier of the feature the stop was
+// credited to, since that array is flat rather than nested under a per-feature row the way
+// ProfileResult.Features is. Rows are merged by (identifier, reason, ordinal) with summed counts
+// and the FIRST detail, heaviest first; see EndStops.
+type StopRow struct {
+	Identifier string `json:"identifier"`
+	Reason     string `json:"reason"`
+	Detail     string `json:"detail"`
+	Count      int    `json:"count"`
+	// Ordinal is the entry index the stop applies to, omitted when it applies to the whole
+	// feature -- same meaning and same pointer-so-zero-encodes reason as StopStat.Ordinal.
 	Ordinal *int `json:"ordinal,omitempty"`
 }
 
@@ -218,6 +253,13 @@ type ProfileResult struct {
 // generation runs: one profiling run at a time, package-level state.
 var ProfilingActive = false
 
+// StopsActive gates stop recording, and is what every stop site reads (directly, not via a
+// function call, for the same reason ProfilingActive is) before building a detail string -- see
+// this package's "## Stops" doc comment. Raised by BeginStops, and also by BeginProfiling (which
+// restores whatever it found on EndProfiling, so the two tiers nest in either order). Mutated
+// only by those four functions.
+var StopsActive = false
+
 type frame struct {
 	identifier string
 	typeID     string
@@ -257,6 +299,104 @@ var (
 	cellAttribution    map[int64]uint32
 )
 
+// stopEntry is one row of the always-on stops store -- the light tier's entire state. Ordinal is
+// a plain int here (NoOrdinal for "whole feature") rather than StopStat's pointer: nothing
+// escapes to JSON until EndStops converts it, so the store itself stays allocation-free.
+type stopEntry struct {
+	identifier string
+	reason     string
+	detail     string
+	ordinal    int
+	count      int
+}
+
+var (
+	// lightStops is append-only within one BeginStops/EndStops pair, so a *stopEntry taken by
+	// findLightStop stays valid for as long as its caller holds it (no append in between).
+	lightStops []stopEntry
+	// lightStopHint is the index of the last row hit. A gate that trips in a loop hits the same
+	// row every time, so checking this first turns the usual case into one compare.
+	lightStopHint int
+	// stopsActiveBeforeProfiling is what EndProfiling restores StopsActive to -- so a profiled
+	// run nested inside an armed stops run (session.generate's ordering) does not disarm the
+	// outer one when it ends.
+	stopsActiveBeforeProfiling bool
+)
+
+// MaxStopRows caps the top-level `stops` array EndStops returns. A pathological pack can stop at
+// hundreds of distinct gates; a response is not the place to enumerate them, and a reader only
+// ever acts on the heaviest few (the preview panel shows one line and "(+N more)").
+const MaxStopRows = 32
+
+// maxTrackedStopRows caps the store itself, so a run that somehow reaches thousands of DISTINCT
+// (identifier, reason, ordinal) triples cannot grow the slice (or the scan) without bound. Well
+// above any real pack's distinct-gate count, and far enough above MaxStopRows that the rows that
+// survive the sort are the true heaviest ones.
+const maxTrackedStopRows = 256
+
+// BeginStops arms the cheap, always-on stop tier for one run: from here until EndStops, every
+// stop site records into the flat store described in this package's "## Stops" doc comment.
+// Unlike BeginProfiling it allocates nothing up front and is independent of it -- both may be
+// armed at once (see StopsActive).
+func BeginStops() {
+	lightStops = lightStops[:0]
+	lightStopHint = 0
+	StopsActive = true
+}
+
+// EndStops disarms the stops tier and returns its rows: merged by (identifier, reason, ordinal)
+// with summed counts and the first detail (the merge happens at record time), ordered most-hit
+// first with ties in first-recorded order, and capped at MaxStopRows. nil when nothing stopped.
+func EndStops() []StopRow {
+	StopsActive = false
+	entries := lightStops
+	lightStops = nil
+	lightStopHint = 0
+	if len(entries) == 0 {
+		return nil
+	}
+	rows := make([]StopRow, len(entries))
+	for i, e := range entries {
+		rows[i] = StopRow{Identifier: e.identifier, Reason: e.reason, Detail: e.detail, Count: e.count}
+		if e.ordinal != NoOrdinal {
+			o := e.ordinal
+			rows[i].Ordinal = &o
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Count > rows[j].Count })
+	if len(rows) > MaxStopRows {
+		rows = rows[:MaxStopRows]
+	}
+	return rows
+}
+
+// findLightStop returns the store's row for this triple, or nil if it has none.
+func findLightStop(identifier, reason string, ordinal int) *stopEntry {
+	if lightStopHint < len(lightStops) {
+		if e := &lightStops[lightStopHint]; e.ordinal == ordinal && e.reason == reason && e.identifier == identifier {
+			return e
+		}
+	}
+	for i := range lightStops {
+		if e := &lightStops[i]; e.ordinal == ordinal && e.reason == reason && e.identifier == identifier {
+			lightStopHint = i
+			return e
+		}
+	}
+	return nil
+}
+
+// findStopStat is findLightStop for one feature's profiling-tier rows.
+func findStopStat(stats *FeatureProfileStats, reason string, ordinal int) *StopStat {
+	// Linear: a feature has a handful of distinct stop kinds at most.
+	for i := range stats.Stops {
+		if s := &stats.Stops[i]; s.Reason == reason && ordinalOf(s) == ordinal {
+			return s
+		}
+	}
+	return nil
+}
+
 func statsFor(identifier, typeID string) *FeatureProfileStats {
 	s, ok := statsByIdentifier[identifier]
 	if !ok {
@@ -279,12 +419,27 @@ func BeginProfiling(cellCount int) {
 	touchCounts = make([]uint32, cellCount)
 	cellAttribution = map[int64]uint32{}
 	ProfilingActive = true
+	// A profiled run records into BOTH stop tiers, so profile.features[].stops and the top-level
+	// rows say the same thing. An ALREADY-armed stops tier (session.generate arms one for every
+	// run) is left exactly as it is -- not reset, not disarmed on the way out -- so profiling
+	// nested inside it neither loses its rows nor ends its run early.
+	stopsActiveBeforeProfiling = StopsActive
+	if !StopsActive {
+		BeginStops()
+	}
 }
 
 // EndProfiling disarms the profiler and returns everything collected since
 // the matching BeginProfiling call.
 func EndProfiling() ProfileResult {
 	ProfilingActive = false
+	// Only the tier BeginProfiling itself armed is torn down here; one it merely joined keeps
+	// both its flag and its rows, and ends on its own EndStops.
+	if !stopsActiveBeforeProfiling {
+		lightStops = nil
+		lightStopHint = 0
+	}
+	StopsActive = stopsActiveBeforeProfiling
 	tc := touchCounts
 	if tc == nil {
 		tc = []uint32{}
@@ -439,27 +594,40 @@ func RecordDelegation(wrapperIdentifier, wrapperTypeID string) {
 // RecordStop notes that the innermost feature on the stack stopped short:
 // reason is one of StopStat.Reason's codes, detail the evaluated value that
 // caused it, ordinal the entry it applies to or NoOrdinal. Aggregates by
-// (reason, ordinal), keeping the first detail. No-ops when profiling is off
-// or nothing is on the stack.
+// (reason, ordinal), keeping the first detail. Records into whichever tiers
+// are armed -- the always-on stops store, the profiling store, or both (see
+// this package's "## Stops" doc comment). No-ops when neither is armed or
+// nothing is on the stack.
 //
-// Callers guard with `if profiler.ProfilingActive` themselves, so building
-// detail (usually a fmt.Sprintf) costs nothing on a normal run.
+// Callers guard with `if profiler.StopsActive` themselves, so building
+// detail (usually a fmt.Sprintf) costs nothing on an unarmed run.
 func RecordStop(reason, detail string, ordinal int) {
-	if !ProfilingActive || len(stack) == 0 {
+	if len(stack) == 0 {
 		return
 	}
-	f := stack[len(stack)-1]
-	stats, ok := statsByIdentifier[f.identifier]
+	identifier := stack[len(stack)-1].identifier
+	if StopsActive {
+		if e := findLightStop(identifier, reason, ordinal); e != nil {
+			// Reached when StopCounted declined to claim the hit because the OTHER tier had no
+			// row for it yet; this tier's count still owes one.
+			e.count++
+		} else if len(lightStops) < maxTrackedStopRows {
+			lightStops = append(lightStops, stopEntry{
+				identifier: identifier, reason: reason, detail: detail, ordinal: ordinal, count: 1,
+			})
+			lightStopHint = len(lightStops) - 1
+		}
+	}
+	if !ProfilingActive {
+		return
+	}
+	stats, ok := statsByIdentifier[identifier]
 	if !ok {
 		return
 	}
-	// Linear: a feature has a handful of distinct stop kinds at most.
-	for i := range stats.Stops {
-		s := &stats.Stops[i]
-		if s.Reason == reason && ordinalOf(s) == ordinal {
-			s.Count++
-			return
-		}
+	if s := findStopStat(stats, reason, ordinal); s != nil {
+		s.Count++
+		return
 	}
 	stop := StopStat{Reason: reason, Detail: detail, Count: 1}
 	if ordinal != NoOrdinal {
@@ -472,28 +640,47 @@ func RecordStop(reason, detail string, ordinal int) {
 // StopCounted is RecordStop without the detail: if (reason, ordinal) already has a row on the
 // innermost frame it adds one to its count and returns true, and the caller is done. False means
 // the caller must RecordStop it -- the only time a detail string is worth building, since only
-// the first one is kept. Also true when there is nothing to record into (profiling off, empty
+// the first one is kept. Also true when there is nothing to record into (nothing armed, empty
 // stack). Lets a stop hit once per iteration skip the fmt.Sprintf on every hit after the first:
 //
-//	if profiler.ProfilingActive && !profiler.StopCounted(reason, i) {
+//	if profiler.StopsActive && !profiler.StopCounted(reason, i) {
 //		profiler.RecordStop(reason, fmt.Sprintf(...), i)
 //	}
+//
+// Counts are only applied once EVERY armed tier has a row to apply them to: a tier still missing
+// one sends the caller to RecordStop, which credits the row this call deliberately left alone.
+// That is what keeps the two tiers' counts equal even though they are reached separately.
 func StopCounted(reason string, ordinal int) bool {
-	if !ProfilingActive || len(stack) == 0 {
+	if len(stack) == 0 {
 		return true
 	}
-	stats, ok := statsByIdentifier[stack[len(stack)-1].identifier]
-	if !ok {
-		return true
-	}
-	for i := range stats.Stops {
-		s := &stats.Stops[i]
-		if s.Reason == reason && ordinalOf(s) == ordinal {
-			s.Count++
-			return true
+	identifier := stack[len(stack)-1].identifier
+	var light *stopEntry
+	if StopsActive {
+		light = findLightStop(identifier, reason, ordinal)
+		// A full store drops this triple entirely (light stays nil, nothing to count) rather
+		// than sending the caller off to build a detail for a row that will never exist.
+		if light == nil && len(lightStops) < maxTrackedStopRows {
+			return false
 		}
 	}
-	return false
+	var stat *StopStat
+	if ProfilingActive {
+		// A missing stats bucket means this identifier never entered under the profiler, so
+		// there is nothing to record into on this tier -- not a reason to ask for a detail.
+		if stats, ok := statsByIdentifier[identifier]; ok {
+			if stat = findStopStat(stats, reason, ordinal); stat == nil {
+				return false
+			}
+		}
+	}
+	if light != nil {
+		light.count++
+	}
+	if stat != nil {
+		stat.Count++
+	}
+	return true
 }
 
 func ordinalOf(s *StopStat) int {

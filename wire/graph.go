@@ -98,6 +98,14 @@ type GraphDiagnostic struct {
 	Level string `json:"level"`
 	// FileID is the file the diagnostic is about, pack-relative.
 	FileID string `json:"fileId"`
+	// Line and Column are the 1-based place in FileID, omitted when the
+	// loader did not know one (most diagnostics are about a whole file).
+	// Carried through from `check`'s own diagnostic rather than dropped
+	// here: the position exists by the time it reaches this boundary, and a
+	// graph's problem list is one of the places someone clicks to go fix
+	// the file.
+	Line   int `json:"line,omitempty"`
+	Column int `json:"column,omitempty"`
 	// Message is check's own sentence, verbatim. Not re-worded here: the
 	// two commands quoting one problem differently is how a reader ends up
 	// believing they are two problems.
@@ -130,6 +138,19 @@ type GraphNode struct {
 	// features/coverage.go says about it. An editor should refuse to offer a
 	// missing/out_of_scope type when creating a node, and should show Note
 	// beside a partial one rather than pretending it is complete.
+	//
+	// BOTH ARE A FUNCTION OF TypeID ALONE, and CoverageNote is the single
+	// largest duplication in this shape. The whole coverage table is 29 types
+	// and 27,188 characters of notes -- a mean of 937 per type, 3,110 for the
+	// longest -- and every node carrying one carries its type's copy. Measured
+	// on a 3,126-node pack, `coverageNote` was 4.53MB of a 20.5MB graph dump
+	// (22.1%) and was ONE distinct string, repeated 2,500 times.
+	//
+	// It stays on the node by default, because that is the frozen contract and
+	// a consumer reading it must keep working. A client that minds the size
+	// asks for the graph with `omitCoverageNotes` and reads the table once
+	// from serve's "types" method, which is where it comes from -- see
+	// OmitCoverageNotes.
 	Coverage     string `json:"coverage,omitempty"`
 	CoverageNote string `json:"coverageNote,omitempty"`
 
@@ -166,6 +187,45 @@ type GraphNode struct {
 	// version, and is then resolved like anything else -- so this can only
 	// ever be set on a node no file defines.
 	External bool `json:"external,omitempty"`
+
+	// Suggestions is what this dangling reference was plausibly meant to say:
+	// up to three ids the pack actually defines, best first (internal/nearest
+	// decides, and it prefers a forgotten namespace over an edit-distance
+	// guess). Set only on an Unresolved node that is NOT External, and absent
+	// when nothing in the pack is close enough -- which is the common case and
+	// is not an error.
+	//
+	// It carries the CANDIDATES rather than the "did you mean ...?" sentence
+	// because a node is where an editor can act rather than only read: this is
+	// what a quick-fix offers, or a one-click rename of the reference. The
+	// sentence exists too, on the diagnostic for the same edge (see
+	// UnresolvedTargets), for the clients that only show text.
+	//
+	// Why it is on the node at all: the near-match machinery has been in this
+	// repo for a while and reached exactly one situation, the identifier a
+	// caller REQUESTED. So `generate --feature wiki:rng_markr` suggested
+	// `wiki:rng_marker` and the very same typo written as a delegation got
+	// nothing, on the canvas or anywhere else.
+	Suggestions []string `json:"suggestions,omitempty"`
+}
+
+// OmitCoverageNotes clears CoverageNote on every node, in place.
+//
+// It is a strict subtraction of a field that is derivable from TypeID through serve's "types"
+// method (features.CoverageFor is the same table both go through), and it is opt-in -- see
+// GraphNode.Coverage for the measurement that makes it worth having, and for why the default
+// cannot change.
+//
+// Coverage itself is deliberately NOT cleared. It is one short word, it was 0.3% of the same
+// dump, and it is the half an editor acts on: it decides whether a type can be offered at all.
+// The note is the paragraph beside it that a client can fetch once.
+func OmitCoverageNotes(g *Graph) {
+	if g == nil {
+		return
+	}
+	for i := range g.Nodes {
+		g.Nodes[i].CoverageNote = ""
+	}
 }
 
 // EdgeKind is what a delegation MEANS, and the kinds are not
