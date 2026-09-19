@@ -4,6 +4,7 @@
 // shows the full list unfiltered; this narrows to the one file VS Code diagnostics can
 // meaningfully attach to.
 import * as vscode from 'vscode'
+import { docsUrl } from './graph/docs/url.js'
 
 /** identifier/typeId/chain/count are optional here purely so this file tolerates a response
  * from an engine build that predates them (the old {level,fileId,message}-only Diagnostic) --
@@ -75,6 +76,18 @@ export function updateDiagnostics(
     const severity = d.level === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
     const diag = new vscode.Diagnostic(rangeFor(document, d, whole), formatMessage(d), severity)
     diag.source = 'featurelab'
+    // WHERE TO READ MORE. A diagnostic explains what the engine declined to do; the feature
+    // type's page explains why the rule is what it is and what to write instead. VS Code renders
+    // a `code` with a `target` as a link in the Problems panel and on the hover, so the type id
+    // the engine already sends turns into one click without adding a word to the message.
+    //
+    // The link is built from the type id alone -- that IS the site's route (graph/docs/url.ts)
+    // -- and only when the engine named one: a diagnostic about malformed JSON has no type, and
+    // a made-up link is worse than none. Where a diagnostic names a field, it does so inside its
+    // message, not as a structured path, so this deliberately stops at the page.
+    if (d.typeId !== undefined && d.typeId.length > 0) {
+      diag.code = { value: d.typeId, target: vscode.Uri.parse(docsUrl(d.typeId)) }
+    }
     return diag
   })
   collection.set(document.uri, vsDiagnostics)

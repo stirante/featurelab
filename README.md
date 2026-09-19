@@ -117,10 +117,10 @@ building one needs Mojang's own textures, which this repository does not ship:
 they are Mojang's, published in their `bedrock-samples` repository under that
 repository's licence.
 
-**[`docs/wiki/block-textures.md`](docs/wiki/block-textures.md) is the whole
-story** — a side-by-side of the same tree flat and textured, the first-run flow
-on all three hosts, and what is drawn accurately versus approximated. What
-follows here is the short version.
+**[Block textures in the preview](https://stirante.github.io/featurelab/engine/block_textures)
+is the whole story** — a side-by-side of the same tree flat and textured, the
+first-run flow on all three hosts, and what is drawn accurately versus
+approximated. What follows here is the short version.
 
 The editor extension and the desktop app both offer to fetch them **once**, on
 the first preview, naming what is being downloaded and from where; declining is
@@ -285,8 +285,9 @@ it does not.
   coordinates, each rule from its own seed derived from that plus its
   identifier, and the positions and the placed feature's own draws come from
   two independent streams, as they do in game. Renaming a rule moves what it
-  places, here and there alike. `docs/wiki/rng-and-determinism.md` is the
-  whole chain.
+  places, here and there alike.
+  [RNG and determinism](https://stirante.github.io/featurelab/features/rng_and_determinism)
+  is the whole chain.
 - **Inspection** — orbit, and a max-Y slider that peels the world away from
   the top so you can look straight down into a structure. Blocks the
   feature wrote are drawn solid; the environment can be shown solid,
@@ -469,11 +470,13 @@ noise/, jsonc/, rle/
                     array on the wire goes through
 internal/, bin/     internals with no external callers, and built binaries (bin/ is ignored)
 goldentest/         the regression baseline and its digest + generator
-docs/wiki/          a documentation set on Bedrock's own worldgen feature system: one page per
-                    feature type, plus guides on RNG/determinism, delegation, feature rules and
-                    what this tool can and cannot verify. Its examples are generated from the
-                    committed fixture pack under docs/wiki/tools/fixtures/ and its images from
-                    the real viewer -- see docs/wiki/index.md
+docs/site/          a documentation set on Bedrock's own worldgen feature system, published at
+                    https://stirante.github.io/featurelab/ : one page per feature type, plus
+                    guides on RNG/determinism, delegation, feature rules and what this tool can
+                    and cannot verify. Its examples are generated from the committed fixture
+                    pack under docs/wiki/tools/fixtures/ and its images from the real viewer
+docs/wiki/          the image pipeline behind those figures (tools/) and the fixture pack it and
+                    goldentest/ both run against (tools/fixtures/), plus the committed renders
 apps/vscode/        VS Code extension
 apps/desktop/       Wails v2 desktop app
 frontend/           shared three.js voxel viewer + control panel, consumed by both apps

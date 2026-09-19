@@ -76,8 +76,9 @@ difference affects your file, and in this project's documentation set otherwise.
 
 ## Block textures
 
-Same atlas, same question, same cache as every other host — see [Block Textures in the
-Preview](../../docs/wiki/block-textures.md), which documents the whole mechanism. The window's
+Same atlas, same question, same cache as every other host — see [Block textures in the
+preview](https://stirante.github.io/featurelab/engine/block_textures), which documents the whole
+mechanism. The window's
 own differences are that the "may I download Mojang's assets?" question is a native dialog
 rather than a terminal prompt, and that this app has one switch instead of the extension's two:
 `FEATURELAB_BLOCK_TEXTURES=0` turns both the preparation and the drawing off. Unset means on.

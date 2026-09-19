@@ -72,8 +72,8 @@ The sidebar controls the run:
 | **View** | Slice by height, hide the surrounding terrain, colour cells by write count, frame the camera. |
 | **Diagnostics** | Everything the run declined to do, and why — with the delegation chain that reached it and a button that moves the camera there. |
 
-If the preview comes back empty, **Diagnostics** is where the reason is. The wiki's
-[When the preview shows nothing](https://github.com/stirante/featurelab/blob/HEAD/docs/wiki/preview-shows-nothing.md)
+If the preview comes back empty, **Diagnostics** is where the reason is. The documentation site's
+[When the preview shows nothing](https://stirante.github.io/featurelab/editor/preview_shows_nothing)
 page lists every reason the engine can give.
 
 Ctrl+click (Cmd+click) a `places_feature` or `features` entry in the JSON to jump to the file that
@@ -107,9 +107,9 @@ generate a real chunk: no other feature runs beside yours, and nothing here prov
 behaves identically in Minecraft.
 
 Where the two are known to differ, the tool says so — in a diagnostic when it affects your file,
-and in the [project wiki](https://github.com/stirante/featurelab/blob/HEAD/docs/wiki/index.md)
-otherwise. That wiki carries a page per feature type and a
-[coverage page](https://github.com/stirante/featurelab/blob/HEAD/docs/wiki/coverage-and-known-gaps.md)
+and in the [documentation site](https://stirante.github.io/featurelab/) otherwise. That site
+carries a page per feature type and a
+[coverage page](https://stirante.github.io/featurelab/engine/coverage)
 listing every known gap. It is the honest place to start when a preview and the game disagree.
 
 ## Requirements

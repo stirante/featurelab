@@ -135,13 +135,10 @@ jobs:
       - name: Build (apps/desktop frontend)
         run: npm run --workspace apps/desktop/frontend build
 
-      # The wiki's 276 relative links are checked here rather than in a job of their own because
-      # this job already has Node and a checkout, and the check takes milliseconds. A broken
-      # anchor is invisible in review -- the prose still reads right and the link still looks
-      # like a link; it just lands on the top of the page. See the script's own header for the
-      # slug rule, which is subtler than it looks.
-      - name: Check docs/wiki links and anchors
-        run: node docs/wiki/tools/check-links.mjs
+      # (The docs link check used to run here, over docs/wiki/*.md. Those pages are gone -- the
+      # documentation is docs/site now -- and docs.yml runs the site's own three checkers,
+      # including the product -> docs direction over every tracked file, on every push and pull
+      # request. Nothing in this workflow needs to check a link any more.)
 
   vscode-extension:
     name: VS Code extension

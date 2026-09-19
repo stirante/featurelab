@@ -1,10 +1,17 @@
 name: Docs site
 
-# Builds docs/site with VitePress and publishes it to GitHub Pages. Provisional alongside the
-# docs/wiki set: this workflow does not touch docs/wiki, and ci.yml's own
-# `node docs/wiki/tools/check-links.mjs` step keeps guarding the pages that have not moved.
+# Builds docs/site with VitePress and publishes it to GitHub Pages. Since the cut-over this is
+# the ONLY documentation check in the repository: docs/wiki/*.md is gone, and with it ci.yml's
+# `node docs/wiki/tools/check-links.mjs` step.
 #
-# Three things run before the build and each one can fail it:
+# It runs on every push and every pull request, with no `paths:` filter, and that is deliberate.
+# check-product-links.mjs reads EVERY tracked file outside docs/ -- a README, a diagnostic
+# string, a hover card -- so any file in the repository can break it. A path filter would mean a
+# README edit that 404s a Marketplace link sails through green, which is the exact failure the
+# checker exists to prevent. The build is a couple of minutes; a silently broken published link
+# costs more.
+#
+# Four things run around the build and each one can fail it:
 #   1. tools/extract-coverage.mjs  -- `featurelab types --json` -> generated/coverage.json. Needs Go.
 #   2. tools/extract-catalog.mjs   -- the extension's catalogue -> generated/fields/*.md. Needs
 #                                     only Node and esbuild; reads apps/vscode/src as text.
@@ -26,23 +33,8 @@ name: Docs site
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/site/**'
-      - 'docs/wiki/images/**'
-      - 'apps/vscode/src/graph/typeCatalog.ts'
-      - 'apps/vscode/src/graph/docs/catalog.ts'
-      - 'apps/vscode/src/graph/tree*.ts'
-      - 'features/coverage.go'
-      - '.github/workflows/docs.yml'
   pull_request:
-    paths:
-      - 'docs/site/**'
-      - 'docs/wiki/images/**'
-      - 'apps/vscode/src/graph/typeCatalog.ts'
-      - 'apps/vscode/src/graph/docs/catalog.ts'
-      - 'apps/vscode/src/graph/tree*.ts'
-      - 'features/coverage.go'
-      - '.github/workflows/docs.yml'
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:

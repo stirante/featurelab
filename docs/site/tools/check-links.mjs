@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // check-links.mjs -- verifies every link and anchor across the site's pages, in the site's own
 // terms: VitePress's slug rule, `<!--@include: -->` fragments expanded, page routes resolved the
-// way .vitepress/config.mts rewrites them. The docs/wiki/tools/check-links.mjs it descends from
-// keeps checking docs/wiki with GitHub's rule until the last page has moved; the two run side by
-// side in CI and neither knows about the other's pages.
+// way .vitepress/config.mts rewrites them. It descends from docs/wiki/tools/check-links.mjs,
+// which checked the same links under GitHub's slug rule and was deleted at the cut-over along
+// with the pages it checked; this is now the only link checker over the site's own pages.
 //
 // Usage:  node docs/site/tools/check-links.mjs [--verify-dist]
 //
@@ -20,15 +20,15 @@
 //   - a `#fragment` link: an anchor on this page
 //   - an image or other file: exists on disk (this is how a page reaching into
 //     ../../wiki/images/ is kept honest against the image pipeline's output)
-//   - a GitHub blob link into this repository: the path exists in the tree; and if it names a
-//     docs/wiki page that HAS a site page now (redirects.json says which have not), it fails,
-//     because a migrated page must be linked locally
+//   - a GitHub blob link into this repository: the path exists in the tree, and it does not name
+//     a docs/wiki markdown page -- every one of those has a site page now and must be linked
+//     locally (the pages themselves are deleted, so this is belt and braces)
 //   - every `<!--@include: -->` target exists
-// Plus the sidebar: every local link and every wiki('..', 'page') entry in config.mts resolves.
+// Plus the sidebar: every local link in config.mts resolves.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { anchorsOf, expandIncludes, githubSlug, pageAnchors } from './lib/anchors.mjs'
+import { expandIncludes, pageAnchors } from './lib/anchors.mjs'
 
 const toolsDir = path.dirname(fileURLToPath(import.meta.url))
 const siteDir = path.resolve(toolsDir, '..')
@@ -63,15 +63,6 @@ function routeToFile(route) {
   return undefined
 }
 
-const redirects = JSON.parse(fs.readFileSync(path.join(siteDir, 'redirects.json'), 'utf-8'))
-/** docs/wiki page name -> true when redirects.json still points its site route at GitHub, i.e.
- * the page has not migrated and a blob link to it is the right link. */
-const unmigrated = new Set()
-for (const target of Object.values(redirects)) {
-  const m = REPO_BLOB.exec(target)
-  if (m && m[1].startsWith('docs/wiki/')) unmigrated.add(m[1])
-}
-
 const problems = []
 const anchorCache = new Map()
 const anchorsFor = (file) => {
@@ -88,19 +79,16 @@ function checkLink(page, raw, line) {
     const m = REPO_BLOB.exec(target)
     if (!m) return // an external link; not this script's business
     linkCount++
-    const [, repoPath, anchor] = m
+    const [, repoPath] = m
     const onDisk = path.join(repoRoot, repoPath)
     if (!fs.existsSync(onDisk)) {
       problems.push(`${where}  ${target}  -- not in this repository`)
       return
     }
     if (repoPath.startsWith('docs/wiki/') && repoPath.endsWith('.md')) {
-      if (!unmigrated.has(repoPath)) {
-        problems.push(`${where}  ${target}  -- this wiki page has a site page now (redirects.json no longer points at GitHub); link it locally`)
-      }
-      if (anchor && !anchorsOf(fs.readFileSync(onDisk, 'utf-8'), 'github').has(anchor)) {
-        problems.push(`${where}  ${target}  -- no heading on that wiki page slugs to "${anchor}" under GitHub's rule`)
-      }
+      // Every one of those pages migrated and was deleted at the cut-over, so the existence
+      // check above already fails. This says WHY rather than leaving a reviewer to guess.
+      problems.push(`${where}  ${target}  -- docs/wiki carries no pages any more; link the site page instead`)
     }
     return
   }
@@ -154,12 +142,6 @@ for (const page of pages) {
 
 // The sidebar and nav in config.mts.
 const config = fs.readFileSync(path.join(siteDir, '.vitepress', 'config.mts'), 'utf-8')
-for (const m of config.matchAll(/wiki\('[^']*',\s*'([^']+)'\)/g)) {
-  linkCount++
-  if (!fs.existsSync(path.join(repoRoot, 'docs', 'wiki', `${m[1]}.md`))) {
-    problems.push(`.vitepress/config.mts  wiki(.., '${m[1]}')  -- docs/wiki/${m[1]}.md does not exist`)
-  }
-}
 for (const m of config.matchAll(/link:\s*'(\/[^']*)'/g)) {
   linkCount++
   if (!routeToFile(m[1])) problems.push(`.vitepress/config.mts  link ${m[1]}  -- no page produces that route`)
