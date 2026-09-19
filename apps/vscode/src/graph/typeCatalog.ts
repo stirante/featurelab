@@ -810,7 +810,10 @@ const TYPE_SPECS: readonly TypeSpec[] = [
                 kind: 'integer',
                 required: false,
                 default: '2',
-                doc: 'Scans from this far below each point to this far above it for a solid-over-air transition, and refuses the whole placement if any point lacks one.',
+                doc:
+                  'Scans from this far below each point to one MORE than this above it for a solid-over-air ' +
+                  'transition, and refuses the whole placement if any point lacks one. The window is a row ' +
+                  'taller on top than underneath, which is why 0 still finds flat ground rather than nothing.',
                 source: 'builder',
               },
             ],
@@ -902,7 +905,7 @@ const TYPE_SPECS: readonly TypeSpec[] = [
     typeId: 'minecraft:sculk_patch_feature',
     fields: [
       { key: 'can_place_sculk_patch_on', kind: 'blockList', required: true, source: 'builder' },
-      { key: 'central_block', kind: 'block', required: true, source: 'builder' },
+      { key: 'central_block', kind: 'block', required: false, default: 'no central block is placed', source: 'builder' },
       {
         key: 'central_block_placement_chance',
         kind: 'number',

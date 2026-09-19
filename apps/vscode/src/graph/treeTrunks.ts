@@ -602,6 +602,18 @@ const INTERVALS_DOC: DocEntry = {
     'exactly `base` every time, with no variation at all.',
 }
 
+/** The cherry trunk's own `intervals`. Same key, same shape, ONE WIDER: this trunk's draw includes
+ * the entry's own value where the acacia and mega trunks stop one short of it -- so the three
+ * cannot share INTERVALS_DOC, however much the schema makes them look interchangeable. Measured:
+ * `base 5, intervals [2]` gives heights 5-7 here and 5-6 on the other two. */
+const CHERRY_INTERVALS_DOC: DocEntry = {
+  summary: 'Extra random height added on top of `base`, one draw per entry.',
+  detail:
+    'Each entry adds a draw between 0 and that entry\'s own value INCLUDED, one wider than the ' +
+    'acacia and mega trunks get from the same list: with `base` 5 and `[2]` this trunk is 5 to 7 ' +
+    'where theirs is 5 to 6. Leaving the list out makes the height exactly `base` every time.',
+}
+
 const TRUNK_BLOCK_DOC: DocEntry = {
   summary: 'The log the trunk column is built out of.',
   detail:
@@ -780,7 +792,7 @@ export const TREE_TRUNK_DOCS: Readonly<Record<string, DocEntry>> = {
     summary: 'The fixed part of the stem height, at least 2 blocks.',
     detail: 'Anything `intervals` draws is added on top. Below 2 there is no stem for the branches to fork from.',
   },
-  'cherry_trunk.trunk_height.intervals': INTERVALS_DOC,
+  'cherry_trunk.trunk_height.intervals': CHERRY_INTERVALS_DOC,
   'cherry_trunk.branches': {
     summary: 'The fork: how many branches, how long, and where they leave the stem.',
     detail:

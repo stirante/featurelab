@@ -640,7 +640,8 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
       summary: 'Requires the ground under the structure to be flat enough.',
       detail:
         'Checked per column at the same row `grounded` samples: each one has to have solid ground ' +
-        'with open space above it within max_steepness, and one bad column refuses the whole placement.',
+        'with open space above it somewhere in a window running max_steepness rows down and ' +
+        'max_steepness + 1 rows up -- taller on top -- and one bad column refuses the whole placement.',
     },
   },
 
@@ -963,7 +964,9 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
     },
     min_outer_wall_distance: {
       summary: 'The smallest offset a lump may take from the geode\'s centre.',
-      detail: 'Each lump is offset by a value drawn between this and max_outer_wall_distance, drawn separately for x, y and z.',
+      detail:
+        'Each lump is offset by a draw from this UP TO BUT NOT INCLUDING max_outer_wall_distance, ' +
+        'made separately for x, y and z -- so 4/6 gives 4 or 5, and 4/5 is always 4.',
     },
     max_outer_wall_distance: {
       summary: 'The largest offset a lump may take from the geode\'s centre.',
@@ -971,15 +974,29 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
         'It does double duty: it also divides into the number of lumps to set the shell thresholds, ' +
         'so raising it changes the thickness of the shell as well as how far the lumps spread.',
     },
-    min_distribution_points: { summary: 'The fewest lumps the geode is built from.', detail: 'The actual count is drawn between this and max_distribution_points, once per geode.' },
-    max_distribution_points: { summary: 'The most lumps the geode is built from.', detail: 'More points make a lumpier, less spherical geode.' },
+    min_distribution_points: {
+      summary: 'The fewest lumps the geode is built from.',
+      detail:
+        'Drawn once per geode, from this UP TO BUT NOT INCLUDING max_distribution_points -- ' +
+        'vanilla\'s 3/4 is always 3, and 4/6 gives 4 or 5, never 6.',
+    },
+    max_distribution_points: {
+      summary: 'The most lumps the geode is built from.',
+      detail:
+        'More points make a lumpier, less spherical geode -- but this value is never itself drawn: ' +
+        'the count stops one short of it, so 4 is the most a 3/5 pair ever produces.',
+    },
     min_point_offset: {
       summary: 'The low end of a per-lump value that varies how strongly each lump shapes the geode.',
-      detail: 'Drawn once per lump between this and max_point_offset, and skipped entirely -- no draw, no variation -- unless max is strictly above min.',
+      detail:
+        'Drawn once per lump, from this UP TO BUT NOT INCLUDING max_point_offset. Unless max is ' +
+        'strictly above min there is no draw at all and every lump takes 0 -- not this value.',
     },
     max_point_offset: {
       summary: 'The high end of a per-lump value that varies how strongly each lump shapes the geode.',
-      detail: 'Drawn once per lump between min_point_offset and this, and skipped entirely -- no draw, no variation -- unless it is strictly above min.',
+      detail:
+        'Drawn once per lump, from min_point_offset UP TO BUT NOT INCLUDING this. Unless it is ' +
+        'strictly above min there is no draw at all and every lump takes 0, whatever min says.',
     },
     max_radius: {
       summary: 'How far from the origin the geode is allowed to reach.',
