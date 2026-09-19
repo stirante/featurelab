@@ -7,6 +7,9 @@ import { vi } from 'vitest'
 
 export class MockDiagnostic {
   source?: string
+  /** vscode.Diagnostic.code's object form: a label plus the Uri VS Code renders it as a link
+   * to. diagnostics.ts sets it to the failing type's documentation page. */
+  code?: { value: string; target: MockUri }
   constructor(
     public range: unknown,
     public message: string,

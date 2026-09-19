@@ -72,18 +72,18 @@ Relative to the other entries' weights. If every weight is zero nothing can be p
 
 **Which way the column is built from the origin.**
 
-It is a direction of travel, not a facing: the parts are laid out along it in order, and the support the column needs is on the OPPOSITE side of the origin.
+It is a direction of travel, not a facing. Every part is written one step further along that line -- the base first, then any middle parts, then the frustum, then the tip at the far end -- and the block that has to support the column is one step BEHIND the origin, against the build direction. The six values below differ only in which way that is.
 
 An unrecognised value falls back to the default silently in the engine.
 
 Values, in the order the engine lists them:
 
-- `down` — Builds the column downward from the origin. Every part is written one step further along that line: the base first, then any middle parts, then the frustum, then the tip at the far end. The block that has to support the column is the one directly above the origin -- one step BEHIND the origin, against the build direction.
-- `up` — Builds the column upward from the origin. Every part is written one step further along that line: the base first, then any middle parts, then the frustum, then the tip at the far end. The block that has to support the column is the one directly below the origin -- one step BEHIND the origin, against the build direction.
-- `north` — Builds the column north from the origin. Every part is written one step further along that line: the base first, then any middle parts, then the frustum, then the tip at the far end. The block that has to support the column is the one one block south of the origin -- one step BEHIND the origin, against the build direction.
-- `south` — Builds the column south from the origin. Every part is written one step further along that line: the base first, then any middle parts, then the frustum, then the tip at the far end. The block that has to support the column is the one one block north of the origin -- one step BEHIND the origin, against the build direction.
-- `west` — Builds the column west from the origin. Every part is written one step further along that line: the base first, then any middle parts, then the frustum, then the tip at the far end. The block that has to support the column is the one one block east of the origin -- one step BEHIND the origin, against the build direction.
-- `east` — Builds the column east from the origin. Every part is written one step further along that line: the base first, then any middle parts, then the frustum, then the tip at the far end. The block that has to support the column is the one one block west of the origin -- one step BEHIND the origin, against the build direction.
+- `down` — Builds the column downward from the origin. Its support is the block directly above the origin.
+- `up` — Builds the column upward from the origin. Its support is the block directly below the origin.
+- `north` — Builds the column north from the origin. Its support is the block one block south of the origin.
+- `south` — Builds the column south from the origin. Its support is the block one block north of the origin.
+- `west` — Builds the column west from the origin. Its support is the block one block east of the origin.
+- `east` — Builds the column east from the origin. Its support is the block one block west of the origin.
 
 #### `may_place_on` {#may_place_on}
 

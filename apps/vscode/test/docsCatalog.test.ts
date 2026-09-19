@@ -200,8 +200,9 @@ describe('the coverage numbers', () => {
         'minecraft:geode_feature base_crack_size',
         'minecraft:geode_feature generate_crack_chance',
         'minecraft:ore_feature replace_rules',
-        'minecraft:scatter_feature coordinate_eval_order',
-        'minecraft:scatter_feature distribution.coordinate_eval_order',
+        // `coordinate_eval_order` used to be here, on both spellings. It has a shared entry now:
+        // the mechanism its six values all rest on is said once, on the field, instead of being
+        // generated into each value's own paragraph. See SHARED_FIELD_DOCS in catalog.ts.
         'minecraft:scatter_feature distribution.scatter_chance',
         'minecraft:scatter_feature scatter_chance',
         'minecraft:single_block_feature enforce_placement_rules',

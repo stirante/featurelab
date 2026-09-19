@@ -32,7 +32,7 @@ The origin moves down while the cell below it is air, stopping on the first bloc
 
 **The parameter object holding the chance gate, the axis order and the three axes.**
 
-Everything about WHERE and HOW OFTEN lives in here, and so does the count: `iterations` belongs to the connection to the placed feature, where it can also carry the setup script real packs write into it, and the same box is drawn in this section so the value is reachable from the place the file keeps it.
+Everything about WHERE and HOW OFTEN lives in here, and so does the count: `iterations` belongs to the connection to the placed feature, where it can also carry the setup script real packs write into it, and the same box is drawn in this section so the value is reachable from the place the file keeps it. The three axes below are read the same way as each other: a bare number or Molang string pins that axis to a fixed offset with no draw at all, and the object form `{distribution, extent, ...}` is what makes it vary.
 
 The nested parameter object. Registered only at format_version 1.21.10 and above; below that the same parameters are flat keys on the feature body. The two shapes are mutually exclusive -- writing this key in an older-versioned file has the engine drop it unread and then fail on the missing flat `iterations`.
 
@@ -46,24 +46,24 @@ Either a percent -- a number or a Molang string -- or a {numerator, denominator}
 
 <p class="fl-facts">optional · enum · absent: xzy</p>
 
-The order axes are evaluated in. Load-bearing rather than cosmetic: it permutes which random draw feeds which axis, so placements MOVE, and it decides which variable.world{x,y,z} are already set when a later axis evaluates.
+**The order the three axes are worked out in, and so what each one can already see.**
+
+Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. variable.worldx, variable.worldy and variable.worldz are each written as soon as that axis is known, so a later axis can read an earlier one while the first can read neither of the others. For grid distributions the cell index is handed on in this same order too, which is what makes two or three grid axes walk a lattice together rather than repeat the same row. The six values below differ only in which axis goes where.
 
 Values, in the order the engine lists them:
 
-- `xyz` — Evaluates x, then y, then z. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldx as soon as x is known, so y and z can read it while x's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `xzy` — Evaluates x, then z, then y. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldx as soon as x is known, so z and y can read it while x's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `yxz` — Evaluates y, then x, then z. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldy as soon as y is known, so x and z can read it while y's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `yzx` — Evaluates y, then z, then x. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldy as soon as y is known, so z and x can read it while y's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `zxy` — Evaluates z, then x, then y. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldz as soon as z is known, so x and y can read it while z's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `zyx` — Evaluates z, then y, then x. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldz as soon as z is known, so y and x can read it while z's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
+- `xyz` — Evaluates x, then y, then z. y and z can read variable.worldx; x's own expression can read neither of theirs.
+- `xzy` — Evaluates x, then z, then y. z and y can read variable.worldx; x's own expression can read neither of theirs.
+- `yxz` — Evaluates y, then x, then z. x and z can read variable.worldy; y's own expression can read neither of theirs.
+- `yzx` — Evaluates y, then z, then x. z and x can read variable.worldy; y's own expression can read neither of theirs.
+- `zxy` — Evaluates z, then x, then y. x and y can read variable.worldz; z's own expression can read neither of theirs.
+- `zyx` — Evaluates z, then y, then x. y and x can read variable.worldz; z's own expression can read neither of theirs.
 
 #### `distribution.x` {#distribution-x}
 
 <p class="fl-facts">optional · coordinate · absent: a zero-width axis at the origin</p>
 
 **How far east/west of the origin each iteration lands.**
-
-A bare number or Molang string pins the axis to that offset with no draw at all. The object form `{distribution, extent, ...}` is what makes it vary.
 
 A number, a Molang string, or a {distribution, extent} object.
 
@@ -116,8 +116,6 @@ Added to the cell position, and also carried into the index handed to the next a
 
 **How far above/below the origin each iteration lands.**
 
-A bare number or Molang string pins the axis to that offset with no draw at all. The object form `{distribution, extent, ...}` is what makes it vary.
-
 A number, a Molang string, or a {distribution, extent} object.
 
 Sub-keys: the same as [`distribution.x`](#distribution-x) — [`distribution`](#distribution-x-distribution), [`extent`](#distribution-x-extent), [`step_size`](#distribution-x-step_size), [`grid_offset`](#distribution-x-grid_offset).
@@ -127,8 +125,6 @@ Sub-keys: the same as [`distribution.x`](#distribution-x) — [`distribution`](#
 <p class="fl-facts">optional · coordinate · absent: a zero-width axis at the origin</p>
 
 **How far north/south of the origin each iteration lands.**
-
-A bare number or Molang string pins the axis to that offset with no draw at all. The object form `{distribution, extent, ...}` is what makes it vary.
 
 A number, a Molang string, or a {distribution, extent} object.
 
@@ -148,16 +144,18 @@ Either a percent -- a number or a Molang string -- or a {numerator, denominator}
 
 <p class="fl-facts">optional · enum · absent: xzy · dropped at format_version 1.21.10</p>
 
-The order axes are evaluated in. Load-bearing rather than cosmetic: it permutes which random draw feeds which axis, so placements MOVE, and it decides which variable.world{x,y,z} are already set when a later axis evaluates.
+**The order the three axes are worked out in, and so what each one can already see.**
+
+Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. variable.worldx, variable.worldy and variable.worldz are each written as soon as that axis is known, so a later axis can read an earlier one while the first can read neither of the others. For grid distributions the cell index is handed on in this same order too, which is what makes two or three grid axes walk a lattice together rather than repeat the same row. The six values below differ only in which axis goes where.
 
 Values, in the order the engine lists them:
 
-- `xyz` — Evaluates x, then y, then z. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldx as soon as x is known, so y and z can read it while x's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `xzy` — Evaluates x, then z, then y. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldx as soon as x is known, so z and y can read it while x's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `yxz` — Evaluates y, then x, then z. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldy as soon as y is known, so x and z can read it while y's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `yzx` — Evaluates y, then z, then x. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldy as soon as y is known, so z and x can read it while y's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `zxy` — Evaluates z, then x, then y. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldz as soon as z is known, so x and y can read it while z's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `zyx` — Evaluates z, then y, then x. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldz as soon as z is known, so y and x can read it while z's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
+- `xyz` — Evaluates x, then y, then z. y and z can read variable.worldx; x's own expression can read neither of theirs.
+- `xzy` — Evaluates x, then z, then y. z and y can read variable.worldx; x's own expression can read neither of theirs.
+- `yxz` — Evaluates y, then x, then z. x and z can read variable.worldy; y's own expression can read neither of theirs.
+- `yzx` — Evaluates y, then z, then x. z and x can read variable.worldy; y's own expression can read neither of theirs.
+- `zxy` — Evaluates z, then x, then y. x and y can read variable.worldz; z's own expression can read neither of theirs.
+- `zyx` — Evaluates z, then y, then x. y and x can read variable.worldz; z's own expression can read neither of theirs.
 
 #### `x` {#x}
 

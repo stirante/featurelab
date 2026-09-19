@@ -71,7 +71,7 @@ The shape IS known -- `{}` matches everything, `{"test": "has_biome_tag", "value
 
 **How many times per chunk the rule places its feature, and where in the chunk.**
 
-The engine treats this whole object as optional, and a rule without one is the quietest failure this file format has: it loads, attaches to its pass and its biomes, and then places nothing in every chunk forever, because the parameters it falls back on have an iteration count of zero.
+The engine treats this whole object as optional, and a rule without one is the quietest failure this file format has: it loads, attaches to its pass and its biomes, and then places nothing in every chunk forever, because the parameters it falls back on have an iteration count of zero. Its three axes are read the same way as each other: a bare number or Molang string pins that axis to a fixed offset with no draw at all, and the object form `{distribution, extent, ...}` is what spreads placements across the chunk.
 
 Optional to the schema and load-bearing in practice: leaving it out is the one way to get a rule that is live, correct and completely inert. The same parameter object a scatter uses, with one addition -- `iterations` is a plain field here, because a rule has no feature-placing edge to carry it.
 
@@ -90,8 +90,6 @@ How many times the rule places its feature per chunk. A number or a Molang strin
 <p class="fl-facts">optional · coordinate · absent: a zero-width axis at the origin</p>
 
 **How far east/west of the chunk position each iteration lands.**
-
-A bare number or Molang string pins the axis to that offset with no draw at all. The object form `{distribution, extent, ...}` is what spreads placements across the chunk.
 
 A number, a Molang string, or a {distribution, extent} object.
 
@@ -144,7 +142,7 @@ Added to the cell position, and also carried into the index handed to the next a
 
 **The height each iteration is placed at.**
 
-Usually the axis that matters most on a rule: it is what puts ore underground and a tree on the surface. A bare number pins every iteration to that height with no draw at all.
+Usually the axis that matters most on a rule: it is what puts ore underground and a tree on the surface.
 
 A number, a Molang string, or a {distribution, extent} object.
 
@@ -155,8 +153,6 @@ Sub-keys: the same as [`distribution.x`](#distribution-x) — [`distribution`](#
 <p class="fl-facts">optional · coordinate · absent: a zero-width axis at the origin</p>
 
 **How far north/south of the chunk position each iteration lands.**
-
-A bare number or Molang string pins the axis to that offset with no draw at all. The object form `{distribution, extent, ...}` is what spreads placements across the chunk.
 
 A number, a Molang string, or a {distribution, extent} object.
 
@@ -176,17 +172,15 @@ Either a percent -- a number or a Molang string -- or a {numerator, denominator}
 
 <p class="fl-facts">optional · enum · absent: xzy</p>
 
-**Which axis is drawn first when the three are evaluated.**
+**The order the three axes are worked out in, and so what each one can already see.**
 
-It changes results rather than tidiness: it permutes which random draw feeds which axis, so the placements move, and it decides which axes are already known when a later one is evaluated against them.
-
-The order axes are evaluated in. Load-bearing rather than cosmetic: it permutes which random draw feeds which axis, so placements MOVE, and it decides which variable.world{x,y,z} are already set when a later axis evaluates.
+Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. variable.worldx, variable.worldy and variable.worldz are each written as soon as that axis is known, so a later axis can read an earlier one while the first can read neither of the others. For grid distributions the cell index is handed on in this same order too, which is what makes two or three grid axes walk a lattice together rather than repeat the same row. The six values below differ only in which axis goes where.
 
 Values, in the order the engine lists them:
 
-- `xyz` — Evaluates x, then y, then z. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldx as soon as x is known, so y and z can read it while x's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `xzy` — Evaluates x, then z, then y. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldx as soon as x is known, so z and y can read it while x's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `yxz` — Evaluates y, then x, then z. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldy as soon as y is known, so x and z can read it while y's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `yzx` — Evaluates y, then z, then x. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldy as soon as y is known, so z and x can read it while y's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `zxy` — Evaluates z, then x, then y. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldz as soon as z is known, so x and y can read it while z's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
-- `zyx` — Evaluates z, then y, then x. Each axis draws when its turn comes, so the order decides which draw feeds which axis and placements MOVE when you change it -- this is not a cosmetic setting. The engine also writes variable.worldz as soon as z is known, so y and x can read it while z's own expression can read neither of theirs. For grid distributions the cell index is handed on in this same order, which is what makes two or three grid axes walk a lattice together rather than repeat the same row.
+- `xyz` — Evaluates x, then y, then z. y and z can read variable.worldx; x's own expression can read neither of theirs.
+- `xzy` — Evaluates x, then z, then y. z and y can read variable.worldx; x's own expression can read neither of theirs.
+- `yxz` — Evaluates y, then x, then z. x and z can read variable.worldy; y's own expression can read neither of theirs.
+- `yzx` — Evaluates y, then z, then x. z and x can read variable.worldy; y's own expression can read neither of theirs.
+- `zxy` — Evaluates z, then x, then y. x and y can read variable.worldz; z's own expression can read neither of theirs.
+- `zyx` — Evaluates z, then y, then x. y and x can read variable.worldz; z's own expression can read neither of theirs.
