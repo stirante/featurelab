@@ -64,6 +64,35 @@ export const GROUP_NODE_PREFIX = 'group:'
 /** What a group id may look like. Lower-case, so a slug derived from any name is one. */
 const GROUP_ID_PATTERN = /^[a-z0-9_-]+$/
 
+/** Whether two directive names are the same directive.
+ *
+ * FOLD-INSENSITIVE, because the engine's own suppression already is: `suppressedByIgnore` in
+ * wire/graphcheck.go matches `@featurelab:ignore` with `strings.EqualFold`, so one half of this
+ * tool honoured a capital and the other half dropped it. `@featurelab:Group pumpkins expanded
+ * Pumpkins` drew no group, warned nowhere, and read in the file exactly like one that worked --
+ * which is the same silence a misplaced directive produces, arrived at from the other side.
+ *
+ * Recognising it is not the same as approving of it: readGroups reports the spelling, because
+ * only the exact lower-case name survives a round trip through the engine's own writer. */
+function sameDirectiveName(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase()
+}
+
+/** Whether an annotation is a `@featurelab:group` directive, at any path and in any case. */
+function isGroupDirective(a: GroupAnnotationWire): boolean {
+  return sameDirectiveName(a.name, GROUP_DIRECTIVE)
+}
+
+/** Every group directive a node's file carries -- ROOT OR NOT, and however it is spelled.
+ *
+ * The one list that answers "how many of these are in this file", which is what both the removal
+ * plan and the warnings need and what neither of them had: both used to filter on `jsonPath ===
+ * '$'` first, so a directive written one line low was invisible to the reader AND survived the
+ * removal that was supposed to take the file out of every group it is in. */
+function groupDirectivesOf(node: GroupNodeWire): readonly GroupAnnotationWire[] {
+  return (node.annotations ?? []).filter(isGroupDirective)
+}
+
 // ---------------------------------------------------------------------------
 // The wire, as this module needs it
 // ---------------------------------------------------------------------------
@@ -115,6 +144,15 @@ export interface GroupNodeSummary {
   readonly id: string
   readonly name: string
   readonly count: number
+  /** The members the card stands for, in graph order -- every one of them, drawn or not.
+   *
+   * A CARD THAT SAYS "3 features" NAMES NONE OF THEM. A collapsed group used to be a name and a
+   * number: the hover said the same thing in longer words, and the only way to learn what was
+   * inside was to select the card and read the panel. That is a fold nobody can read ACROSS --
+   * the whole reason to collapse a group is to go on seeing the pack's shape, and a box whose
+   * contents are unknowable is a hole in it. The renderer shows the first few and says how many
+   * are left; the full list is here so it can choose how many without asking anyone. */
+  readonly memberIds: readonly string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -138,11 +176,19 @@ export interface GroupsView {
   readonly byId: ReadonlyMap<string, FeatureGroup>
   /** Node id -> the id of the group it belongs to. */
   readonly memberOf: ReadonlyMap<string, string>
+  /** Node id -> what is wrong with THAT FILE's directives, one line each.
+   *
+   * The same sentences appear on the group they are about, and they have to appear here too,
+   * because the group's panel is not where the author is standing when the file is the problem. A
+   * node carrying two directives shows one group on its row and silently belongs to another the
+   * moment the first is taken off -- and the only warning about it used to be on the panel of the
+   * group that happened to win. See the `None` path in the webview's groupRow. */
+  readonly nodeWarnings: ReadonlyMap<string, readonly string[]>
   /** Directives that could not be read as a group at all, one line each. */
   readonly warnings: readonly string[]
 }
 
-const EMPTY_VIEW: GroupsView = { groups: [], byId: new Map(), memberOf: new Map(), warnings: [] }
+const EMPTY_VIEW: GroupsView = { groups: [], byId: new Map(), memberOf: new Map(), nodeWarnings: new Map(), warnings: [] }
 
 interface ParsedDirective {
   readonly id: string
@@ -182,6 +228,54 @@ function majority<T>(values: readonly T[], describe: (v: T) => string): { value:
   return { value: best, note: parts.join(', ') }
 }
 
+/**
+ * `graph` with `ops` folded into its nodes' annotations -- the graph as it will be once the host
+ * has written them.
+ *
+ * WHAT THIS IS FOR. Every group operation is a ROUND TRIP: the panel posts a batch of directive
+ * writes, the host writes each member's file, re-reads the pack and sends a graph back, and only
+ * then does the panel know what the group is called or whether it is folded. Until that lands --
+ * a couple of hundred milliseconds on an ordinary pack, which is well inside one person's second
+ * click -- every group a plan is made against still carries its OLD name and its OLD state. And a
+ * directive is rewritten WHOLE (`<id> <state> <name...>`), so the next operation does not add to
+ * the one before it, it undoes it: rename a group and fold it a moment later, and the fold writes
+ * the name back to what it was.
+ *
+ * So the operations already asked for are folded in before the next plan is made. This changes
+ * nothing that is DRAWN -- the canvas still redraws only from a graph the host has re-read, as
+ * everything else in this editor does -- and the panel drops these the moment an answer arrives.
+ *
+ * An op is matched to a node by FILE, because that is what an op addresses; several members of
+ * one group are several ops. Writing replaces any directive of the same name at the same path,
+ * exactly as the engine's annotate does, so folding the same op in twice says the same thing.
+ */
+export function withDirectives(graph: GroupGraph, ops: readonly AnnotateOp[]): GroupGraph {
+  if (ops.length === 0) return graph
+  const byFile = new Map<string, AnnotateOp[]>()
+  for (const op of ops) {
+    const list = byFile.get(op.file)
+    if (list) list.push(op)
+    else byFile.set(op.file, [op])
+  }
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) => {
+      const forFile = node.file === undefined ? undefined : byFile.get(node.file)
+      if (forFile === undefined) return node
+      let annotations: GroupAnnotationWire[] = [...(node.annotations ?? [])]
+      for (const op of forFile) {
+        // The name comparison is fold-insensitive for the same reason readGroups's is: a file
+        // carrying `@featurelab:Group` holds a directive this module counts, and a planned
+        // removal that did not match it would leave the planned view showing a group the plan
+        // has just taken the file out of. See isGroupDirective.
+        annotations = annotations.filter((a) => !(sameDirectiveName(a.name, op.name) && a.jsonPath === op.path))
+        if (op.remove !== true) annotations.push({ name: op.name, args: [...(op.args ?? [])], jsonPath: op.path })
+      }
+      return { ...node, annotations }
+    }),
+  }
+}
+
 /** Every group the graph's files declare.
  *
  * Read from the nodes as handed in, so a caller that has already hidden a compound's children
@@ -192,27 +286,80 @@ export function readGroups(graph: GroupGraph): GroupsView {
   const order: string[] = []
   const warnings: string[] = []
   const perGroupWarnings = new Map<string, string[]>()
+  const nodeWarnings = new Map<string, readonly string[]>()
 
   for (const node of graph.nodes) {
     if (!node.file) continue
-    const directives = (node.annotations ?? []).filter((a) => a.name === GROUP_DIRECTIVE && a.jsonPath === '$')
+    // EVERY group directive in the file, wherever it is and however it is spelled -- then the
+    // ones that can actually declare a group. The difference between the two lists is the whole
+    // of what this block reports, and it used to be filtered away one line before the warning
+    // path could see any of it.
+    const all = groupDirectivesOf(node)
+    const directives = all.filter((a) => a.jsonPath === '$')
+    // A directive a line too low. The engine attaches a comment to the JSON value it precedes,
+    // so `// @featurelab:group ...` written INSIDE the braces lands on `$.format_version` (or
+    // whatever key follows it) rather than on the file. It is not a group and never was; it is
+    // also not nothing, because the panel's own "None" has to take it off -- see removeOps -- and
+    // because the next UI edit writes a second directive above the brace and leaves this one
+    // underneath, permanently invisible.
+    const misplaced = all.filter((a) => a.jsonPath !== '$')
+    const nodeNotes: string[] = []
+    for (const stray of misplaced) {
+      nodeNotes.push(
+        `${node.id} carries a @featurelab:group directive on ${stray.jsonPath} rather than on the file itself, ` +
+          'so it declares no group. A group directive has to sit ABOVE the opening brace. ' +
+          'Choosing a group for this feature from the panel rewrites all of them.',
+      )
+    }
+    // A capital in the name. The engine reads `ignore` fold-insensitively (wire/graphcheck.go's
+    // suppressedByIgnore), so a directive this half dropped on a spelling was one the other half
+    // would have honoured, and the disagreement was silent at both ends.
+    for (const odd of all.filter((a) => a.name !== GROUP_DIRECTIVE)) {
+      nodeNotes.push(
+        `${node.id} spells its directive @featurelab:${odd.name}; it is read as @featurelab:${GROUP_DIRECTIVE}. ` +
+          `Write it lower case -- nothing else in this pack will match "${odd.name}".`,
+      )
+    }
     const first = directives[0]
-    if (first === undefined) continue
+    if (first === undefined) {
+      // No group, but possibly something to say about why not.
+      if (nodeNotes.length > 0) {
+        warnings.push(...nodeNotes)
+        nodeWarnings.set(node.id, nodeNotes)
+      }
+      continue
+    }
     const parsed = parseDirective(first.args)
     if (!parsed.ok) {
-      warnings.push(`${node.id}: its @featurelab:group directive was ignored -- ${parsed.why}.`)
+      warnings.push(`${node.id}: its @featurelab:group directive was ignored -- ${parsed.why}.`, ...nodeNotes)
+      if (nodeNotes.length > 0) nodeWarnings.set(node.id, nodeNotes)
       continue
     }
     const id = parsed.value.id
+    if (nodeNotes.length > 0) {
+      const list = perGroupWarnings.get(id) ?? []
+      list.push(...nodeNotes)
+      perGroupWarnings.set(id, list)
+      nodeWarnings.set(node.id, nodeNotes)
+    }
     if (!members.has(id)) {
       members.set(id, [])
       order.push(id)
     }
     members.get(id)!.push({ node, directive: parsed.value })
     if (directives.length > 1) {
+      // Said on the group AND on the node. The node is where taking it out of a group goes
+      // wrong -- one directive comes off and the next one takes over, which looks like the
+      // feature moving itself into a group nobody chose.
+      const line =
+        `${node.id} carries ${String(directives.length)} group directives; the first one is used. ` +
+        'Taking it out of a group removes all of them.'
       const list = perGroupWarnings.get(id) ?? []
-      list.push(`${node.id} carries ${String(directives.length)} group directives; the first one is used.`)
+      list.push(line)
       perGroupWarnings.set(id, list)
+      // Appended rather than assigned: a file can be both misplaced-and-duplicated at once, and
+      // the second finding used to replace the first wholesale.
+      nodeWarnings.set(node.id, [...(nodeWarnings.get(node.id) ?? []), line])
     }
   }
   if (order.length === 0 && warnings.length === 0) return EMPTY_VIEW
@@ -238,7 +385,12 @@ export function readGroups(graph: GroupGraph): GroupsView {
     byId.set(id, group)
     for (const m of list) memberOf.set(m.node.id, id)
   }
-  return { groups, byId, memberOf, warnings }
+  return { groups, byId, memberOf, nodeWarnings, warnings }
+}
+
+/** What `readGroups` has to say about THIS node's own file, or an empty list. */
+export function nodeGroupWarnings(view: GroupsView, nodeId: string): readonly string[] {
+  return view.nodeWarnings.get(nodeId) ?? []
 }
 
 /** The group a node belongs to, or null. */
@@ -340,6 +492,11 @@ export type GroupPlan =
       readonly groupId: string
       /** Nodes this takes OUT of another group on the way in. */
       readonly moved: readonly string[]
+      /** Nodes this takes out of `groupId` and does not put anywhere -- the ones a remove or an
+       * ungroup ends the membership of. Told apart from `moved` because the panel has to know
+       * which departures it ASKED for: a member that leaves a group without one of these behind
+       * it left because its file was deleted or edited, and that is worth saying. */
+      readonly leaving: readonly string[]
     }
   | { readonly ok: false; readonly reason: string }
 
@@ -351,8 +508,81 @@ function setOp(file: string, id: string, collapsed: boolean, name: string): Anno
   return { file, path: '$', name: GROUP_DIRECTIVE, args: [id, collapsed ? 'collapsed' : 'expanded', ...nameWords(name)] }
 }
 
-function removeOp(file: string): AnnotateOp {
-  return { file, path: '$', name: GROUP_DIRECTIVE, remove: true }
+/** How many `@featurelab:group` directives this node's file carries, ANYWHERE in it.
+ *
+ * NOT "on its root", which is what it counted before and what made "None" a half-measure. A
+ * directive written a line below the opening brace attaches to the first key rather than to the
+ * file, declares no group, and was therefore invisible to this count -- so a file holding a
+ * working directive above the brace and a hand-written one below it was removed once, came back
+ * still carrying the second, and rejoined the group the author had just left. */
+function directiveCount(node: GroupNodeWire): number {
+  return groupDirectivesOf(node).length
+}
+
+/** Taking a file OUT of every group it is in -- one op per directive it carries, not one op.
+ *
+ * ONE WAS A DATA BUG WEARING THE WORD "NONE". The engine's RemoveAnnotation takes the FIRST
+ * directive of that name off and returns the file otherwise untouched, which is correct for a file
+ * with one. A file with two -- which a hand edit or an interrupted batch can leave behind, and
+ * which readGroups already reports -- came back still carrying the second, so choosing "None" on a
+ * node showing "Patches" moved it silently into "Markers". The author asked to be in no group and
+ * ended up in a different one, with nothing on screen saying so.
+ *
+ * Ops on one file apply in sequence to the same bytes (see the engine's methodAnnotateBatch), and
+ * a remove that finds nothing returns the file unchanged, so asking N times is exactly "all of
+ * them" and never more. At least one op always, so a node whose directives this view could not
+ * parse is still cleaned up.
+ *
+ * AND EACH OP CARRIES THE PATH AND SPELLING OF THE DIRECTIVE IT IS FOR. The engine matches a
+ * removal on name AND jsonPath exactly (jsonc.RemoveAnnotation), so N removals all addressed at
+ * `$`/`group` take off N copies of the root one and leave a misplaced or oddly-capitalised
+ * directive exactly where it was. That is the second half of the same bug: the panel said the
+ * feature was in no group, the file still said it was, and the next reload put it back. A
+ * removal aimed at a directive that is not there is not an error -- the engine returns the file
+ * unchanged -- so this is never more than "all of them" either. */
+function removeOps(node: GroupNodeWire & { file: string }): AnnotateOp[] {
+  const found = groupDirectivesOf(node)
+  if (found.length === 0) return [{ file: node.file, path: '$', name: GROUP_DIRECTIVE, remove: true }]
+  return found.map((a) => ({ file: node.file, path: a.jsonPath, name: a.name, remove: true }))
+}
+
+/** The removals that have to go IN FRONT of a `setOp` on this file, or none.
+ *
+ * `setOp` writes `@featurelab:group` at `$`, and the engine replaces a directive matching that
+ * name at that path -- exactly that one. Every OTHER group directive in the file survives it: a
+ * hand-written one a line below the brace, and one spelled with a capital. So the ordinary act of
+ * choosing a group from the inspector used to leave the file holding two, the second of them
+ * permanently invisible, and "None" then took one off and the feature quietly rejoined the group.
+ *
+ * Empty for the file everybody actually has, which carries nought or one root directive; this
+ * costs nothing until a file is already in the state it exists to end.
+ *
+ * ONE ROOT DIRECTIVE IS SPARED, NOT ALL OF THEM, and that is the variant this got wrong first
+ * time. `setOp` overwrites exactly ONE `$`/`group` -- the engine's own writer replaces the first
+ * match and returns -- so exactly one may be left standing for it to overwrite. A file holding
+ * TWO lower-case `@featurelab:group` directives at `$` (which readGroups already warns about, so
+ * it is a state this tool knows how to reach) matched the old filter twice, contributed no
+ * removal at all, and came out of "choose a group" still holding a second root directive that
+ * nothing on screen mentions -- the same defect as the misplaced and the capitalised one, one
+ * variant over. Whichever copy the set op will land on is the one spared; every other directive
+ * in the file, at any path and in any spelling, is removed first. */
+function supersededRemoveOps(node: GroupNodeWire & { file: string }): AnnotateOp[] {
+  let spared = false
+  const ops: AnnotateOp[] = []
+  for (const a of groupDirectivesOf(node)) {
+    if (!spared && a.jsonPath === '$' && a.name === GROUP_DIRECTIVE) {
+      spared = true
+      continue
+    }
+    ops.push({ file: node.file, path: a.jsonPath, name: a.name, remove: true })
+  }
+  return ops
+}
+
+/** A set of a file's directive, with whatever the set would not have overwritten taken off first.
+ * Ops on one file apply in sequence, so the order here is the order on disk. */
+function setOpsFor(node: GroupNodeWire & { file: string }, id: string, collapsed: boolean, name: string): AnnotateOp[] {
+  return [...supersededRemoveOps(node), setOp(node.file, id, collapsed, name)]
 }
 
 /** The nodes named, with their files, or the first reason one of them cannot be a member. */
@@ -389,10 +619,11 @@ export function planCreate(graph: GroupGraph, view: GroupsView, nodeIds: readonl
   const moved = members.nodes.filter((n) => view.memberOf.has(n.id)).map((n) => n.id)
   return {
     ok: true,
-    ops: members.nodes.map((n) => setOp(n.file, id, false, clean)),
+    ops: members.nodes.flatMap((n) => setOpsFor(n, id, false, clean)),
     summary: `Grouping ${plural(members.nodes.length, 'feature')} as "${clean}".`,
     groupId: id,
     moved,
+    leaving: [],
   }
 }
 
@@ -407,10 +638,11 @@ export function planRename(graph: GroupGraph, view: GroupsView, groupId: string,
   if (!members.ok) return refuse(members.reason)
   return {
     ok: true,
-    ops: members.nodes.map((n) => setOp(n.file, group.id, group.collapsed, clean)),
+    ops: members.nodes.flatMap((n) => setOpsFor(n, group.id, group.collapsed, clean)),
     summary: `Renaming "${group.name}" to "${clean}".`,
     groupId: group.id,
     moved: [],
+    leaving: [],
   }
 }
 
@@ -422,10 +654,11 @@ export function planSetCollapsed(graph: GroupGraph, view: GroupsView, groupId: s
   if (!members.ok) return refuse(members.reason)
   return {
     ok: true,
-    ops: members.nodes.map((n) => setOp(n.file, group.id, collapsed, group.name)),
+    ops: members.nodes.flatMap((n) => setOpsFor(n, group.id, collapsed, group.name)),
     summary: `${collapsed ? 'Collapsing' : 'Expanding'} "${group.name}".`,
     groupId: group.id,
     moved: [],
+    leaving: [],
   }
 }
 
@@ -441,10 +674,11 @@ export function planAdd(graph: GroupGraph, view: GroupsView, groupId: string, no
   const moved = members.nodes.filter((n) => view.memberOf.has(n.id)).map((n) => n.id)
   return {
     ok: true,
-    ops: members.nodes.map((n) => setOp(n.file, group.id, group.collapsed, group.name)),
+    ops: members.nodes.flatMap((n) => setOpsFor(n, group.id, group.collapsed, group.name)),
     summary: `Adding ${plural(members.nodes.length, 'feature')} to "${group.name}".`,
     groupId: group.id,
     moved,
+    leaving: [],
   }
 }
 
@@ -460,12 +694,13 @@ export function planRemove(graph: GroupGraph, view: GroupsView, groupId: string,
   const last = leaving.length >= group.memberIds.length
   return {
     ok: true,
-    ops: members.nodes.map((n) => removeOp(n.file)),
+    ops: members.nodes.flatMap((n) => removeOps(n)),
     summary: last
       ? `Removing the last of "${group.name}", which ends the group.`
       : `Removing ${plural(members.nodes.length, 'feature')} from "${group.name}".`,
     groupId: group.id,
     moved: [],
+    leaving: members.nodes.map((n) => n.id),
   }
 }
 
@@ -477,10 +712,11 @@ export function planUngroup(graph: GroupGraph, view: GroupsView, groupId: string
   if (!members.ok) return refuse(members.reason)
   return {
     ok: true,
-    ops: members.nodes.map((n) => removeOp(n.file)),
+    ops: members.nodes.flatMap((n) => removeOps(n)),
     summary: `Ungrouping "${group.name}" -- ${plural(members.nodes.length, 'feature')} stay where they are.`,
     groupId: group.id,
     moved: [],
+    leaving: members.nodes.map((n) => n.id),
   }
 }
 
@@ -533,8 +769,8 @@ export function collapseGroups<
     }
     const group = collapsed.find((g) => groupNodeId(g.id) === owner)
     if (group !== undefined && firstMember.get(group.id) === node.id) {
-      const count = group.memberIds.filter((id) => present.has(id)).length
-      const summary: GroupNodeSummary = { id: group.id, name: group.name, count }
+      const memberIds = group.memberIds.filter((id) => present.has(id))
+      const summary: GroupNodeSummary = { id: group.id, name: group.name, count: memberIds.length, memberIds }
       nodes.push({ id: owner, group: summary } as unknown as N)
     }
   }
@@ -597,14 +833,24 @@ export function groupCardPositions(
 
 /** The frames the renderer draws for EXPANDED groups: which members, under what name. Only the
  * members actually in `graph`, so a frame is never drawn around a node that is not there. */
-export function expandedFrames(view: GroupsView, graph: { readonly nodes: readonly { readonly id: string }[] }): { groupId: string; name: string; memberIds: string[] }[] {
+export function expandedFrames(
+  view: GroupsView,
+  graph: { readonly nodes: readonly { readonly id: string }[] },
+): { groupId: string; name: string; memberIds: string[]; lone: boolean }[] {
   const present = new Set(graph.nodes.map((n) => n.id))
-  const out: { groupId: string; name: string; memberIds: string[] }[] = []
+  const out: { groupId: string; name: string; memberIds: string[]; lone: boolean }[] = []
   for (const group of view.groups) {
     if (group.collapsed) continue
     const memberIds = group.memberIds.filter((id) => present.has(id))
     if (memberIds.length === 0) continue
-    out.push({ groupId: group.id, name: group.name, memberIds })
+    // A BRACKET ROUND ONE THING IS NOT A BRACKET. A group is several features somebody decided to
+    // read as one, and a group of one is the remains of that decision: the other members were
+    // deleted, or their directives were taken off, and what is left draws as an ordinary group
+    // with a frame round it and a count of 1 in the sidebar -- indistinguishable from a group
+    // somebody meant. Reported as a fact rather than as a fault, because a group of one is also
+    // what you have for the moment between creating one and adding the second member to it. The
+    // whole of the difference is that it is SAID.
+    out.push({ groupId: group.id, name: group.name, memberIds, lone: group.memberIds.length === 1 })
   }
   return out
 }
