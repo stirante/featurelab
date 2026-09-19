@@ -35,6 +35,17 @@
   font-size: 12px;
   color: var(--vp-c-text-2);
   margin: -8px 0 12px !important;
+  line-height: 1.55;
+}
+
+/* On a phone the facts wrap to two or three lines, and the -8px that tucks a one-line facts
+   row under its heading on a wide screen instead welds the block to the bottom of the code-
+   styled field name. Give it room, and more air before the lead sentence it introduces. */
+@media (max-width: 640px) {
+  .fl-facts {
+    margin: 4px 0 20px !important;
+    line-height: 1.7;
+  }
 }
 
 /* The wiki's `::: note` container, styled like the default theme's `info` block. */
