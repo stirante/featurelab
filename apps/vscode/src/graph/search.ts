@@ -136,6 +136,35 @@ export const SEARCH_STRINGS = {
     'Type part of a name. Or a filter: is:root, is:problem, is:shared, or "type:" and "file:" with what to look for after them.',
 } as const
 
+/** The marks a result row can carry, and the one sentence each of them stands for.
+ *
+ * A RESULT LIST IS SCANNED, NOT READ. Every row used to carry its explanation as prose, and
+ * because the commonest of those explanations is a property of a feature TYPE rather than of a
+ * node, thirty rows carried the same two lines. Thirty copies of a sentence is not thirty times
+ * the information; it is a list you cannot see the ids in. So the row carries the mark, and the
+ * footer carries the sentence, once, for the marks that are actually on screen.
+ *
+ * The keys are the chips' visible text. They are two or three ordinary words on purpose: a chip
+ * nobody can read without a legend has simply moved the problem.
+ */
+export const SEARCH_CHIPS = {
+  // ONE NAME FOR ONE STATE, and it is the engine's. wire.GraphNode carries `Unresolved`, the
+  // canvas badge says "unresolved", the legend row is headed "Unresolved" and the filter is
+  // `is:unresolved`. This chip used to read "no feature", the legend "Not in this pack" and the
+  // filter "broken" -- five names for the one thing, on one screen, none of them the engine's.
+  unresolved: 'This pack defines nothing by this name, so nothing is placed where it is used.',
+  'from the game': 'The game provides this one. It works in game; this tool cannot preview it.',
+  loop: 'It is part of a loop that eventually delegates back to itself.',
+  'partly previewed': 'This feature type is only partly built here, so a preview may differ from the game.',
+  'not previewed': 'This feature type is not built here, so it previews as empty. The game still places it.',
+} as const
+
+export type SearchChip = keyof typeof SEARCH_CHIPS
+
+function isSearchChip(value: string): value is SearchChip {
+  return Object.prototype.hasOwnProperty.call(SEARCH_CHIPS, value)
+}
+
 // ---------------------------------------------------------------------------
 // The index
 // ---------------------------------------------------------------------------
@@ -162,6 +191,16 @@ export interface SearchEntry {
   file?: string
   /** `file` lowercased. Empty when the node has no file. */
   lowerFile: string
+  /** The name of the author-declared group this node is in, exactly as spelled, or undefined.
+   *
+   * A group is the one name on this canvas an author CHOSE -- "Surface Markers", not
+   * `wiki:rng_marker` -- so it is the name they reach for, and until this was indexed the box
+   * answered a search for it with "nothing in this pack matches". It is not on the node's wire: it
+   * is read off the `@featurelab:group` directive by graph/groups.ts and handed in, so this module
+   * keeps its no-run-time-imports rule (see the header). */
+  groupName?: string
+  /** `groupName` lowercased. Empty when the node is in no group. */
+  lowerGroup: string
   /** The strings inside this node's own fields, lowercased, space-joined, clamped to
    * CONTENT_CHAR_BUDGET. Empty for a node with no fields. */
   content: string
@@ -337,7 +376,15 @@ function components(nodeIds: readonly string[], edges: readonly GraphEdgeWire[])
  * keep than the search saves. What IS pre-computed is everything that would otherwise be redone
  * per keystroke -- the lowercasing, the namespace split, the fan counts, the component labels --
  * because those are paid once per reload and saved on every character typed. */
-export function buildSearchIndex(graph: GraphWire): SearchIndex {
+/** What the index cannot read off the graph itself. */
+export interface SearchIndexOptions {
+  /** Node id -> the display name of the group it is in. Computed by the caller from
+   * graph/groups.ts's GroupsView; absent means "this pack has no groups", which is the ordinary
+   * case and costs nothing. */
+  readonly groupNames?: ReadonlyMap<string, string>
+}
+
+export function buildSearchIndex(graph: GraphWire, options: SearchIndexOptions = {}): SearchIndex {
   const fanIn = new Map<string, number>()
   const fanOut = new Map<string, number>()
   for (const edge of graph.edges) {
@@ -365,6 +412,7 @@ export function buildSearchIndex(graph: GraphWire): SearchIndex {
     contentChars += text.length
     if (clamped) clampedNodes++
     const component = comp.of.get(node.id) ?? -1
+    const groupName = options.groupNames?.get(node.id)
     const entry: SearchEntry = {
       id: node.id,
       node,
@@ -375,6 +423,8 @@ export function buildSearchIndex(graph: GraphWire): SearchIndex {
       lowerType: (node.typeId ?? '').toLowerCase(),
       file: node.file,
       lowerFile: (node.file ?? '').toLowerCase(),
+      groupName,
+      lowerGroup: (groupName ?? '').toLowerCase(),
       content: text,
       contentClamped: clamped,
       coverage: node.coverage,
@@ -427,7 +477,7 @@ export type SearchFlag =
   | 'shared'
   | 'leaf'
   | 'alone'
-  | 'broken'
+  | 'unresolved'
   | 'external'
   | 'cycle'
   | 'partial'
@@ -442,12 +492,12 @@ export const SEARCH_FLAGS: Readonly<Record<SearchFlag, string>> = {
   shared: 'Two or more features delegate to it, so editing it changes all of them.',
   leaf: 'Delegates to nothing. These are the features that place blocks.',
   alone: 'Connected to nothing else -- it is a drawing of one box.',
-  broken: 'Something delegates to it and this pack does not define it.',
+  unresolved: 'Something delegates to it and this pack does not define it.',
   external: 'A feature the game provides rather than this pack. It works in game; no preview.',
   cycle: 'Part of a loop where a feature eventually delegates back to itself.',
   partial: 'This feature type is only partly built here, so a preview may differ from the game.',
   unsupported: 'This feature type is not built here, so it previews as empty.',
-  problem: 'Anything the preview will get wrong: undefined references, loops, unbuilt types.',
+  problem: 'Anything the preview will get wrong: unresolved references, loops, unbuilt types.',
 }
 
 const FLAG_NAMES = new Set(Object.keys(SEARCH_FLAGS) as SearchFlag[])
@@ -535,6 +585,7 @@ export type SearchTier =
   | 'id-prefix'
   | 'id-word'
   | 'id-substring'
+  | 'group'
   | 'type'
   | 'file'
   | 'content'
@@ -548,10 +599,15 @@ export const TIER_RANK: Readonly<Record<SearchTier, number>> = {
   'id-prefix': 1,
   'id-word': 2,
   'id-substring': 3,
-  type: 4,
-  file: 5,
-  content: 6,
-  letters: 7,
+  // ABOVE the type and the file, and deliberately. A group name is the only name on this canvas
+  // the AUTHOR wrote; a type and a path are the machine's names for a thing. Somebody typing
+  // "Surface Markers" means the group, and a node whose FILE happens to contain those letters is
+  // a weaker answer to that query than a node the author put in the group.
+  group: 4,
+  type: 5,
+  file: 6,
+  content: 7,
+  letters: 8,
 }
 
 /** One clause saying why a result is in the list, per tier. Shown only when the match was NOT on
@@ -561,6 +617,7 @@ const TIER_REASON: Readonly<Record<SearchTier, string>> = {
   'id-prefix': '',
   'id-word': '',
   'id-substring': '',
+  group: 'Matched the group it is in.',
   type: 'Matched its feature type.',
   file: 'Matched the file it is written in.',
   content: 'Matched a value inside this feature.',
@@ -646,13 +703,19 @@ function matchTerm(entry: SearchEntry, term: string): TermMatch | null {
     }
   }
 
-  // 4. The type.
+  // 4. The group the author put it in.
+  if (entry.lowerGroup.length > 0) {
+    const inGroup = entry.lowerGroup.indexOf(term)
+    if (inGroup >= 0) return { tier: 'group', offset: inGroup, ranges: [] }
+  }
+
+  // 5. The type.
   if (entry.lowerType.length > 0) {
     const inType = entry.lowerType.indexOf(term)
     if (inType >= 0) return { tier: 'type', offset: inType, ranges: [] }
   }
 
-  // 5. The file it is written in.
+  // 6. The file it is written in.
   if (entry.lowerFile.length > 0) {
     const inFile = entry.lowerFile.indexOf(term)
     if (inFile >= 0) return { tier: 'file', offset: inFile, ranges: [] }
@@ -660,13 +723,13 @@ function matchTerm(entry: SearchEntry, term: string): TermMatch | null {
 
   if (term.length < SOFT_MATCH_MIN_TERM) return null
 
-  // 6. Something inside the feature: a block, a structure, a Molang expression, a key.
+  // 7. Something inside the feature: a block, a structure, a Molang expression, a key.
   if (entry.content.length > 0) {
     const inContent = entry.content.indexOf(term)
     if (inContent >= 0) return { tier: 'content', offset: inContent, ranges: [] }
   }
 
-  // 7. The letters, in order, anywhere in the id.
+  // 8. The letters, in order, anywhere in the id.
   const letters = subsequenceRanges(entry.bareId, term, entry.bareOffset)
   if (letters !== null) return { tier: 'letters', offset: letters[0]?.start ?? 0, ranges: letters }
 
@@ -685,7 +748,7 @@ function hasFlag(entry: SearchEntry, flag: SearchFlag): boolean {
       return entry.fanOut === 0 && !entry.unresolved && !entry.external
     case 'alone':
       return entry.componentSize === 1
-    case 'broken':
+    case 'unresolved':
       return entry.unresolved
     case 'external':
       return entry.external
@@ -721,8 +784,19 @@ export interface HitDetail {
   facts: readonly string[]
   /** One sentence, or '' when the highlighted id has already said everything. */
   why: string
-  /** Set when the node is one the preview cannot render faithfully. '' otherwise. */
+  /** Set when the node is one the preview cannot render faithfully. '' otherwise.
+   *
+   * Still the whole sentence, because it is what the row announces to a screen reader and what a
+   * host wanting the long form reads. What the ROW draws is `chip` -- see below. */
   warning: string
+  /** Two or three words for the same fact as `warning`, or '' when there is nothing to say.
+   *
+   * WHY A CHIP. `warning` is a property of a feature TYPE far more often than of a node, so the
+   * partial-coverage sentence landed on nearly every row of nearly every result list: the same
+   * two lines, thirty times, pushing the ids that were actually searched for off the bottom of
+   * the panel. A list is scanned, not read, and a fact repeated on every row of a list is not
+   * information -- it belongs once, in the footer, with a mark on the rows it applies to. */
+  chip: string
 }
 
 export interface SearchHit {
@@ -746,7 +820,7 @@ function describeEntry(entry: SearchEntry, tier: SearchTier): HitDetail {
   const kind = entry.isRule
     ? 'placement rule'
     : entry.unresolved
-      ? 'no feature behind it'
+      ? 'unresolved'
       : entry.external
         ? 'provided by the game'
         : (entry.typeId ?? 'no type recorded')
@@ -756,18 +830,43 @@ function describeEntry(entry: SearchEntry, tier: SearchTier): HitDetail {
   if (entry.fanOut > 0) facts.push(plural(entry.fanOut, 'child', 'children'))
   if (entry.fanOut === 0 && entry.fanIn > 0 && !entry.unresolved && !entry.external) facts.push('places blocks itself')
   if (entry.componentSize === 1) facts.push('connected to nothing else')
+  // Before the file, because a group is what somebody who searched for one is looking at, and
+  // because a collapsed group's members have no card of their own -- this row is the only place
+  // the list says where revealing the hit will actually land.
+  if (entry.groupName !== undefined && entry.groupName.length > 0) facts.push(`in "${entry.groupName}"`)
   if (entry.file !== undefined && entry.file.length > 0) facts.push(entry.file)
 
-  let warning = ''
-  if (entry.unresolved) warning = 'This pack defines nothing by this name, so nothing is placed where it is used.'
-  else if (entry.external) warning = 'The game provides this one. It works in game; this tool cannot preview it.'
-  else if (entry.inCycle) warning = 'It is part of a loop that eventually delegates back to itself.'
-  else if (entry.coverage === 'partial') warning = 'This feature type is only partly built here, so a preview may differ from the game.'
-  else if (entry.coverage === 'missing' || entry.coverage === 'out_of_scope') {
-    warning = 'This feature type is not built here, so it previews as empty. The game still places it.'
-  }
+  // One ladder decides the mark, and the mark decides the sentence, so a row can never show a
+  // chip that means something other than the explanation behind it.
+  let chip: SearchChip | '' = ''
+  if (entry.unresolved) chip = 'unresolved'
+  else if (entry.external) chip = 'from the game'
+  else if (entry.inCycle) chip = 'loop'
+  else if (entry.coverage === 'partial') chip = 'partly previewed'
+  else if (entry.coverage === 'missing' || entry.coverage === 'out_of_scope') chip = 'not previewed'
 
-  return { kind, facts, why: TIER_REASON[tier], warning }
+  return { kind, facts, why: TIER_REASON[tier], warning: chip === '' ? '' : SEARCH_CHIPS[chip], chip }
+}
+
+/** The chips a result list is actually showing, in the order rows show them. */
+export function chipsInUse(hits: readonly SearchHit[]): readonly SearchChip[] {
+  const seen: SearchChip[] = []
+  for (const hit of hits) {
+    const chip = hit.detail.chip
+    if (chip !== '' && isSearchChip(chip) && !seen.includes(chip)) seen.push(chip)
+  }
+  return seen
+}
+
+/** The footer's one line about the marks, or '' when no row carries one.
+ *
+ * Computed from the hits rather than written as a fixed sentence so the footer can never explain
+ * a mark that is not on screen -- and so the explanation is said ONCE per list instead of once
+ * per row, which is the whole point of the chips. */
+export function chipLegend(hits: readonly SearchHit[]): string {
+  const chips = chipsInUse(hits)
+  if (chips.length === 0) return ''
+  return `Marks on these rows -- ${chips.map((chip) => `"${chip}": ${SEARCH_CHIPS[chip]}`).join(' ')}`
 }
 
 /** The one-line form, for a host that wants a string rather than the parts. */
@@ -1232,6 +1331,13 @@ export const SEARCH_STYLESHEET = `
   --fls-bg: var(--vscode-editorWidget-background, #252526);
   --fls-fg: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground, #cccccc));
   --fls-fg-muted: var(--vscode-descriptionForeground, rgba(204, 204, 204, 0.7));
+  /* The readable half of the muted pair. descriptionForeground is #3b3b3b99 in Light Modern,
+     which over this panel's own background measured 3.48:1 on the footer -- the one line that
+     says what the keyboard does here and how much of what was found is on screen. Faded from
+     this panel's foreground towards this panel's background instead: 5.5:1 in Light Modern,
+     6.7:1 in Dark Modern, and still the quieter of the two weights. --fls-fg-muted stays for
+     the chips and ornament that owe no ratio. */
+  --fls-fg-dim: color-mix(in srgb, var(--fls-fg) 78%, var(--fls-bg));
   --fls-border: var(--vscode-editorWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
   --fls-sep: var(--vscode-menu-separatorBackground, rgba(128, 128, 128, 0.35));
   --fls-active-bg: var(--vscode-list-activeSelectionBackground, #04395e);
@@ -1381,6 +1487,35 @@ export const SEARCH_STYLESHEET = `
   color: var(--fls-warning-fg);
 }
 
+/* The mark a row carries instead of the paragraph it used to. Inline-block and one line, so a
+   row is the same height whether or not it has one -- a list whose rows change height as you
+   type is a list you cannot aim at. */
+.fls-row-chip {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 0 6px;
+  font-size: 0.8em;
+  line-height: 1.6;
+  white-space: nowrap;
+  border: 1px solid var(--fls-warning-fg);
+  border-radius: 8px;
+  color: var(--fls-warning-fg);
+}
+/* "from the game" is not a problem with the pack, so it is not drawn as one. */
+.fls-row-chip[data-chip='from the game'] {
+  border-color: var(--fls-sep);
+  color: var(--fls-fg-muted);
+}
+
+.fls-foot-note {
+  flex: none;
+  padding: 0 10px 5px;
+  font-size: 0.8em;
+  line-height: 1.4;
+  color: var(--fls-fg-dim);
+}
+.fls-foot-note[hidden] { display: none; }
+
 .fls-tag {
   flex: none;
   margin-left: 6px;
@@ -1393,14 +1528,14 @@ export const SEARCH_STYLESHEET = `
 
 .fls-empty {
   padding: 10px;
-  color: var(--fls-fg-muted);
+  color: var(--fls-fg-dim);
 }
 
 .fls-foot {
   flex: none;
   padding: 4px 10px;
   font-size: 0.85em;
-  color: var(--fls-fg-muted);
+  color: var(--fls-fg-dim);
   border-top: 1px solid var(--fls-sep);
 }
 `
@@ -1445,6 +1580,13 @@ export interface SearchBoxOptions {
   onPreview?: (hit: SearchHit | null) => void
   /** Draw only this. Called with null to put everything back. */
   onFilter?: (filter: GraphFilter | null) => void
+  /** Every node the current query matches, or null when nothing is being searched.
+   *
+   * EVERY match, not the fifty in `hits`: this is what a host hands to `GraphView.setHighlight`,
+   * and quieting all but the top fifty of three hundred matches would be a different, and wrong,
+   * answer to "where are my hits". Called on every query change, including the change back to an
+   * empty box, so a host that binds it never has to notice the box being cleared. */
+  onResults?: (matched: ReadonlySet<string> | null) => void
   /** The box gave up focus (Escape on an empty query). */
   onClose?: () => void
   /** How the canvas filter grows the match set. `'neighbours'` by default: a match on its own with
@@ -1527,7 +1669,15 @@ export function createSearchBox(options: SearchBoxOptions): SearchBox {
   // having to arrow into the list to find out.
   foot.setAttribute('aria-live', 'polite')
 
-  root.append(head, notes, list, foot)
+  // The legend for the marks on the rows. A SEPARATE element from the count line, and NOT
+  // announced: a screen reader already hears each row's own sentence in its label, and reading a
+  // glossary of marks nobody can see to somebody who cannot see them is noise.
+  const footNote = doc.createElement('div')
+  footNote.className = 'fls-foot-note'
+  footNote.hidden = true
+  footNote.setAttribute('aria-hidden', 'true')
+
+  root.append(head, notes, list, foot, footNote)
   options.container.append(root)
 
   // -------------------------------------------------------------------------
@@ -1573,11 +1723,16 @@ export function createSearchBox(options: SearchBoxOptions): SearchBox {
       why.textContent = hit.detail.why
       el.append(why)
     }
-    if (hit.detail.warning.length > 0) {
-      const warning = doc.createElement('div')
-      warning.className = 'fls-row-warning'
-      warning.textContent = hit.detail.warning
-      el.append(warning)
+    // The mark, not the paragraph. The paragraph is in the footer, once, and in this row's
+    // aria-label below -- a screen reader announces one option at a time, so for a listener there
+    // is no repetition to remove and the full sentence is the useful thing to hear.
+    if (hit.detail.chip.length > 0) {
+      const chip = doc.createElement('span')
+      chip.className = 'fls-row-chip'
+      chip.dataset['chip'] = hit.detail.chip
+      chip.textContent = hit.detail.chip
+      chip.title = hit.detail.warning
+      el.append(chip)
     }
 
     // Everything the row says, in one string, because a screen reader announces the option's
@@ -1620,6 +1775,12 @@ export function createSearchBox(options: SearchBoxOptions): SearchBox {
     // Enter goes there, under a line saying nothing matched, is a small lie.
     foot.textContent = current.hits.length === 0 ? current.summary : `${current.summary} ${SEARCH_STRINGS.keysHint}`
 
+    // One line, whatever the list is. Hidden outright when no row carries a mark, because a
+    // legend for an empty set of marks is the repetition problem in its final form.
+    const legend = chipLegend(current.hits)
+    footNote.textContent = legend
+    footNote.hidden = idle || legend.length === 0
+
     applyActive()
   }
 
@@ -1651,6 +1812,12 @@ export function createSearchBox(options: SearchBoxOptions): SearchBox {
     // arrow key first, which is what makes typing a name you already know a two-gesture operation.
     state = { ...state, activeIndex: current.hits.length > 0 ? 0 : -1 }
     draw()
+    // ONE funnel, so "what does the canvas highlight" cannot drift from "what is in the list":
+    // every path that changes the result -- typing, clearing, Escape, a reload through setSource
+    // -- arrives here. An empty query is reported as null rather than as an empty set, because
+    // "nothing is being searched" and "this search matched nothing" are different pictures: the
+    // first leaves the canvas alone, the second quiets all of it.
+    options.onResults?.(current.query.isEmpty ? null : current.matchedIds)
     if (state.filtered) applyFilter()
   }
 
@@ -1769,6 +1936,9 @@ export function createSearchBox(options: SearchBoxOptions): SearchBox {
     dispose(): void {
       if (disposed) return
       disposed = true
+      // Whatever this box was highlighting is not its host's to be left wearing. A disposed
+      // search that left half the canvas quieted would look like a rendering fault.
+      options.onResults?.(null)
       input.removeEventListener('keydown', onKeyDown)
       input.removeEventListener('input', onInput)
       list.removeEventListener('pointerdown', onListPointerDown)

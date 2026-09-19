@@ -43,12 +43,15 @@ import {
   CONTENT_CHAR_BUDGET,
   DEFAULT_RESULT_LIMIT,
   RULE_TYPE_ID,
+  SEARCH_CHIPS,
   SEARCH_FLAGS,
   SEARCH_STRINGS,
   SEARCH_STYLESHEET,
   TIER_RANK,
   applyKey,
   buildSearchIndex,
+  chipLegend,
+  chipsInUse,
   componentOf,
   describeHit,
   filterGraph,
@@ -478,6 +481,70 @@ describe('ranking: finding a node by what is INSIDE it', () => {
   })
 })
 
+describe('ranking: finding a feature by the group the author put it in', () => {
+  // THE ONE NAME ON THIS CANVAS SOMEBODY CHOSE. A group is called "Surface Markers" because a
+  // person decided it was, and Ctrl+F on that answered "Nothing in this pack matches" -- while
+  // searching a MEMBER of the same group worked, and even reported the group in the status line
+  // when it was collapsed. The box looked as though it knew about groups and had decided this one
+  // did not exist. A group name is not on the wire; groups.ts reads it off the directive and the
+  // panel hands it in. See SearchEntry.groupName.
+  const GROUPED: GraphWire = {
+    nodes: [
+      { id: 'example:rng_marker', typeId: 'minecraft:single_block_feature', file: 'features/rng_marker.json' },
+      { id: 'example:threshold_marker', typeId: 'minecraft:single_block_feature', file: 'features/threshold_marker.json' },
+      { id: 'example:lonely', typeId: 'minecraft:single_block_feature', file: 'features/lonely.json' },
+    ],
+    edges: [],
+    roots: ['example:rng_marker', 'example:threshold_marker', 'example:lonely'],
+  }
+  const NAMES = new Map([
+    ['example:rng_marker', 'Surface Markers'],
+    ['example:threshold_marker', 'Surface Markers'],
+  ])
+  const grouped = buildSearchIndex(GROUPED, { groupNames: NAMES })
+
+  it('finds every member of a group by the group’s own name', () => {
+    const result = searchGraph(grouped, 'Surface Markers')
+    expect(ids(result.hits).sort()).toEqual(['example:rng_marker', 'example:threshold_marker'])
+    expect(tierOf(result.hits, 'example:rng_marker')).toBe('group')
+    // And it says WHY, because the highlighted id cannot: nothing in "rng_marker" spells
+    // "Surface".
+    expect(result.hits[0]?.detail.why).toMatch(/group it is in/)
+    // The row names the group too, which is where revealing the hit will actually land when the
+    // group is folded.
+    expect(result.hits[0]?.detail.facts).toContain('in "Surface Markers"')
+  })
+
+  it('one word of the name is enough, and a node in no group is not dragged in', () => {
+    expect(ids(searchGraph(grouped, 'markers').hits).sort()).toEqual(['example:rng_marker', 'example:threshold_marker'])
+    expect(ids(searchGraph(grouped, 'surface').hits)).toEqual(['example:rng_marker', 'example:threshold_marker'])
+    expect(ids(searchGraph(grouped, 'lonely').hits)).toEqual(['example:lonely'])
+  })
+
+  it('never outranks the identifier, and never loses to the file or the type', () => {
+    // The group is a way IN, exactly as a value inside the feature is. A node actually named for
+    // the term still comes first.
+    const withNamed: GraphWire = {
+      ...GROUPED,
+      nodes: [...GROUPED.nodes, { id: 'example:surface', typeId: 'minecraft:single_block_feature', file: 'features/surface.json' }],
+    }
+    const index = buildSearchIndex(withNamed, { groupNames: NAMES })
+    const hits = searchGraph(index, 'surface').hits
+    expect(hits[0]?.nodeId).toBe('example:surface')
+    expect(hits[0]?.tier).toBe('exact-id')
+    expect(TIER_RANK.group).toBeGreaterThan(TIER_RANK['id-substring'])
+    // ...but ABOVE the machine's own names for a thing. Somebody typing a group's name means the
+    // group, not a path that happens to spell it.
+    expect(TIER_RANK.group).toBeLessThan(TIER_RANK.type)
+    expect(TIER_RANK.group).toBeLessThan(TIER_RANK.file)
+  })
+
+  it('costs nothing when the pack has no groups, which is most packs', () => {
+    expect(INDEX.entries.every((e) => e.lowerGroup === '' && e.groupName === undefined)).toBe(true)
+    expect(searchGraph(INDEX, 'surface markers').hits.every((h) => h.tier !== 'group')).toBe(true)
+  })
+})
+
 describe('ranking: the tie-breaks, which are what a list of near-identical ids needs', () => {
   it('prefers the shorter name when two match equally well', () => {
     const order = ids(searchGraph(INDEX, 'spire').hits)
@@ -553,6 +620,33 @@ describe('a result says what distinguishes it, not just its name', () => {
     expect(hit.detail.kind).toBe('placement rule')
   })
 
+  it('marks a row instead of repeating a paragraph on every one of them', () => {
+    // The sentence is still the model's answer -- it is what the row announces and what the
+    // footer prints -- but the chip is what a row DRAWS, and it is two or three words.
+    const partial = searchGraph(INDEX, 'example:approximate_grove').hits[0] as SearchHit
+    expect(partial.detail.chip).toBe('partly previewed')
+    expect(SEARCH_CHIPS[partial.detail.chip as keyof typeof SEARCH_CHIPS]).toBe(partial.detail.warning)
+    const broken = searchGraph(INDEX, 'example:missing_reference_0').hits[0] as SearchHit
+    expect(broken.detail.chip).toBe('unresolved')
+    const external = searchGraph(INDEX, 'minecraft:fern_feature').hits[0] as SearchHit
+    expect(external.detail.chip).toBe('from the game')
+    // An ordinary node is unmarked. A mark on every row is the repetition problem in one word.
+    const ordinary = searchGraph(INDEX, 'example:oak').hits[0] as SearchHit
+    expect(ordinary.detail.chip).toBe('')
+  })
+
+  it('explains the marks once, in the footer, and only the ones on screen', () => {
+    const result = searchGraph(INDEX, 'example:missing_reference_0')
+    const legend = chipLegend(result.hits)
+    expect(legend).toContain('"unresolved"')
+    expect(legend).toContain(SEARCH_CHIPS.unresolved)
+    // Nothing in that result is a vanilla node, so the legend must not explain that mark.
+    expect(legend).not.toContain('from the game')
+    // Every chip the legend names is one a row actually carries.
+    for (const chip of chipsInUse(result.hits)) expect(legend).toContain(`"${chip}"`)
+    // And nothing to explain is nothing said, rather than an empty heading.
+    expect(chipLegend([])).toBe('')
+  })
   it('warns about the node kinds a preview will get wrong, and does not warn about the ones it will not', () => {
     const broken = searchGraph(INDEX, 'example:missing_reference_0').hits[0] as SearchHit
     expect(broken.detail.warning).toContain('defines nothing by this name')
@@ -602,7 +696,7 @@ describe('filters: what turns twenty identical ids into a choosable list', () =>
     const count = (query: string): number => searchGraph(INDEX, query, { limit: 4000 }).total
     expect(count('is:root')).toBe(GRAPH.roots.length)
     expect(count('is:rule')).toBe(RULE_COUNT)
-    expect(count('is:broken')).toBe(5)
+    expect(count('is:unresolved')).toBe(5)
     expect(count('is:external')).toBe(13)
     expect(count('is:cycle')).toBe(3)
     expect(count('is:shared')).toBeGreaterThan(400)
@@ -611,7 +705,7 @@ describe('filters: what turns twenty identical ids into a choosable list', () =>
     // not faults at all.
     const problems = searchGraph(INDEX, 'is:problem', { limit: 4000 })
     expect(problems.hits.every((h) => !(h.entry.external && !h.entry.unresolved))).toBe(true)
-    expect(problems.total).toBeGreaterThanOrEqual(count('is:broken') + count('is:cycle'))
+    expect(problems.total).toBeGreaterThanOrEqual(count('is:unresolved') + count('is:cycle'))
   })
 
   it('combines a filter with a term, and combines filters with each other', () => {
@@ -898,11 +992,33 @@ describe('the stylesheet follows the same three rules as the canvas and the menu
     return SEARCH_STYLESHEET.slice(marker)
   }
 
-  it('declares every variable as a --vscode-* custom property with a fallback', () => {
-    const declarations = [...SEARCH_STYLESHEET.matchAll(/(--fls-[a-z-]+):\s*([^;]+);/g)]
-    expect(declarations.length).toBeGreaterThan(15)
-    for (const [, name, value] of declarations) {
-      expect(value, `${name} must read a --vscode-* property`).toContain('var(--vscode-')
+  it('reads every colour it uses out of a --vscode-* property, however many steps away', () => {
+    // A token may now be DERIVED from other tokens -- `--fls-fg-dim` is this panel's own
+    // foreground faded towards its own background, which is how a "quieter, but still legible"
+    // grey is obtained without borrowing the host's `descriptionForeground` (60% alpha in the
+    // light default, 3.40:1 once it resolves). So "contains var(--vscode-" is no longer the
+    // right question; "does every path out of this token end at a --vscode-* property" is, and
+    // it is the question the rule always meant to ask. A hard-coded colour still fails, a token
+    // that references a token that references the host still passes, and a token that
+    // references one that does not exist fails rather than silently rendering as nothing.
+    const declared = new Map<string, string>()
+    for (const match of SEARCH_STYLESHEET.matchAll(/(--fls-[a-z-]+):\s*([^;]+);/g)) declared.set(match[1]!, match[2]!)
+    expect(declared.size).toBeGreaterThan(15)
+
+    function resolvesToTheHost(value: string, seen: Set<string>): boolean {
+      if (value.includes('var(--vscode-')) return true
+      const references = [...value.matchAll(/var\((--fls-[a-z-]+)/g)].map((m) => m[1]!)
+      if (references.length === 0) return false
+      return references.some((name) => {
+        if (seen.has(name)) return false
+        seen.add(name)
+        const next = declared.get(name)
+        return next !== undefined && resolvesToTheHost(next, seen)
+      })
+    }
+
+    for (const [name, value] of declared) {
+      expect(resolvesToTheHost(value, new Set([name])), `${name} does not resolve to a --vscode-* property`).toBe(true)
     }
   })
 
@@ -973,7 +1089,7 @@ function describedStrings(): { location: string; text: string }[] {
   const out: { location: string; text: string }[] = []
   for (const [flag, sentence] of Object.entries(SEARCH_FLAGS)) out.push({ location: `flag ${flag}`, text: sentence })
   const queries = [
-    'oak', 'dripleaf', 'is:rule', 'is:broken', 'is:external', 'is:cycle', 'is:problem',
+    'oak', 'dripleaf', 'is:rule', 'is:unresolved', 'is:external', 'is:cycle', 'is:problem',
     'type:scatter', 'file:features', 'is:haunted', 'type:', '', 'nothinglikethis',
     'example:approximate_grove', 'minecraft:fern_feature', 'example:missing_reference_0',
   ]
@@ -1094,6 +1210,84 @@ const DARK_THEME: Record<string, string> = {
   '--vscode-textPreformat-foreground': '#ce9178',
 }
 
+/** VS Code's Light Modern.
+ *
+ * `#3b3b3b99` is not a typo: VS Code registers `descriptionForeground` as the theme's own
+ * foreground at 60% alpha, and in a light theme that resolves to a grey which measured 3.48:1
+ * on this panel's footer -- the one line that says what the keyboard does here and how much of
+ * what was found is on screen. Written with the alpha byte on, because flattening it by hand is
+ * exactly the step the stylesheet cannot do for itself. */
+const LIGHT_MODERN_THEME: Record<string, string> = {
+  ...DARK_THEME,
+  '--vscode-editor-background': '#ffffff',
+  '--vscode-editor-foreground': '#3b3b3b',
+  '--vscode-editorWidget-background': '#f8f8f8',
+  '--vscode-descriptionForeground': '#3b3b3b99',
+  '--vscode-input-background': '#ffffff',
+  '--vscode-input-foreground': '#3b3b3b',
+  '--vscode-focusBorder': '#005fb8',
+  '--vscode-list-activeSelectionBackground': '#005fb8',
+  '--vscode-editorWarning-foreground': '#bf8803',
+  '--vscode-textPreformat-foreground': '#a31515',
+}
+
+/** Asks the page for raw strings only -- the element's colour, and every background and opacity
+ * above it, root first -- so the compositing can be done here, where it is type-checked. */
+const READ_COLOUR_STACK = `(selector) => {
+  const el = document.querySelector(selector)
+  if (el === null) return null
+  const stack = []
+  for (let n = el; n !== null; n = n.parentElement) {
+    const s = getComputedStyle(n)
+    stack.push({ background: s.backgroundColor, opacity: s.opacity })
+  }
+  return { colour: getComputedStyle(el).color, stack: stack.reverse() }
+}`
+
+/** `rgb()`, `rgba()` and `color(srgb r g b / a)` -- the last being what a browser answers for
+ * anything that went through `color-mix()`, which is every derived colour in this stylesheet. */
+function parseCssColour(value: string): [number, number, number, number] {
+  const mix = /color\(srgb ([^)]+)\)/.exec(value)
+  if (mix !== null) {
+    const n = mix[1]!.split(/[\s/]+/).filter((part) => part !== '').map(Number)
+    return [n[0]! * 255, n[1]! * 255, n[2]! * 255, n[3] ?? 1]
+  }
+  const plain = /rgba?\(([^)]+)\)/.exec(value)
+  if (plain === null) return [0, 0, 0, 0]
+  const n = plain[1]!.split(/[\s,/]+/).filter((part) => part !== '').map(Number)
+  return [n[0]!, n[1]!, n[2]!, n[3] ?? 1]
+}
+
+/** WCAG 2.x contrast, over the colour the text is really seen in and the colour really behind
+ * it. Composited the way a compositor does: root first, every alpha and every `opacity`. */
+function contrastOf(read: { colour: string; stack: { background: string; opacity: string }[] }): number {
+  const over = (src: readonly number[], back: readonly number[], a: number): number[] => [
+    src[0]! * a + back[0]! * (1 - a),
+    src[1]! * a + back[1]! * (1 - a),
+    src[2]! * a + back[2]! * (1 - a),
+  ]
+  let background: number[] = [255, 255, 255]
+  let alpha = 1
+  for (const layer of read.stack) {
+    const layerOpacity = Number(layer.opacity)
+    alpha *= Number.isFinite(layerOpacity) ? layerOpacity : 1
+    const bg = parseCssColour(layer.background)
+    if (bg[3] > 0) background = over(bg, background, bg[3] * alpha)
+  }
+  const fg = parseCssColour(read.colour)
+  const foreground = over(fg, background, fg[3] * alpha)
+  const luminance = (c: readonly number[]): number => {
+    const channel = (v: number): number => {
+      const x = v / 255
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * channel(c[0]!) + 0.7152 * channel(c[1]!) + 0.0722 * channel(c[2]!)
+  }
+  const la = luminance(foreground)
+  const lb = luminance(background)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
 /** A small graph for the browser half: the DOM is what is under test here, and shipping 3531
  * nodes through `page.evaluate` would be testing the serialiser. */
 function smallGraph(): GraphWire {
@@ -1168,13 +1362,13 @@ describe('search panel: real Chromium, the keyboard and the theme', () => {
     server?.close()
   })
 
-  async function load(): Promise<Page> {
+  async function load(theme: Record<string, string> = DARK_THEME): Promise<Page> {
     const page = await browser.newPage({ viewport: { width: 640, height: 900 } })
-    await page.goto(`http://127.0.0.1:${server.port}/`)
+    await page.goto(`http://${'127.0.0.1'}:${server.port}/`)
     await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true, undefined, { timeout: 10_000 })
     await page.evaluate((vars) => {
       for (const [name, value] of Object.entries(vars)) document.documentElement.style.setProperty(name, value)
-    }, DARK_THEME)
+    }, theme)
     await page.evaluate((graph) => {
       const api = (window as unknown as { FLS: Record<string, unknown> }).FLS
       const index = (api.buildSearchIndex as (g: unknown) => unknown)(graph)
@@ -1226,6 +1420,31 @@ describe('search panel: real Chromium, the keyboard and the theme', () => {
       expect(await page.evaluate(() => document.activeElement?.className)).toContain('fls-input')
     } finally {
       await page.close()
+    }
+  }, 45_000)
+
+  it('the footer reads at 4.5:1 in both default themes', async () => {
+    // The footer was measured at 3.48:1 in Light Modern, where `descriptionForeground` arrives
+    // as the theme's foreground at 60% alpha. It is the line that says what Enter and Escape do
+    // and how much of what was found is on screen -- body text, in a 0.85em run, which is not
+    // large text by any reading of the rule. Measured rather than compared against a hex,
+    // because the failure is invisible until the alpha is resolved over a real background.
+    for (const theme of [DARK_THEME, LIGHT_MODERN_THEME]) {
+      const page = await load(theme)
+      try {
+        await page.keyboard.type('oak')
+        await page.locator('.fls-foot').waitFor({ state: 'visible', timeout: 4000 })
+        for (const selector of ['.fls-foot', '.fls-foot-note']) {
+          const read = (await page.evaluate(`(${READ_COLOUR_STACK})(${JSON.stringify(selector)})`)) as
+            | { colour: string; stack: { background: string; opacity: string }[] }
+            | null
+          if (read === null) continue
+          const ratio = contrastOf(read)
+          expect(ratio, `${selector} measured ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+        }
+      } finally {
+        await page.close()
+      }
     }
   }, 45_000)
 
@@ -1312,6 +1531,65 @@ describe('search panel: real Chromium, the keyboard and the theme', () => {
     }
   }, 45_000)
 
+  it('draws one chip per row and not one paragraph per row', async () => {
+    const page = await load()
+    try {
+      // A query that matches many rows of the same kind is the case that broke: every one of them
+      // used to carry the same two-line sentence, thirty times down a 360px column.
+      await page.keyboard.type('example:')
+      await page.locator('.fls-row').first().waitFor({ state: 'visible', timeout: 4000 })
+      const rows = await page.locator('.fls-row').count()
+      expect(rows).toBeGreaterThan(3)
+
+      // No row anywhere carries the paragraph any more.
+      expect(await page.locator('.fls-row-warning').count()).toBe(0)
+      // And no row carries more than one mark: the chip is a summary, not a badge collection.
+      for (let i = 0; i < rows; i++) {
+        expect(await page.locator('.fls-row').nth(i).locator('.fls-row-chip').count()).toBeLessThanOrEqual(1)
+      }
+
+      // The long sentence is said once, below the count, for the marks that are on screen.
+      const marked = page.locator('.fls-row .fls-row-chip').first()
+      if ((await marked.count()) > 0) {
+        const chip = (await marked.textContent()) ?? ''
+        expect(chip.length).toBeLessThan(20)
+        const legend = (await page.locator('.fls-foot-note').textContent()) ?? ''
+        expect(legend).toContain(`"${chip}"`)
+        // Once. The whole point is that N rows do not become N copies of it.
+        expect(await page.locator('.fls-foot-note').count()).toBe(1)
+      }
+
+      // The count line reviewers liked is untouched, and still above the legend.
+      expect(await page.locator('.fls-foot').textContent()).toMatch(/match/i)
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
+
+  it('keeps every row the same height whether or not it carries a chip', async () => {
+    const page = await load()
+    try {
+      await page.keyboard.type('example:')
+      await page.locator('.fls-row').first().waitFor({ state: 'visible', timeout: 4000 })
+      // A chip that made its row taller would make the list jump as somebody typed, which is the
+      // thing that makes a result list impossible to aim at.
+      const heights = await page.evaluate(() => {
+        const out: { chip: boolean; height: number }[] = []
+        for (const row of document.querySelectorAll('.fls-row')) {
+          out.push({ chip: row.querySelector('.fls-row-chip') !== null, height: Math.round(row.getBoundingClientRect().height) })
+        }
+        return out
+      })
+      const withChip = heights.filter((h) => h.chip).map((h) => h.height)
+      const without = heights.filter((h) => !h.chip).map((h) => h.height)
+      if (withChip.length > 0 && without.length > 0) {
+        // Within a line: a chip adds its own line, but never a paragraph's worth.
+        expect(Math.max(...withChip) - Math.min(...without)).toBeLessThan(40)
+      }
+    } finally {
+      await page.close()
+    }
+  }, 45_000)
   it('keeps what was typed when the pack is reloaded under it', async () => {
     const page = await load()
     try {
