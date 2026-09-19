@@ -437,6 +437,26 @@ export interface Journey {
    * "the refusal was never marked" and "no refusal ever arrived" are different bugs and a bare
    * timeout tells them apart for nobody. */
   waitForErrorStatus(match: RegExp): Promise<string>
+  /** Starts recording every state the status line passes through, and returns a reader for the
+   * transcript so far.
+   *
+   * FOR THE STATES A WAIT CANNOT CATCH. `waitForStatus` polls on an animation frame, so it can
+   * only see a status that is still on screen when a frame happens -- fine for a resting line,
+   * a coin toss for a transient one. Measured on the 57-node fixture: the "Writing ... to ..."
+   * that precedes a write is replaced by "Saved ..." after 9-19 ms, because the engine answers
+   * that fast, and a 9 ms window against a 16.7 ms poll fails about one run in three. The line
+   * is not missing and the product is not slow -- see browse.test.ts, which says what that
+   * measurement does and does not mean.
+   *
+   * Recording instead of polling turns three racy waits into one transcript, and asks MORE of
+   * the panel rather than less: the ORDER of the states is in it, which a sequence of
+   * independent waits never checked.
+   *
+   * One entry per delivered mutation batch, so two writes inside a single microtask checkpoint
+   * would be seen as one. Every status in this editor is separated from the next by at least a
+   * message from the host, so that does not arise; a transcript that ever looks short is worth
+   * checking against this note rather than around it. */
+  recordStatus(): Promise<() => Promise<string[]>>
   /** How many graphs the page has received. Paired with waitForRedraw to wait out a round trip
    * that leaves the visible state unchanged. */
   graphCount(): Promise<number>
@@ -826,6 +846,26 @@ export async function openJourney(options: OpenJourneyOptions = {}): Promise<Jou
         )
       }
       return (await page.textContent('#flg-status')) ?? ''
+    },
+    recordStatus: async () => {
+      await page.evaluate(() => {
+        const host = document.getElementById('flg-status')
+        if (host === null) throw new Error('journey harness: there is no status line to record')
+        const previous = (window as unknown as { __flgStatusTape?: { observer: MutationObserver } }).__flgStatusTape
+        previous?.observer.disconnect()
+        const seen: string[] = []
+        const take = (): void => {
+          const text = (host.textContent ?? '').trim()
+          // Consecutive duplicates collapsed: a class change with the same words is the same
+          // line to a reader, and a transcript is meant to read like what was on screen.
+          if (text !== seen[seen.length - 1]) seen.push(text)
+        }
+        take()
+        const observer = new MutationObserver(take)
+        observer.observe(host, { subtree: true, childList: true, characterData: true, attributes: true })
+        ;(window as unknown as { __flgStatusTape: { seen: string[]; observer: MutationObserver } }).__flgStatusTape = { seen, observer }
+      })
+      return async () => page.evaluate(() => [...((window as unknown as { __flgStatusTape: { seen: string[] } }).__flgStatusTape.seen)])
     },
     waitForPost: async (what, match) => {
       const deadline = Date.now() + WAIT_MS
