@@ -66,8 +66,13 @@ type SourceFile struct {
 // import featurelab-go/features without creating an import cycle: features
 // already imports block).
 type Diagnostic struct {
-	Level   string // "error" | "warning"
-	FileID  string
+	Level  string // "error" | "warning"
+	FileID string
+	// Line and Column are the 1-based place in FileID this message is about,
+	// or both 0 when there is none -- same contract as features.Diagnostic's
+	// own pair, filled in from jsonc.ErrorPosition where the parser knows it.
+	Line    int
+	Column  int
 	Message string
 }
 
@@ -125,9 +130,15 @@ func (p *Palette) LoadBlockTags(files []SourceFile) []Diagnostic {
 	rdData := &blockRenderData{byBlock: make(map[string]BlockRender), notes: make(map[string]RenderNote)}
 
 	for _, f := range files {
+		if jsonc.HasUTF8BOM([]byte(f.Text)) {
+			diags = append(diags, Diagnostic{Level: "warning", FileID: f.ID, Message: jsonc.UTF8BOMWarning})
+		}
+		stripped := jsonc.StripComments([]byte(f.Text))
 		var root map[string]any
-		if err := json.Unmarshal(jsonc.StripComments([]byte(f.Text)), &root); err != nil {
-			diags = append(diags, Diagnostic{Level: "error", FileID: f.ID, Message: "invalid JSON: " + err.Error()})
+		if err := json.Unmarshal(stripped, &root); err != nil {
+			pos, _ := jsonc.ErrorPosition(stripped, err)
+			diags = append(diags, Diagnostic{Level: "error", FileID: f.ID, Line: pos.Line, Column: pos.Column,
+				Message: jsonc.InvalidJSONMessage(stripped, err)})
 			continue
 		}
 		blockBody, ok := root["minecraft:block"].(map[string]any)
@@ -702,6 +713,12 @@ func (p *Palette) NewMatchSet(descs []Descriptor, unknownTag func(tagName string
 			// Empty/Unbuildable count it. What is NEW is keeping the descriptor as
 			// written as well, because the other two modes compare against the
 			// author's spelling and cannot recover it from an ID.
+			// Recorded the same way a PRODUCING position is (see
+			// Palette.Resolve): a may_replace naming a block that does not
+			// exist is a predicate that matches nothing, which costs an author
+			// exactly as much as a places_block that places nothing, and is
+			// just as invisible.
+			p.noteIfUnknownName(d.Name)
 			id := p.intern(d.Name, states)
 			m.ids[id] = struct{}{}
 			// Take BOTH the name and the states from the interned entry, never

@@ -95,8 +95,8 @@ func (f *AggregateFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 
 	for i, ref := range f.refs {
 		target := f.resolver.Resolve(ref)
-		if target == nil && profiler.ProfilingActive {
-			profiler.RecordStop(profiler.StopUnresolvedReference, ref+" not found", i)
+		if target == nil && profiler.StopsActive {
+			profiler.RecordStop(profiler.StopUnresolvedReference, ref+" not found"+SuggestFeatureRef(f.resolver, ref), i)
 		}
 
 		if target != nil {
@@ -130,7 +130,7 @@ func (f *AggregateFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 				// only fires while nothing has succeeded yet.
 			} else {
 				LogFailure(ctx, f.typeID, "Cannot place internal feature")
-				if profiler.ProfilingActive {
+				if profiler.StopsActive {
 					profiler.RecordStop(profiler.StopRecursionGuard, "already placing", i)
 				}
 				// The denial clears the running result UNCONDITIONALLY --
@@ -143,7 +143,7 @@ func (f *AggregateFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 		}
 
 		if f.earlyOut == earlyOutFirstFailure && result == nil {
-			if profiler.ProfilingActive && i < len(f.refs)-1 && !profiler.StopCounted(profiler.StopSequenceFirstFailure, i) {
+			if profiler.StopsActive && i < len(f.refs)-1 && !profiler.StopCounted(profiler.StopSequenceFirstFailure, i) {
 				profiler.RecordStop(profiler.StopSequenceFirstFailure,
 					fmt.Sprintf("%s placed nothing; %d later entries skipped", ref, len(f.refs)-1-i), i)
 			}

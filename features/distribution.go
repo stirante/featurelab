@@ -704,6 +704,37 @@ func ParseScatterDistribution(dist map[string]any, jsonPath string, warn func(st
 		}
 		iterations = constMolang(1)
 	}
+	// A CONSTANT that rounds to zero: a warning, never an error.
+	//
+	// The game accepts it. `iterations: 0` is a valid non-negative number, the
+	// file loads, the scatter is registered, and RunScatterDistribution below
+	// takes the ScatterZeroIterations branch every single time -- at every
+	// origin, under every seed, in every biome. That is the difference between
+	// this and a chance gate that rolled badly: there is no seed at which it
+	// starts working, so "places nothing" is a property of the file rather
+	// than of the run, which is exactly what a static check can say and a
+	// preview cannot.
+	//
+	// Not an error, because writing it is legitimate. Zero is what an author
+	// types to park a feature they are still building, and it is what an
+	// editor writes into a fresh node before anything has been decided. A file
+	// the game loads and runs must not fail `check`; it must only be unable to
+	// do so quietly.
+	//
+	// Keyed on the ROUNDED value rather than on a literal 0, because that is
+	// what the run does (`rounded := int(roundf(raw)); if rounded > 0`) -- so
+	// 0.4 is caught, and the sentence reports the value as written. Only
+	// CONSTANTS: a Molang expression that happens to evaluate to zero at one
+	// origin is a run-time fact, and calling it a file-level defect is the
+	// dead-branch mistake wire/graphcheck.go's header refuses to make.
+	if warn != nil && iterations.IsConstant() {
+		if raw := iterations.constant; int(roundf(raw)) <= 0 {
+			warn(fmt.Sprintf("%s.iterations is %v, which rounds to 0 -- the game loads this and then "+
+				"places nothing, every chunk, at every origin and under every seed. Nothing else "+
+				"reports it: there is no error, no failed placement and no empty result to look at. "+
+				"Raise it to place anything.", jsonPath, raw))
+		}
+	}
 	ax, err := ParseCoordinateRange(dist["x"], jsonPath+".x")
 	if err != nil {
 		return ScatterDistribution{}, err
@@ -797,13 +828,13 @@ func RunScatterDistribution(run ScatterRun) (int, ScatterOutcome) {
 			iterations = rounded
 		} else {
 			outcome = ScatterZeroIterations
-			if profiler.ProfilingActive && !profiler.StopCounted(profiler.StopIterationsZero, profiler.NoOrdinal) {
+			if profiler.StopsActive && !profiler.StopCounted(profiler.StopIterationsZero, profiler.NoOrdinal) {
 				profiler.RecordStop(profiler.StopIterationsZero, describeIterations(rounded, raw), profiler.NoOrdinal)
 			}
 		}
 	} else {
 		outcome = ScatterChanceRejected
-		if profiler.ProfilingActive {
+		if profiler.StopsActive {
 			recordChanceStop(run.Dist.Chance, pct)
 		}
 	}

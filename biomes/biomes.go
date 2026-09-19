@@ -45,8 +45,13 @@ type SourceFile struct {
 // identical, unlike featurelab-go/rules, which reuses that one (see
 // rules.go's own doc comment).
 type Diagnostic struct {
-	Level   string // "error" | "warning"
-	FileID  string
+	Level  string // "error" | "warning"
+	FileID string
+	// Line and Column are the 1-based place in FileID this message is about,
+	// or both 0 when there is none -- same contract as features.Diagnostic's
+	// own pair, filled in from jsonc.ErrorPosition where the parser knows it.
+	Line    int
+	Column  int
 	Message string
 }
 
@@ -268,9 +273,15 @@ func parseTags(raw any) []string {
 }
 
 func parseBiomeFile(f SourceFile, diags *[]Diagnostic) *Entry {
+	if jsonc.HasUTF8BOM([]byte(f.Text)) {
+		*diags = append(*diags, Diagnostic{Level: "warning", FileID: f.ID, Message: jsonc.UTF8BOMWarning})
+	}
+	stripped := jsonc.StripComments([]byte(f.Text))
 	var raw any
-	if err := json.Unmarshal(jsonc.StripComments([]byte(f.Text)), &raw); err != nil {
-		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Message: "invalid JSON: " + err.Error()})
+	if err := json.Unmarshal(stripped, &raw); err != nil {
+		pos, _ := jsonc.ErrorPosition(stripped, err)
+		*diags = append(*diags, Diagnostic{Level: "error", FileID: f.ID, Line: pos.Line, Column: pos.Column,
+			Message: jsonc.InvalidJSONMessage(stripped, err)})
 		return nil
 	}
 	root, ok := raw.(map[string]any)

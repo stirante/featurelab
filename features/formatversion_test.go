@@ -121,7 +121,7 @@ func TestParseFile_ReadsFormatVersion(t *testing.T) {
 
 	t.Run("string form", func(t *testing.T) {
 		var diags []Diagnostic
-		p := parseFile(SourceFile{ID: "f", Text: `{"format_version":"1.21.110","minecraft:aggregate_feature":` + body + `}`}, &diags)
+		p := parseFile(SourceFile{ID: "f", Text: `{"format_version":"1.21.110","minecraft:aggregate_feature":` + body + `}`}, &diags, nil)
 		if p == nil {
 			t.Fatalf("parseFile returned nil, diags: %v", diags)
 		}
@@ -143,7 +143,7 @@ func TestParseFile_ReadsFormatVersion(t *testing.T) {
 
 	t.Run("array form", func(t *testing.T) {
 		var diags []Diagnostic
-		p := parseFile(SourceFile{ID: "f", Text: `{"format_version":[1,21,110],"minecraft:aggregate_feature":` + body + `}`}, &diags)
+		p := parseFile(SourceFile{ID: "f", Text: `{"format_version":[1,21,110],"minecraft:aggregate_feature":` + body + `}`}, &diags, nil)
 		if p == nil {
 			t.Fatalf("parseFile returned nil, diags: %v", diags)
 		}
@@ -154,7 +154,7 @@ func TestParseFile_ReadsFormatVersion(t *testing.T) {
 
 	t.Run("absent warns but still builds", func(t *testing.T) {
 		var diags []Diagnostic
-		p := parseFile(SourceFile{ID: "f", Text: `{"minecraft:aggregate_feature":` + body + `}`}, &diags)
+		p := parseFile(SourceFile{ID: "f", Text: `{"minecraft:aggregate_feature":` + body + `}`}, &diags, nil)
 		if p == nil {
 			t.Fatalf("an absent format_version must not abort the file, diags: %v", diags)
 		}
@@ -173,7 +173,7 @@ func TestParseFile_ReadsFormatVersion(t *testing.T) {
 
 	t.Run("malformed is an error and aborts the file", func(t *testing.T) {
 		var diags []Diagnostic
-		p := parseFile(SourceFile{ID: "f", Text: `{"format_version":"1.x.0","minecraft:aggregate_feature":` + body + `}`}, &diags)
+		p := parseFile(SourceFile{ID: "f", Text: `{"format_version":"1.x.0","minecraft:aggregate_feature":` + body + `}`}, &diags, nil)
 		if p != nil {
 			t.Error("a malformed format_version must abort the file -- which schema applies is unknowable")
 		}

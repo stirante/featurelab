@@ -360,7 +360,16 @@ type candidate struct {
 func parseCandidates(raw any, jsonPath string, warn func(string)) ([]candidate, error) {
 	switch v := raw.(type) {
 	case string:
-		return []candidate{{block: block.NameDescriptor(v), weight: 1}}, nil
+		// Through AsBlockDescriptor rather than block.NameDescriptor, which
+		// takes any string at all: the bare-string form has to refuse an empty
+		// name for the same reason the {block, weight} form does, and routing
+		// it through the shared parser is what keeps the two spellings of one
+		// field from disagreeing about what a block name is.
+		desc, err := AsBlockDescriptor(v, jsonPath)
+		if err != nil {
+			return nil, err
+		}
+		return []candidate{{block: desc, weight: 1}}, nil
 	case []any:
 		if len(v) == 0 {
 			return nil, fmt.Errorf("%s must not be an empty array", jsonPath)

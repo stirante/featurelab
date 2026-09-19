@@ -2,9 +2,11 @@ package block
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // vanillaBlocksFS embeds the generated vanilla block catalogue
@@ -65,4 +67,59 @@ func DefaultBlocks() []SourceFile {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// The catalogue as a NAME TABLE
+// ---------------------------------------------------------------------------
+
+// vanillaNamesOnce guards vanillaNames, built on first use and never rebuilt:
+// the catalogue is embedded at build time and cannot change while the process
+// runs.
+var (
+	vanillaNamesOnce sync.Once
+	vanillaNames     map[string]struct{}
+)
+
+// VanillaBlockNames is the set of every block id in the embedded vanilla
+// catalogue, canonicalised.
+//
+// It exists so KnowsBlockName can answer for vanilla WITHOUT depending on
+// anybody having called LoadBlockTags first. pack.Load stacks DefaultBlocks()
+// under every real pack load, so in production the tag index happens to carry
+// the same names -- but a Palette is also built by hand, by tests and by hosts
+// that want no pack at all, and a "this block does not exist" warning whose
+// truth depends on which loader ran first is a warning that fires on
+// minecraft:diamond_block. Reading the embedded catalogue directly removes the
+// ordering from the answer entirely.
+//
+// The identifier is read out of each file's own
+// minecraft:block.description.identifier rather than derived from its
+// filename: the filename spelling is the generator's convention, and a table
+// that silently empties out when that convention changes is worse than one
+// that costs a parse.
+//
+// Returned as the live map, not a copy -- it is read-only by contract and this
+// is called once per unknown-looking name.
+func VanillaBlockNames() map[string]struct{} {
+	vanillaNamesOnce.Do(func() {
+		files := DefaultBlocks()
+		vanillaNames = make(map[string]struct{}, len(files))
+		for _, f := range files {
+			var doc struct {
+				Block struct {
+					Description struct {
+						Identifier string `json:"identifier"`
+					} `json:"description"`
+				} `json:"minecraft:block"`
+			}
+			if err := json.Unmarshal([]byte(f.Text), &doc); err != nil {
+				continue
+			}
+			if id := doc.Block.Description.Identifier; id != "" {
+				vanillaNames[canonicalName(id)] = struct{}{}
+			}
+		}
+	})
+	return vanillaNames
 }
