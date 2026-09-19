@@ -27,17 +27,37 @@ import (
 // comment forms real vanilla files use, and no trailing comma -- so a file this package can read
 // is a file the game can read, and vice versa.
 
-// SyntaxError reports a structural problem in a JSONC document. It carries both a byte Offset
-// into the original, unmodified source and a 1-based Line, because an editor needs a cursor
-// position and the human reading its error message needs a line number.
+// SyntaxError reports a structural problem in a JSONC document. It carries a byte Offset into the
+// original, unmodified source and a 1-based Line/Column, because an editor needs a cursor
+// position and the human reading its error message needs a place to look.
+//
+// Column was not here at first, and its absence was a hole rather than a simplification. The
+// errors this type reports are the ones THIS package's scanner finds rather than encoding/json --
+// most of them a trailing comma, which is the one syntax error real pack files actually contain,
+// because jsoncpp rejects it and every other JSON dialect a pack author has used accepts it. A
+// trailing comma is one character on a line that is otherwise fine, so "line 214" points at a
+// line whose problem is invisible, while the invalid-JSON diagnostic beside it (see
+// InvalidJSONMessage, which goes through encoding/json and therefore through ErrorPosition)
+// already pointed at a line AND a column. Two reports of the same class of problem, one of them
+// half as precise, for no reason but which parser happened to find it.
+//
+// Position() is what the two now share: the same code-point column, over the same CRLF handling,
+// as OffsetPosition.
 type SyntaxError struct {
 	Msg    string
 	Offset int
 	Line   int
+	Column int
+}
+
+// Position is where in the document the error is, in the shape the rest of this package reports
+// positions in.
+func (e *SyntaxError) Position() Position {
+	return Position{Line: e.Line, Column: e.Column}
 }
 
 func (e *SyntaxError) Error() string {
-	return fmt.Sprintf("jsonc: %s at line %d (byte offset %d)", e.Msg, e.Line, e.Offset)
+	return fmt.Sprintf("jsonc: %s at line %d, column %d (byte offset %d)", e.Msg, e.Line, e.Column, e.Offset)
 }
 
 // PathSegment is one step of a document path: an object member Key, or an array element Index
@@ -702,8 +722,18 @@ func scanDocument(src []byte) (*node, error) {
 	return n, nil
 }
 
+// errf builds the package's one error type. The position goes through OffsetPosition rather than
+// through the scanner's own line index, so a SyntaxError and an encoding/json error over the same
+// file can never disagree about where line 1 ends -- OffsetPosition treats a lone ” as a line
+// ending and counts columns in code points, and a second implementation of that beside it is a
+// second set of rules to keep in step.
+//
+// It is O(offset), unlike the line index's binary search, and that is the right trade here: this
+// runs once, at the moment a document has already failed to parse, while the index is consulted
+// per annotation on documents that parsed fine.
 func (s *scanner) errf(off int, format string, args ...any) error {
-	return &SyntaxError{Msg: fmt.Sprintf(format, args...), Offset: off, Line: s.lines.line(off)}
+	pos := OffsetPosition(s.src, int64(off))
+	return &SyntaxError{Msg: fmt.Sprintf(format, args...), Offset: off, Line: pos.Line, Column: pos.Column}
 }
 
 func (s *scanner) value() (*node, error) {
