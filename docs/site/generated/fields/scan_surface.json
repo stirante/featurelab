@@ -1,0 +1,10 @@
+{
+  "typeId": "minecraft:scan_surface",
+  "slug": "scan_surface",
+  "anchors": [
+    {
+      "path": "places_feature",
+      "anchor": "places_feature"
+    }
+  ]
+}

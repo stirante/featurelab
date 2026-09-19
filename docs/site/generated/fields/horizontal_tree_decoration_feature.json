@@ -1,0 +1,18 @@
+{
+  "typeId": "minecraft:horizontal_tree_decoration_feature",
+  "slug": "horizontal_tree_decoration_feature",
+  "anchors": [
+    {
+      "path": "places_block",
+      "anchor": "places_block"
+    },
+    {
+      "path": "allow_adjacent",
+      "anchor": "allow_adjacent"
+    },
+    {
+      "path": "bark_side_only",
+      "anchor": "bark_side_only"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "typeId": "minecraft:fossil_feature",
+  "slug": "fossil_feature",
+  "anchors": [
+    {
+      "path": "ore_block",
+      "anchor": "ore_block"
+    },
+    {
+      "path": "max_empty_corners",
+      "anchor": "max_empty_corners"
+    }
+  ]
+}

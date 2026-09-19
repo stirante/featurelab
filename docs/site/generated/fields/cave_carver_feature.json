@@ -1,0 +1,38 @@
+{
+  "typeId": "minecraft:cave_carver_feature",
+  "slug": "cave_carver_feature",
+  "anchors": [
+    {
+      "path": "fill_with",
+      "anchor": "fill_with"
+    },
+    {
+      "path": "width_modifier",
+      "anchor": "width_modifier"
+    },
+    {
+      "path": "skip_carve_chance",
+      "anchor": "skip_carve_chance"
+    },
+    {
+      "path": "height_limit",
+      "anchor": "height_limit"
+    },
+    {
+      "path": "y_scale",
+      "anchor": "y_scale"
+    },
+    {
+      "path": "horizontal_radius_multiplier",
+      "anchor": "horizontal_radius_multiplier"
+    },
+    {
+      "path": "vertical_radius_multiplier",
+      "anchor": "vertical_radius_multiplier"
+    },
+    {
+      "path": "floor_level",
+      "anchor": "floor_level"
+    }
+  ]
+}

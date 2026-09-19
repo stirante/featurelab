@@ -1,0 +1,50 @@
+{
+  "typeId": "minecraft:multipart_block_column_feature",
+  "slug": "multipart_block_column_feature",
+  "anchors": [
+    {
+      "path": "tip_block",
+      "anchor": "tip_block"
+    },
+    {
+      "path": "frustum_block",
+      "anchor": "frustum_block"
+    },
+    {
+      "path": "middle_block",
+      "anchor": "middle_block"
+    },
+    {
+      "path": "base_block",
+      "anchor": "base_block"
+    },
+    {
+      "path": "height_range",
+      "anchor": "height_range"
+    },
+    {
+      "path": "weighted_heights",
+      "anchor": "weighted_heights"
+    },
+    {
+      "path": "weighted_heights.value",
+      "anchor": "weighted_heights-value"
+    },
+    {
+      "path": "weighted_heights.weight",
+      "anchor": "weighted_heights-weight"
+    },
+    {
+      "path": "direction",
+      "anchor": "direction"
+    },
+    {
+      "path": "may_place_on",
+      "anchor": "may_place_on"
+    },
+    {
+      "path": "may_replace",
+      "anchor": "may_replace"
+    }
+  ]
+}

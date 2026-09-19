@@ -1,0 +1,14 @@
+{
+  "typeId": "minecraft:aggregate_feature",
+  "slug": "aggregate_feature",
+  "anchors": [
+    {
+      "path": "features",
+      "anchor": "features"
+    },
+    {
+      "path": "early_out",
+      "anchor": "early_out"
+    }
+  ]
+}

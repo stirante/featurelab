@@ -1,0 +1,10 @@
+{
+  "typeId": "minecraft:sequence_feature",
+  "slug": "sequence_feature",
+  "anchors": [
+    {
+      "path": "features",
+      "anchor": "features"
+    }
+  ]
+}

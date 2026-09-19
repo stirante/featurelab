@@ -1,0 +1,26 @@
+{
+  "typeId": "minecraft:ore_feature",
+  "slug": "ore_feature",
+  "anchors": [
+    {
+      "path": "count",
+      "anchor": "count"
+    },
+    {
+      "path": "discard_chance_on_air_exposure",
+      "anchor": "discard_chance_on_air_exposure"
+    },
+    {
+      "path": "replace_rules",
+      "anchor": "replace_rules"
+    },
+    {
+      "path": "replace_rules.places_block",
+      "anchor": "replace_rules-places_block"
+    },
+    {
+      "path": "replace_rules.may_replace",
+      "anchor": "replace_rules-may_replace"
+    }
+  ]
+}

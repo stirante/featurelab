@@ -1,0 +1,30 @@
+{
+  "typeId": "minecraft:height_difference_filter_feature",
+  "slug": "height_difference_filter_feature",
+  "anchors": [
+    {
+      "path": "places_feature",
+      "anchor": "places_feature"
+    },
+    {
+      "path": "search_radius",
+      "anchor": "search_radius"
+    },
+    {
+      "path": "min_required_upward_height_diff",
+      "anchor": "min_required_upward_height_diff"
+    },
+    {
+      "path": "min_required_downward_height_diff",
+      "anchor": "min_required_downward_height_diff"
+    },
+    {
+      "path": "max_allowed_upward_height_diff",
+      "anchor": "max_allowed_upward_height_diff"
+    },
+    {
+      "path": "max_allowed_downward_height_diff",
+      "anchor": "max_allowed_downward_height_diff"
+    }
+  ]
+}

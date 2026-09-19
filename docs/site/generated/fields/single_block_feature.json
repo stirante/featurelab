@@ -1,0 +1,130 @@
+{
+  "typeId": "minecraft:single_block_feature",
+  "slug": "single_block_feature",
+  "anchors": [
+    {
+      "path": "places_block",
+      "anchor": "places_block"
+    },
+    {
+      "path": "places_block.block",
+      "anchor": "places_block-block"
+    },
+    {
+      "path": "places_block.weight",
+      "anchor": "places_block-weight"
+    },
+    {
+      "path": "enforce_placement_rules",
+      "anchor": "enforce_placement_rules"
+    },
+    {
+      "path": "enforce_survivability_rules",
+      "anchor": "enforce_survivability_rules"
+    },
+    {
+      "path": "randomize_rotation",
+      "anchor": "randomize_rotation"
+    },
+    {
+      "path": "may_replace",
+      "anchor": "may_replace"
+    },
+    {
+      "path": "may_attach_to",
+      "anchor": "may_attach_to"
+    },
+    {
+      "path": "may_attach_to.top",
+      "anchor": "may_attach_to-top"
+    },
+    {
+      "path": "may_attach_to.bottom",
+      "anchor": "may_attach_to-bottom"
+    },
+    {
+      "path": "may_attach_to.north",
+      "anchor": "may_attach_to-north"
+    },
+    {
+      "path": "may_attach_to.east",
+      "anchor": "may_attach_to-east"
+    },
+    {
+      "path": "may_attach_to.south",
+      "anchor": "may_attach_to-south"
+    },
+    {
+      "path": "may_attach_to.west",
+      "anchor": "may_attach_to-west"
+    },
+    {
+      "path": "may_attach_to.all",
+      "anchor": "may_attach_to-all"
+    },
+    {
+      "path": "may_attach_to.sides",
+      "anchor": "may_attach_to-sides"
+    },
+    {
+      "path": "may_attach_to.diagonal",
+      "anchor": "may_attach_to-diagonal"
+    },
+    {
+      "path": "may_attach_to.min_sides_must_attach",
+      "anchor": "may_attach_to-min_sides_must_attach"
+    },
+    {
+      "path": "may_attach_to.auto_rotate",
+      "anchor": "may_attach_to-auto_rotate"
+    },
+    {
+      "path": "may_not_attach_to",
+      "anchor": "may_not_attach_to"
+    },
+    {
+      "path": "may_not_attach_to.top",
+      "anchor": "may_not_attach_to-top"
+    },
+    {
+      "path": "may_not_attach_to.bottom",
+      "anchor": "may_not_attach_to-bottom"
+    },
+    {
+      "path": "may_not_attach_to.north",
+      "anchor": "may_not_attach_to-north"
+    },
+    {
+      "path": "may_not_attach_to.east",
+      "anchor": "may_not_attach_to-east"
+    },
+    {
+      "path": "may_not_attach_to.south",
+      "anchor": "may_not_attach_to-south"
+    },
+    {
+      "path": "may_not_attach_to.west",
+      "anchor": "may_not_attach_to-west"
+    },
+    {
+      "path": "may_not_attach_to.all",
+      "anchor": "may_not_attach_to-all"
+    },
+    {
+      "path": "may_not_attach_to.sides",
+      "anchor": "may_not_attach_to-sides"
+    },
+    {
+      "path": "may_not_attach_to.diagonal",
+      "anchor": "may_not_attach_to-diagonal"
+    },
+    {
+      "path": "may_not_attach_to.min_sides_must_attach",
+      "anchor": "may_not_attach_to-min_sides_must_attach"
+    },
+    {
+      "path": "may_not_attach_to.auto_rotate",
+      "anchor": "may_not_attach_to-auto_rotate"
+    }
+  ]
+}

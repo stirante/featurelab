@@ -1,0 +1,22 @@
+{
+  "typeId": "minecraft:partially_exposed_blob_feature",
+  "slug": "partially_exposed_blob_feature",
+  "anchors": [
+    {
+      "path": "places_block",
+      "anchor": "places_block"
+    },
+    {
+      "path": "placement_radius_around_floor",
+      "anchor": "placement_radius_around_floor"
+    },
+    {
+      "path": "placement_probability_per_valid_position",
+      "anchor": "placement_probability_per_valid_position"
+    },
+    {
+      "path": "exposed_face",
+      "anchor": "exposed_face"
+    }
+  ]
+}

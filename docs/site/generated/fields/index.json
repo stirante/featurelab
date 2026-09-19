@@ -1,0 +1,114 @@
+{
+  "minecraft:aggregate_feature": {
+    "slug": "aggregate_feature",
+    "fields": 2
+  },
+  "minecraft:sequence_feature": {
+    "slug": "sequence_feature",
+    "fields": 1
+  },
+  "minecraft:conditional_list": {
+    "slug": "conditional_list",
+    "fields": 4
+  },
+  "minecraft:weighted_random_feature": {
+    "slug": "weighted_random_feature",
+    "fields": 1
+  },
+  "minecraft:scan_surface": {
+    "slug": "scan_surface",
+    "fields": 1
+  },
+  "minecraft:ore_feature": {
+    "slug": "ore_feature",
+    "fields": 5
+  },
+  "minecraft:scatter_feature": {
+    "slug": "scatter_feature",
+    "fields": 18
+  },
+  "minecraft:search_feature": {
+    "slug": "search_feature",
+    "fields": 6
+  },
+  "minecraft:single_block_feature": {
+    "slug": "single_block_feature",
+    "fields": 31
+  },
+  "minecraft:snap_to_surface_feature": {
+    "slug": "snap_to_surface_feature",
+    "fields": 9
+  },
+  "minecraft:structure_template_feature": {
+    "slug": "structure_template_feature",
+    "fields": 13
+  },
+  "minecraft:surface_relative_threshold_feature": {
+    "slug": "surface_relative_threshold_feature",
+    "fields": 2
+  },
+  "minecraft:height_difference_filter_feature": {
+    "slug": "height_difference_filter_feature",
+    "fields": 6
+  },
+  "minecraft:partially_exposed_blob_feature": {
+    "slug": "partially_exposed_blob_feature",
+    "fields": 4
+  },
+  "minecraft:tree_feature": {
+    "slug": "tree_feature",
+    "fields": 235
+  },
+  "minecraft:vegetation_patch_feature": {
+    "slug": "vegetation_patch_feature",
+    "fields": 11
+  },
+  "minecraft:sculk_patch_feature": {
+    "slug": "sculk_patch_feature",
+    "fields": 9
+  },
+  "minecraft:growing_plant_feature": {
+    "slug": "growing_plant_feature",
+    "fields": 10
+  },
+  "minecraft:geode_feature": {
+    "slug": "geode_feature",
+    "fields": 21
+  },
+  "minecraft:cave_carver_feature": {
+    "slug": "cave_carver_feature",
+    "fields": 8
+  },
+  "minecraft:nether_cave_carver_feature": {
+    "slug": "nether_cave_carver_feature",
+    "fields": 8
+  },
+  "minecraft:underwater_cave_carver_feature": {
+    "slug": "underwater_cave_carver_feature",
+    "fields": 9
+  },
+  "minecraft:multiface_feature": {
+    "slug": "multiface_feature",
+    "fields": 7
+  },
+  "minecraft:fossil_feature": {
+    "slug": "fossil_feature",
+    "fields": 2
+  },
+  "minecraft:horizontal_tree_decoration_feature": {
+    "slug": "horizontal_tree_decoration_feature",
+    "fields": 3
+  },
+  "minecraft:multi_block_feature": {
+    "slug": "multi_block_feature",
+    "fields": 4
+  },
+  "minecraft:multipart_block_column_feature": {
+    "slug": "multipart_block_column_feature",
+    "fields": 11
+  },
+  "minecraft:feature_rule": {
+    "slug": "feature_rules",
+    "fields": 16
+  }
+}

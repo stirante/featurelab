@@ -1,0 +1,34 @@
+{
+  "typeId": "minecraft:multiface_feature",
+  "slug": "multiface_feature",
+  "anchors": [
+    {
+      "path": "places_block",
+      "anchor": "places_block"
+    },
+    {
+      "path": "search_range",
+      "anchor": "search_range"
+    },
+    {
+      "path": "can_place_on_floor",
+      "anchor": "can_place_on_floor"
+    },
+    {
+      "path": "can_place_on_ceiling",
+      "anchor": "can_place_on_ceiling"
+    },
+    {
+      "path": "can_place_on_wall",
+      "anchor": "can_place_on_wall"
+    },
+    {
+      "path": "chance_of_spreading",
+      "anchor": "chance_of_spreading"
+    },
+    {
+      "path": "can_place_on",
+      "anchor": "can_place_on"
+    }
+  ]
+}

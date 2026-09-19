@@ -1,0 +1,50 @@
+{
+  "typeId": "minecraft:vegetation_patch_feature",
+  "slug": "vegetation_patch_feature",
+  "anchors": [
+    {
+      "path": "vegetation_feature",
+      "anchor": "vegetation_feature"
+    },
+    {
+      "path": "replaceable_blocks",
+      "anchor": "replaceable_blocks"
+    },
+    {
+      "path": "ground_block",
+      "anchor": "ground_block"
+    },
+    {
+      "path": "depth",
+      "anchor": "depth"
+    },
+    {
+      "path": "horizontal_radius",
+      "anchor": "horizontal_radius"
+    },
+    {
+      "path": "vertical_range",
+      "anchor": "vertical_range"
+    },
+    {
+      "path": "surface",
+      "anchor": "surface"
+    },
+    {
+      "path": "vegetation_chance",
+      "anchor": "vegetation_chance"
+    },
+    {
+      "path": "extra_deep_block_chance",
+      "anchor": "extra_deep_block_chance"
+    },
+    {
+      "path": "extra_edge_column_chance",
+      "anchor": "extra_edge_column_chance"
+    },
+    {
+      "path": "waterlogged",
+      "anchor": "waterlogged"
+    }
+  ]
+}

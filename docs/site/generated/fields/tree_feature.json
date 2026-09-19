@@ -1,0 +1,946 @@
+{
+  "typeId": "minecraft:tree_feature",
+  "slug": "tree_feature",
+  "anchors": [
+    {
+      "path": "fallen_trunk.log_decoration_feature",
+      "anchor": "fallen_trunk-log_decoration_feature"
+    },
+    {
+      "path": "poplar_trunk.log_decoration_feature",
+      "anchor": "poplar_trunk-log_decoration_feature"
+    },
+    {
+      "path": "trunk",
+      "anchor": "trunk"
+    },
+    {
+      "path": "trunk.trunk_height",
+      "anchor": "trunk-trunk_height"
+    },
+    {
+      "path": "trunk.height_modifier",
+      "anchor": "trunk-height_modifier"
+    },
+    {
+      "path": "trunk.can_be_submerged",
+      "anchor": "trunk-can_be_submerged"
+    },
+    {
+      "path": "trunk.can_be_submerged.max_depth",
+      "anchor": "trunk-can_be_submerged-max_depth"
+    },
+    {
+      "path": "trunk.trunk_block",
+      "anchor": "trunk-trunk_block"
+    },
+    {
+      "path": "trunk.trunk_decoration",
+      "anchor": "trunk-trunk_decoration"
+    },
+    {
+      "path": "trunk.trunk_decoration.decoration_chance",
+      "anchor": "trunk-trunk_decoration-decoration_chance"
+    },
+    {
+      "path": "trunk.trunk_decoration.decoration_chance.numerator",
+      "anchor": "trunk-trunk_decoration-decoration_chance-numerator"
+    },
+    {
+      "path": "trunk.trunk_decoration.decoration_chance.denominator",
+      "anchor": "trunk-trunk_decoration-decoration_chance-denominator"
+    },
+    {
+      "path": "trunk.trunk_decoration.decoration_blocks_sequence",
+      "anchor": "trunk-trunk_decoration-decoration_blocks_sequence"
+    },
+    {
+      "path": "trunk.trunk_decoration.decoration_blocks_sequence.block",
+      "anchor": "trunk-trunk_decoration-decoration_blocks_sequence-block"
+    },
+    {
+      "path": "trunk.trunk_decoration.decoration_blocks_sequence.count",
+      "anchor": "trunk-trunk_decoration-decoration_blocks_sequence-count"
+    },
+    {
+      "path": "trunk.trunk_decoration.decoration_block",
+      "anchor": "trunk-trunk_decoration-decoration_block"
+    },
+    {
+      "path": "trunk.trunk_decoration.num_steps",
+      "anchor": "trunk-trunk_decoration-num_steps"
+    },
+    {
+      "path": "trunk.trunk_decoration.step_direction",
+      "anchor": "trunk-trunk_decoration-step_direction"
+    },
+    {
+      "path": "acacia_trunk",
+      "anchor": "acacia_trunk"
+    },
+    {
+      "path": "acacia_trunk.trunk_height",
+      "anchor": "acacia_trunk-trunk_height"
+    },
+    {
+      "path": "acacia_trunk.trunk_height.base",
+      "anchor": "acacia_trunk-trunk_height-base"
+    },
+    {
+      "path": "acacia_trunk.trunk_height.intervals",
+      "anchor": "acacia_trunk-trunk_height-intervals"
+    },
+    {
+      "path": "acacia_trunk.trunk_height.min_height_for_canopy",
+      "anchor": "acacia_trunk-trunk_height-min_height_for_canopy"
+    },
+    {
+      "path": "acacia_trunk.trunk_width",
+      "anchor": "acacia_trunk-trunk_width"
+    },
+    {
+      "path": "acacia_trunk.trunk_lean",
+      "anchor": "acacia_trunk-trunk_lean"
+    },
+    {
+      "path": "acacia_trunk.trunk_lean.allow_diagonal_growth",
+      "anchor": "acacia_trunk-trunk_lean-allow_diagonal_growth"
+    },
+    {
+      "path": "acacia_trunk.trunk_lean.lean_height",
+      "anchor": "acacia_trunk-trunk_lean-lean_height"
+    },
+    {
+      "path": "acacia_trunk.trunk_lean.lean_steps",
+      "anchor": "acacia_trunk-trunk_lean-lean_steps"
+    },
+    {
+      "path": "acacia_trunk.trunk_lean.lean_length",
+      "anchor": "acacia_trunk-trunk_lean-lean_length"
+    },
+    {
+      "path": "acacia_trunk.branches",
+      "anchor": "acacia_trunk-branches"
+    },
+    {
+      "path": "acacia_trunk.branches.branch_length",
+      "anchor": "acacia_trunk-branches-branch_length"
+    },
+    {
+      "path": "acacia_trunk.branches.branch_position",
+      "anchor": "acacia_trunk-branches-branch_position"
+    },
+    {
+      "path": "acacia_trunk.branches.branch_chance",
+      "anchor": "acacia_trunk-branches-branch_chance"
+    },
+    {
+      "path": "acacia_trunk.branches.branch_canopy",
+      "anchor": "acacia_trunk-branches-branch_canopy"
+    },
+    {
+      "path": "acacia_trunk.trunk_block",
+      "anchor": "acacia_trunk-trunk_block"
+    },
+    {
+      "path": "acacia_trunk.trunk_decoration",
+      "anchor": "acacia_trunk-trunk_decoration"
+    },
+    {
+      "path": "acacia_trunk.trunk_decoration.decoration_chance",
+      "anchor": "acacia_trunk-trunk_decoration-decoration_chance"
+    },
+    {
+      "path": "acacia_trunk.trunk_decoration.decoration_blocks_sequence",
+      "anchor": "acacia_trunk-trunk_decoration-decoration_blocks_sequence"
+    },
+    {
+      "path": "acacia_trunk.trunk_decoration.decoration_block",
+      "anchor": "acacia_trunk-trunk_decoration-decoration_block"
+    },
+    {
+      "path": "acacia_trunk.trunk_decoration.num_steps",
+      "anchor": "acacia_trunk-trunk_decoration-num_steps"
+    },
+    {
+      "path": "acacia_trunk.trunk_decoration.step_direction",
+      "anchor": "acacia_trunk-trunk_decoration-step_direction"
+    },
+    {
+      "path": "cherry_trunk",
+      "anchor": "cherry_trunk"
+    },
+    {
+      "path": "cherry_trunk.trunk_height",
+      "anchor": "cherry_trunk-trunk_height"
+    },
+    {
+      "path": "cherry_trunk.trunk_height.base",
+      "anchor": "cherry_trunk-trunk_height-base"
+    },
+    {
+      "path": "cherry_trunk.trunk_height.intervals",
+      "anchor": "cherry_trunk-trunk_height-intervals"
+    },
+    {
+      "path": "cherry_trunk.branches",
+      "anchor": "cherry_trunk-branches"
+    },
+    {
+      "path": "cherry_trunk.branches.tree_type_weights",
+      "anchor": "cherry_trunk-branches-tree_type_weights"
+    },
+    {
+      "path": "cherry_trunk.branches.tree_type_weights.one_branch",
+      "anchor": "cherry_trunk-branches-tree_type_weights-one_branch"
+    },
+    {
+      "path": "cherry_trunk.branches.tree_type_weights.two_branches",
+      "anchor": "cherry_trunk-branches-tree_type_weights-two_branches"
+    },
+    {
+      "path": "cherry_trunk.branches.tree_type_weights.two_branches_and_trunk",
+      "anchor": "cherry_trunk-branches-tree_type_weights-two_branches_and_trunk"
+    },
+    {
+      "path": "cherry_trunk.branches.branch_horizontal_length",
+      "anchor": "cherry_trunk-branches-branch_horizontal_length"
+    },
+    {
+      "path": "cherry_trunk.branches.branch_start_offset_from_top",
+      "anchor": "cherry_trunk-branches-branch_start_offset_from_top"
+    },
+    {
+      "path": "cherry_trunk.branches.branch_end_offset_from_top",
+      "anchor": "cherry_trunk-branches-branch_end_offset_from_top"
+    },
+    {
+      "path": "cherry_trunk.branches.branch_canopy",
+      "anchor": "cherry_trunk-branches-branch_canopy"
+    },
+    {
+      "path": "cherry_trunk.trunk_block",
+      "anchor": "cherry_trunk-trunk_block"
+    },
+    {
+      "path": "fallen_trunk",
+      "anchor": "fallen_trunk"
+    },
+    {
+      "path": "fallen_trunk.log_length",
+      "anchor": "fallen_trunk-log_length"
+    },
+    {
+      "path": "fallen_trunk.height_modifier",
+      "anchor": "fallen_trunk-height_modifier"
+    },
+    {
+      "path": "fallen_trunk.stump_height",
+      "anchor": "fallen_trunk-stump_height"
+    },
+    {
+      "path": "fallen_trunk.trunk_block",
+      "anchor": "fallen_trunk-trunk_block"
+    },
+    {
+      "path": "fallen_trunk.trunk_decoration",
+      "anchor": "fallen_trunk-trunk_decoration"
+    },
+    {
+      "path": "fallen_trunk.trunk_decoration.decoration_chance",
+      "anchor": "fallen_trunk-trunk_decoration-decoration_chance"
+    },
+    {
+      "path": "fallen_trunk.trunk_decoration.decoration_blocks_sequence",
+      "anchor": "fallen_trunk-trunk_decoration-decoration_blocks_sequence"
+    },
+    {
+      "path": "fallen_trunk.trunk_decoration.decoration_block",
+      "anchor": "fallen_trunk-trunk_decoration-decoration_block"
+    },
+    {
+      "path": "fallen_trunk.trunk_decoration.num_steps",
+      "anchor": "fallen_trunk-trunk_decoration-num_steps"
+    },
+    {
+      "path": "fallen_trunk.trunk_decoration.step_direction",
+      "anchor": "fallen_trunk-trunk_decoration-step_direction"
+    },
+    {
+      "path": "fancy_trunk",
+      "anchor": "fancy_trunk"
+    },
+    {
+      "path": "fancy_trunk.trunk_height",
+      "anchor": "fancy_trunk-trunk_height"
+    },
+    {
+      "path": "fancy_trunk.trunk_height.base",
+      "anchor": "fancy_trunk-trunk_height-base"
+    },
+    {
+      "path": "fancy_trunk.trunk_height.variance",
+      "anchor": "fancy_trunk-trunk_height-variance"
+    },
+    {
+      "path": "fancy_trunk.trunk_height.scale",
+      "anchor": "fancy_trunk-trunk_height-scale"
+    },
+    {
+      "path": "fancy_trunk.trunk_width",
+      "anchor": "fancy_trunk-trunk_width"
+    },
+    {
+      "path": "fancy_trunk.width_scale",
+      "anchor": "fancy_trunk-width_scale"
+    },
+    {
+      "path": "fancy_trunk.foliage_altitude_factor",
+      "anchor": "fancy_trunk-foliage_altitude_factor"
+    },
+    {
+      "path": "fancy_trunk.branches",
+      "anchor": "fancy_trunk-branches"
+    },
+    {
+      "path": "fancy_trunk.branches.slope",
+      "anchor": "fancy_trunk-branches-slope"
+    },
+    {
+      "path": "fancy_trunk.branches.density",
+      "anchor": "fancy_trunk-branches-density"
+    },
+    {
+      "path": "fancy_trunk.branches.min_altitude_factor",
+      "anchor": "fancy_trunk-branches-min_altitude_factor"
+    },
+    {
+      "path": "fancy_trunk.trunk_block",
+      "anchor": "fancy_trunk-trunk_block"
+    },
+    {
+      "path": "mangrove_trunk",
+      "anchor": "mangrove_trunk"
+    },
+    {
+      "path": "mangrove_trunk.trunk_width",
+      "anchor": "mangrove_trunk-trunk_width"
+    },
+    {
+      "path": "mangrove_trunk.trunk_height",
+      "anchor": "mangrove_trunk-trunk_height"
+    },
+    {
+      "path": "mangrove_trunk.trunk_height.base",
+      "anchor": "mangrove_trunk-trunk_height-base"
+    },
+    {
+      "path": "mangrove_trunk.trunk_height.height_rand_a",
+      "anchor": "mangrove_trunk-trunk_height-height_rand_a"
+    },
+    {
+      "path": "mangrove_trunk.trunk_height.height_rand_b",
+      "anchor": "mangrove_trunk-trunk_height-height_rand_b"
+    },
+    {
+      "path": "mangrove_trunk.trunk_block",
+      "anchor": "mangrove_trunk-trunk_block"
+    },
+    {
+      "path": "mangrove_trunk.branches",
+      "anchor": "mangrove_trunk-branches"
+    },
+    {
+      "path": "mangrove_trunk.branches.branch_length",
+      "anchor": "mangrove_trunk-branches-branch_length"
+    },
+    {
+      "path": "mangrove_trunk.branches.branch_steps",
+      "anchor": "mangrove_trunk-branches-branch_steps"
+    },
+    {
+      "path": "mangrove_trunk.branches.branch_chance",
+      "anchor": "mangrove_trunk-branches-branch_chance"
+    },
+    {
+      "path": "mangrove_trunk.trunk_decoration",
+      "anchor": "mangrove_trunk-trunk_decoration"
+    },
+    {
+      "path": "mangrove_trunk.trunk_decoration.decoration_chance",
+      "anchor": "mangrove_trunk-trunk_decoration-decoration_chance"
+    },
+    {
+      "path": "mangrove_trunk.trunk_decoration.decoration_blocks_sequence",
+      "anchor": "mangrove_trunk-trunk_decoration-decoration_blocks_sequence"
+    },
+    {
+      "path": "mangrove_trunk.trunk_decoration.decoration_block",
+      "anchor": "mangrove_trunk-trunk_decoration-decoration_block"
+    },
+    {
+      "path": "mangrove_trunk.trunk_decoration.num_steps",
+      "anchor": "mangrove_trunk-trunk_decoration-num_steps"
+    },
+    {
+      "path": "mangrove_trunk.trunk_decoration.step_direction",
+      "anchor": "mangrove_trunk-trunk_decoration-step_direction"
+    },
+    {
+      "path": "mega_trunk",
+      "anchor": "mega_trunk"
+    },
+    {
+      "path": "mega_trunk.trunk_height",
+      "anchor": "mega_trunk-trunk_height"
+    },
+    {
+      "path": "mega_trunk.trunk_height.base",
+      "anchor": "mega_trunk-trunk_height-base"
+    },
+    {
+      "path": "mega_trunk.trunk_height.intervals",
+      "anchor": "mega_trunk-trunk_height-intervals"
+    },
+    {
+      "path": "mega_trunk.trunk_width",
+      "anchor": "mega_trunk-trunk_width"
+    },
+    {
+      "path": "mega_trunk.trunk_block",
+      "anchor": "mega_trunk-trunk_block"
+    },
+    {
+      "path": "mega_trunk.branches",
+      "anchor": "mega_trunk-branches"
+    },
+    {
+      "path": "mega_trunk.branches.branch_length",
+      "anchor": "mega_trunk-branches-branch_length"
+    },
+    {
+      "path": "mega_trunk.branches.branch_slope",
+      "anchor": "mega_trunk-branches-branch_slope"
+    },
+    {
+      "path": "mega_trunk.branches.branch_interval",
+      "anchor": "mega_trunk-branches-branch_interval"
+    },
+    {
+      "path": "mega_trunk.branches.branch_altitude_factor",
+      "anchor": "mega_trunk-branches-branch_altitude_factor"
+    },
+    {
+      "path": "mega_trunk.branches.branch_altitude_factor.min",
+      "anchor": "mega_trunk-branches-branch_altitude_factor-min"
+    },
+    {
+      "path": "mega_trunk.branches.branch_altitude_factor.max",
+      "anchor": "mega_trunk-branches-branch_altitude_factor-max"
+    },
+    {
+      "path": "mega_trunk.branches.branch_canopy",
+      "anchor": "mega_trunk-branches-branch_canopy"
+    },
+    {
+      "path": "mega_trunk.trunk_decoration",
+      "anchor": "mega_trunk-trunk_decoration"
+    },
+    {
+      "path": "mega_trunk.trunk_decoration.decoration_chance",
+      "anchor": "mega_trunk-trunk_decoration-decoration_chance"
+    },
+    {
+      "path": "mega_trunk.trunk_decoration.decoration_blocks_sequence",
+      "anchor": "mega_trunk-trunk_decoration-decoration_blocks_sequence"
+    },
+    {
+      "path": "mega_trunk.trunk_decoration.decoration_block",
+      "anchor": "mega_trunk-trunk_decoration-decoration_block"
+    },
+    {
+      "path": "mega_trunk.trunk_decoration.num_steps",
+      "anchor": "mega_trunk-trunk_decoration-num_steps"
+    },
+    {
+      "path": "mega_trunk.trunk_decoration.step_direction",
+      "anchor": "mega_trunk-trunk_decoration-step_direction"
+    },
+    {
+      "path": "poplar_trunk",
+      "anchor": "poplar_trunk"
+    },
+    {
+      "path": "poplar_trunk.trunk_height",
+      "anchor": "poplar_trunk-trunk_height"
+    },
+    {
+      "path": "poplar_trunk.remaining_trunk_height_above_branches",
+      "anchor": "poplar_trunk-remaining_trunk_height_above_branches"
+    },
+    {
+      "path": "poplar_trunk.amount_of_foliage_support_branches",
+      "anchor": "poplar_trunk-amount_of_foliage_support_branches"
+    },
+    {
+      "path": "poplar_trunk.trunk_block",
+      "anchor": "poplar_trunk-trunk_block"
+    },
+    {
+      "path": "poplar_trunk.trunk_decoration",
+      "anchor": "poplar_trunk-trunk_decoration"
+    },
+    {
+      "path": "poplar_trunk.trunk_decoration.decoration_chance",
+      "anchor": "poplar_trunk-trunk_decoration-decoration_chance"
+    },
+    {
+      "path": "poplar_trunk.trunk_decoration.decoration_blocks_sequence",
+      "anchor": "poplar_trunk-trunk_decoration-decoration_blocks_sequence"
+    },
+    {
+      "path": "poplar_trunk.trunk_decoration.decoration_block",
+      "anchor": "poplar_trunk-trunk_decoration-decoration_block"
+    },
+    {
+      "path": "poplar_trunk.trunk_decoration.num_steps",
+      "anchor": "poplar_trunk-trunk_decoration-num_steps"
+    },
+    {
+      "path": "poplar_trunk.trunk_decoration.step_direction",
+      "anchor": "poplar_trunk-trunk_decoration-step_direction"
+    },
+    {
+      "path": "canopy",
+      "anchor": "canopy"
+    },
+    {
+      "path": "canopy.leaf_block",
+      "anchor": "canopy-leaf_block"
+    },
+    {
+      "path": "canopy.canopy_offset",
+      "anchor": "canopy-canopy_offset"
+    },
+    {
+      "path": "canopy.canopy_offset.min",
+      "anchor": "canopy-canopy_offset-min"
+    },
+    {
+      "path": "canopy.canopy_offset.max",
+      "anchor": "canopy-canopy_offset-max"
+    },
+    {
+      "path": "canopy.min_width",
+      "anchor": "canopy-min_width"
+    },
+    {
+      "path": "canopy.canopy_slope",
+      "anchor": "canopy-canopy_slope"
+    },
+    {
+      "path": "canopy.canopy_slope.rise",
+      "anchor": "canopy-canopy_slope-rise"
+    },
+    {
+      "path": "canopy.canopy_slope.run",
+      "anchor": "canopy-canopy_slope-run"
+    },
+    {
+      "path": "canopy.variation_chance",
+      "anchor": "canopy-variation_chance"
+    },
+    {
+      "path": "canopy.canopy_decoration",
+      "anchor": "canopy-canopy_decoration"
+    },
+    {
+      "path": "canopy.canopy_decoration.decoration_block",
+      "anchor": "canopy-canopy_decoration-decoration_block"
+    },
+    {
+      "path": "canopy.canopy_decoration.decoration_chance",
+      "anchor": "canopy-canopy_decoration-decoration_chance"
+    },
+    {
+      "path": "canopy.canopy_decoration.num_steps",
+      "anchor": "canopy-canopy_decoration-num_steps"
+    },
+    {
+      "path": "canopy.canopy_decoration.step_direction",
+      "anchor": "canopy-canopy_decoration-step_direction"
+    },
+    {
+      "path": "acacia_canopy",
+      "anchor": "acacia_canopy"
+    },
+    {
+      "path": "acacia_canopy.leaf_block",
+      "anchor": "acacia_canopy-leaf_block"
+    },
+    {
+      "path": "acacia_canopy.canopy_size",
+      "anchor": "acacia_canopy-canopy_size"
+    },
+    {
+      "path": "acacia_canopy.simplify_canopy",
+      "anchor": "acacia_canopy-simplify_canopy"
+    },
+    {
+      "path": "cherry_canopy",
+      "anchor": "cherry_canopy"
+    },
+    {
+      "path": "cherry_canopy.leaf_block",
+      "anchor": "cherry_canopy-leaf_block"
+    },
+    {
+      "path": "cherry_canopy.height",
+      "anchor": "cherry_canopy-height"
+    },
+    {
+      "path": "cherry_canopy.radius",
+      "anchor": "cherry_canopy-radius"
+    },
+    {
+      "path": "cherry_canopy.trunk_width",
+      "anchor": "cherry_canopy-trunk_width"
+    },
+    {
+      "path": "cherry_canopy.wide_bottom_layer_hole_chance",
+      "anchor": "cherry_canopy-wide_bottom_layer_hole_chance"
+    },
+    {
+      "path": "cherry_canopy.corner_hole_chance",
+      "anchor": "cherry_canopy-corner_hole_chance"
+    },
+    {
+      "path": "cherry_canopy.hanging_leaves_chance",
+      "anchor": "cherry_canopy-hanging_leaves_chance"
+    },
+    {
+      "path": "cherry_canopy.hanging_leaves_extension_chance",
+      "anchor": "cherry_canopy-hanging_leaves_extension_chance"
+    },
+    {
+      "path": "fancy_canopy",
+      "anchor": "fancy_canopy"
+    },
+    {
+      "path": "fancy_canopy.leaf_block",
+      "anchor": "fancy_canopy-leaf_block"
+    },
+    {
+      "path": "fancy_canopy.height",
+      "anchor": "fancy_canopy-height"
+    },
+    {
+      "path": "fancy_canopy.radius",
+      "anchor": "fancy_canopy-radius"
+    },
+    {
+      "path": "mangrove_canopy",
+      "anchor": "mangrove_canopy"
+    },
+    {
+      "path": "mangrove_canopy.canopy_height",
+      "anchor": "mangrove_canopy-canopy_height"
+    },
+    {
+      "path": "mangrove_canopy.canopy_radius",
+      "anchor": "mangrove_canopy-canopy_radius"
+    },
+    {
+      "path": "mangrove_canopy.leaf_placement_attempts",
+      "anchor": "mangrove_canopy-leaf_placement_attempts"
+    },
+    {
+      "path": "mangrove_canopy.leaf_blocks",
+      "anchor": "mangrove_canopy-leaf_blocks"
+    },
+    {
+      "path": "mangrove_canopy.hanging_block",
+      "anchor": "mangrove_canopy-hanging_block"
+    },
+    {
+      "path": "mangrove_canopy.hanging_block_placement_chance",
+      "anchor": "mangrove_canopy-hanging_block_placement_chance"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration",
+      "anchor": "mangrove_canopy-canopy_decoration"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration.decoration_block",
+      "anchor": "mangrove_canopy-canopy_decoration-decoration_block"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration.decoration_blocks_sequence",
+      "anchor": "mangrove_canopy-canopy_decoration-decoration_blocks_sequence"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration.decoration_blocks_sequence.block",
+      "anchor": "mangrove_canopy-canopy_decoration-decoration_blocks_sequence-block"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration.decoration_blocks_sequence.count",
+      "anchor": "mangrove_canopy-canopy_decoration-decoration_blocks_sequence-count"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration.decoration_chance",
+      "anchor": "mangrove_canopy-canopy_decoration-decoration_chance"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration.num_steps",
+      "anchor": "mangrove_canopy-canopy_decoration-num_steps"
+    },
+    {
+      "path": "mangrove_canopy.canopy_decoration.step_direction",
+      "anchor": "mangrove_canopy-canopy_decoration-step_direction"
+    },
+    {
+      "path": "mega_canopy",
+      "anchor": "mega_canopy"
+    },
+    {
+      "path": "mega_canopy.leaf_block",
+      "anchor": "mega_canopy-leaf_block"
+    },
+    {
+      "path": "mega_canopy.canopy_height",
+      "anchor": "mega_canopy-canopy_height"
+    },
+    {
+      "path": "mega_canopy.base_radius",
+      "anchor": "mega_canopy-base_radius"
+    },
+    {
+      "path": "mega_canopy.core_width",
+      "anchor": "mega_canopy-core_width"
+    },
+    {
+      "path": "mega_canopy.simplify_canopy",
+      "anchor": "mega_canopy-simplify_canopy"
+    },
+    {
+      "path": "mega_pine_canopy",
+      "anchor": "mega_pine_canopy"
+    },
+    {
+      "path": "mega_pine_canopy.leaf_block",
+      "anchor": "mega_pine_canopy-leaf_block"
+    },
+    {
+      "path": "mega_pine_canopy.canopy_height",
+      "anchor": "mega_pine_canopy-canopy_height"
+    },
+    {
+      "path": "mega_pine_canopy.base_radius",
+      "anchor": "mega_pine_canopy-base_radius"
+    },
+    {
+      "path": "mega_pine_canopy.radius_step_modifier",
+      "anchor": "mega_pine_canopy-radius_step_modifier"
+    },
+    {
+      "path": "mega_pine_canopy.core_width",
+      "anchor": "mega_pine_canopy-core_width"
+    },
+    {
+      "path": "pine_canopy",
+      "anchor": "pine_canopy"
+    },
+    {
+      "path": "pine_canopy.leaf_block",
+      "anchor": "pine_canopy-leaf_block"
+    },
+    {
+      "path": "pine_canopy.canopy_height",
+      "anchor": "pine_canopy-canopy_height"
+    },
+    {
+      "path": "pine_canopy.base_radius",
+      "anchor": "pine_canopy-base_radius"
+    },
+    {
+      "path": "poplar_canopy",
+      "anchor": "poplar_canopy"
+    },
+    {
+      "path": "poplar_canopy.leaf_block",
+      "anchor": "poplar_canopy-leaf_block"
+    },
+    {
+      "path": "poplar_canopy.branch_block",
+      "anchor": "poplar_canopy-branch_block"
+    },
+    {
+      "path": "poplar_canopy.radius",
+      "anchor": "poplar_canopy-radius"
+    },
+    {
+      "path": "poplar_canopy.radius.value",
+      "anchor": "poplar_canopy-radius-value"
+    },
+    {
+      "path": "poplar_canopy.radius.weight",
+      "anchor": "poplar_canopy-radius-weight"
+    },
+    {
+      "path": "poplar_canopy.height",
+      "anchor": "poplar_canopy-height"
+    },
+    {
+      "path": "poplar_canopy.side_hole_chance",
+      "anchor": "poplar_canopy-side_hole_chance"
+    },
+    {
+      "path": "poplar_canopy.trunk_width",
+      "anchor": "poplar_canopy-trunk_width"
+    },
+    {
+      "path": "roofed_canopy",
+      "anchor": "roofed_canopy"
+    },
+    {
+      "path": "roofed_canopy.leaf_block",
+      "anchor": "roofed_canopy-leaf_block"
+    },
+    {
+      "path": "roofed_canopy.canopy_height",
+      "anchor": "roofed_canopy-canopy_height"
+    },
+    {
+      "path": "roofed_canopy.core_width",
+      "anchor": "roofed_canopy-core_width"
+    },
+    {
+      "path": "roofed_canopy.outer_radius",
+      "anchor": "roofed_canopy-outer_radius"
+    },
+    {
+      "path": "roofed_canopy.inner_radius",
+      "anchor": "roofed_canopy-inner_radius"
+    },
+    {
+      "path": "spruce_canopy",
+      "anchor": "spruce_canopy"
+    },
+    {
+      "path": "spruce_canopy.leaf_block",
+      "anchor": "spruce_canopy-leaf_block"
+    },
+    {
+      "path": "spruce_canopy.lower_offset",
+      "anchor": "spruce_canopy-lower_offset"
+    },
+    {
+      "path": "spruce_canopy.upper_offset",
+      "anchor": "spruce_canopy-upper_offset"
+    },
+    {
+      "path": "spruce_canopy.max_radius",
+      "anchor": "spruce_canopy-max_radius"
+    },
+    {
+      "path": "random_spread_canopy",
+      "anchor": "random_spread_canopy"
+    },
+    {
+      "path": "random_spread_canopy.canopy_height",
+      "anchor": "random_spread_canopy-canopy_height"
+    },
+    {
+      "path": "random_spread_canopy.canopy_radius",
+      "anchor": "random_spread_canopy-canopy_radius"
+    },
+    {
+      "path": "random_spread_canopy.leaf_placement_attempts",
+      "anchor": "random_spread_canopy-leaf_placement_attempts"
+    },
+    {
+      "path": "random_spread_canopy.leaf_blocks",
+      "anchor": "random_spread_canopy-leaf_blocks"
+    },
+    {
+      "path": "base_block",
+      "anchor": "base_block"
+    },
+    {
+      "path": "may_grow_on",
+      "anchor": "may_grow_on"
+    },
+    {
+      "path": "may_grow_through",
+      "anchor": "may_grow_through"
+    },
+    {
+      "path": "may_replace",
+      "anchor": "may_replace"
+    },
+    {
+      "path": "base_cluster",
+      "anchor": "base_cluster"
+    },
+    {
+      "path": "base_cluster.may_replace",
+      "anchor": "base_cluster-may_replace"
+    },
+    {
+      "path": "base_cluster.num_clusters",
+      "anchor": "base_cluster-num_clusters"
+    },
+    {
+      "path": "base_cluster.cluster_radius",
+      "anchor": "base_cluster-cluster_radius"
+    },
+    {
+      "path": "mangrove_roots",
+      "anchor": "mangrove_roots"
+    },
+    {
+      "path": "mangrove_roots.max_root_width",
+      "anchor": "mangrove_roots-max_root_width"
+    },
+    {
+      "path": "mangrove_roots.max_root_length",
+      "anchor": "mangrove_roots-max_root_length"
+    },
+    {
+      "path": "mangrove_roots.y_offset",
+      "anchor": "mangrove_roots-y_offset"
+    },
+    {
+      "path": "mangrove_roots.root_block",
+      "anchor": "mangrove_roots-root_block"
+    },
+    {
+      "path": "mangrove_roots.muddy_root_block",
+      "anchor": "mangrove_roots-muddy_root_block"
+    },
+    {
+      "path": "mangrove_roots.mud_block",
+      "anchor": "mangrove_roots-mud_block"
+    },
+    {
+      "path": "mangrove_roots.roots_may_grow_through",
+      "anchor": "mangrove_roots-roots_may_grow_through"
+    },
+    {
+      "path": "mangrove_roots.above_root",
+      "anchor": "mangrove_roots-above_root"
+    },
+    {
+      "path": "mangrove_roots.above_root.above_root_chance",
+      "anchor": "mangrove_roots-above_root-above_root_chance"
+    },
+    {
+      "path": "mangrove_roots.above_root.above_root_block",
+      "anchor": "mangrove_roots-above_root-above_root_block"
+    },
+    {
+      "path": "mangrove_roots.root_decoration",
+      "anchor": "mangrove_roots-root_decoration"
+    }
+  ]
+}

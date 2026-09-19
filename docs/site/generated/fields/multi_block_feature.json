@@ -1,0 +1,22 @@
+{
+  "typeId": "minecraft:multi_block_feature",
+  "slug": "multi_block_feature",
+  "anchors": [
+    {
+      "path": "places_block",
+      "anchor": "places_block"
+    },
+    {
+      "path": "enforce_placement_rules",
+      "anchor": "enforce_placement_rules"
+    },
+    {
+      "path": "randomize_rotation",
+      "anchor": "randomize_rotation"
+    },
+    {
+      "path": "may_replace",
+      "anchor": "may_replace"
+    }
+  ]
+}

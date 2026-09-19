@@ -1,0 +1,14 @@
+{
+  "typeId": "minecraft:surface_relative_threshold_feature",
+  "slug": "surface_relative_threshold_feature",
+  "anchors": [
+    {
+      "path": "feature_to_place",
+      "anchor": "feature_to_place"
+    },
+    {
+      "path": "minimum_distance_below_surface",
+      "anchor": "minimum_distance_below_surface"
+    }
+  ]
+}
