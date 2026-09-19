@@ -1,0 +1,34 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "wiki:tree_panel_poplar_trunk"
+    },
+    "poplar_trunk": {
+      "trunk_height": {
+        "range_min": 15,
+        "range_max": 16
+      },
+      "trunk_block": "minecraft:oak_log",
+      "remaining_trunk_height_above_branches": {
+        "range_min": 4,
+        "range_max": 4
+      },
+      "amount_of_foliage_support_branches": {
+        "range_min": 4,
+        "range_max": 4
+      }
+    },
+    "canopy": {
+      "leaf_block": "minecraft:oak_leaves",
+      "canopy_offset": {
+        "min": -1,
+        "max": 0
+      }
+    },
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:oak_leaves"
+    ]
+  }
+}

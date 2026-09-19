@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:dist_panel_jittered_grid" },
+    "places_feature": "wiki:dist_jittered_grid",
+    "distribution": {
+      "iterations": 1,
+      "x": -8,
+      "y": 0,
+      "z": -8
+    }
+  }
+}

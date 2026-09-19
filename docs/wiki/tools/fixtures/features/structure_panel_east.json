@@ -1,0 +1,9 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:structure_template_feature": {
+    "description": { "identifier": "wiki:structure_panel_east" },
+    "structure_name": "wiki:facing_post",
+    "facing_direction": "east",
+    "constraints": {}
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:veg_panel_slab_grid" },
+    "places_feature": "wiki:ceiling_slab_block",
+    "distribution": {
+      "iterations": 25,
+      "x": { "distribution": "fixed_grid", "extent": [0, 4], "step_size": 1 },
+      "y": 0,
+      "z": { "distribution": "fixed_grid", "extent": [0, 4], "step_size": 1 }
+    }
+  }
+}

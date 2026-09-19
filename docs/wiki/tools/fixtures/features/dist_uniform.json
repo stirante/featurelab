@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:dist_uniform" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": {
+      "iterations": 64,
+      "x": { "distribution": "uniform", "extent": [0, 15] },
+      "y": 0,
+      "z": { "distribution": "uniform", "extent": [0, 15] }
+    }
+  }
+}

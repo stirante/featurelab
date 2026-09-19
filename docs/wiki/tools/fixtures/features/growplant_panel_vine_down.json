@@ -1,0 +1,17 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:growing_plant_feature": {
+    "description": { "identifier": "wiki:growplant_panel_vine_down" },
+    "height_distribution": [
+      [[8, 9], 1]
+    ],
+    "growth_direction": "down",
+    "body_blocks": [
+      ["minecraft:cave_vines", 1]
+    ],
+    "head_blocks": [
+      ["minecraft:cave_vines_head_with_berries", 1]
+    ],
+    "age": { "range_min": 17, "range_max": 25 }
+  }
+}

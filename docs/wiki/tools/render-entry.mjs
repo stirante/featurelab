@@ -19,7 +19,8 @@ import { VoxelViewer, decodeGenerateResult } from '../../../frontend/dist/index.
  * the setSlice() call below for why an ore-style buried feature needs it and a surface
  * feature doesn't. `envMode` defaults to `'ghost'` (see below) and can be overridden per image
  * (images.manifest.mjs) to `'solid'` for a feature that reads clearer embedded in fully
- * opaque surroundings.
+ * opaque surroundings. The single-image path always frames on content; `__flRenderPanels`
+ * below is the multi-panel variant, and paintInto() is what the two share.
  *
  * Rendering choices, and why they're fixed rather than left at VoxelViewer's own defaults:
  *  - environment mode 'ghost': the point of these images is "what did THIS feature generate",
@@ -66,7 +67,34 @@ import { VoxelViewer, decodeGenerateResult } from '../../../frontend/dist/index.
  *    user interaction and no randomness anywhere in the framing path.
  */
 window.__flRender = function render({ raw, slice, envMode }) {
-  const canvas = document.getElementById('canvas')
+  paintInto(document.getElementById('canvas'), { raw, slice, envMode, framing: 'content' })
+  window.__flReady = true
+}
+
+/**
+ * Renders several `generate` results into one figure -- one viewer per `#view-<i>` canvas, one
+ * label per `#label-<i>` canvas -- for a manifest entry with `panels` (see images.manifest.mjs,
+ * and generate-images.mjs's own doc comment on the figure layout). Every panel goes through the
+ * SAME paintInto() as a single image, with the same slice and environment mode, so the only
+ * thing that differs between panels is the result each one was handed.
+ *
+ * `framing: 'volume'` is the option a comparison figure needs and a single image does not:
+ * frameContent() fits the camera to the cells a run wrote, which is right for one picture and
+ * wrong for six side by side -- a distribution that clusters in the middle would be zoomed in
+ * tighter than one that fills its extent, and the figure would show the camera moving rather
+ * than the distribution changing. frameAll() fits the request volume instead, which is the same
+ * `--size` for every panel, so every panel shares one camera (frameAll and frameContent both
+ * go through the same deterministic corner fit; only the box differs).
+ */
+window.__flRenderPanels = function renderPanels({ panels, slice, envMode, framing }) {
+  panels.forEach((panel, i) => {
+    paintInto(document.getElementById(`view-${i}`), { raw: panel.raw, slice, envMode, framing })
+    drawLabel(document.getElementById(`label-${i}`), panel.label)
+  })
+  window.__flReady = true
+}
+
+function paintInto(canvas, { raw, slice, envMode, framing }) {
   const viewer = new VoxelViewer(canvas)
   viewer.setShowGrid(false)
   // Flat block colours, pinned, on every machine.
@@ -90,9 +118,85 @@ window.__flRender = function render({ raw, slice, envMode }) {
   viewer.resize()
   // Frame on the feature's own cells first (see doc comment above), THEN switch to the
   // environment mode this image actually wants rendered -- order matters, framing while
-  // environment mode is still 'hidden' is the whole trick.
+  // environment mode is still 'hidden' is the whole trick. A 'volume' framing (comparison
+  // figures only -- see __flRenderPanels) fits the whole request volume instead and needs no
+  // trick, since frameAll() never looks at what is drawn.
   viewer.setEnvironmentMode('hidden')
-  viewer.frameContent()
+  if (framing === 'volume') viewer.frameAll()
+  else viewer.frameContent()
   viewer.setEnvironmentMode(envMode || 'ghost')
-  window.__flReady = true
+  return viewer
+}
+
+// A 5x7 bitmap font, drawn with fillRect. Panel labels are the only text this pipeline ever
+// puts INSIDE a committed image, and they must not depend on which fonts the machine that
+// regenerated the image happens to have: headless Chromium ships no fonts of its own, so a
+// `font-family` label would resolve to DejaVu on one CI image, Liberation on another and
+// Segoe UI on a Windows laptop, and the figure would stop reproducing byte for byte for a
+// reason that has nothing to do with what it shows. Rectangles are the same everywhere.
+// Lowercase, digits and the few punctuation marks a distribution kind or a field name needs.
+const GLYPHS = {
+  a: ['.....', '.###.', '....#', '.####', '#...#', '.####', '.....'],
+  b: ['#....', '#....', '####.', '#...#', '#...#', '####.', '.....'],
+  c: ['.....', '.###.', '#....', '#....', '#....', '.###.', '.....'],
+  d: ['....#', '....#', '.####', '#...#', '#...#', '.####', '.....'],
+  e: ['.....', '.###.', '#...#', '#####', '#....', '.###.', '.....'],
+  f: ['..##.', '.#..#', '.#...', '###..', '.#...', '.#...', '.....'],
+  g: ['.....', '.####', '#...#', '#...#', '.####', '....#', '.###.'],
+  h: ['#....', '#....', '####.', '#...#', '#...#', '#...#', '.....'],
+  i: ['..#..', '.....', '.##..', '..#..', '..#..', '.###.', '.....'],
+  j: ['...#.', '.....', '..##.', '...#.', '...#.', '#..#.', '.##..'],
+  k: ['#....', '#....', '#..#.', '#.#..', '##.#.', '#..#.', '.....'],
+  l: ['.##..', '..#..', '..#..', '..#..', '..#..', '.###.', '.....'],
+  m: ['.....', '.....', '##.#.', '#.#.#', '#.#.#', '#...#', '.....'],
+  n: ['.....', '.....', '####.', '#...#', '#...#', '#...#', '.....'],
+  o: ['.....', '.....', '.###.', '#...#', '#...#', '.###.', '.....'],
+  p: ['.....', '.....', '####.', '#...#', '####.', '#....', '#....'],
+  q: ['.....', '.....', '.####', '#...#', '.####', '....#', '....#'],
+  r: ['.....', '.....', '#.##.', '##..#', '#....', '#....', '.....'],
+  s: ['.....', '.....', '.####', '#....', '.###.', '....#', '####.'],
+  t: ['.#...', '.#...', '###..', '.#...', '.#...', '..##.', '.....'],
+  u: ['.....', '.....', '#...#', '#...#', '#...#', '.####', '.....'],
+  v: ['.....', '.....', '#...#', '#...#', '.#.#.', '..#..', '.....'],
+  w: ['.....', '.....', '#...#', '#.#.#', '#.#.#', '.#.#.', '.....'],
+  x: ['.....', '.....', '#...#', '.#.#.', '..#..', '.#.#.', '#...#'],
+  y: ['.....', '.....', '#...#', '#...#', '.####', '....#', '.###.'],
+  z: ['.....', '.....', '#####', '...#.', '..#..', '.#...', '#####'],
+  0: ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+  1: ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  2: ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+  3: ['####.', '....#', '....#', '.###.', '....#', '....#', '####.'],
+  4: ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+  5: ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+  6: ['..##.', '.#...', '#....', '####.', '#...#', '#...#', '.###.'],
+  7: ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+  8: ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+  9: ['.###.', '#...#', '#...#', '.####', '....#', '...#.', '.##..'],
+  '_': ['.....', '.....', '.....', '.....', '.....', '.....', '#####'],
+  '-': ['.....', '.....', '.....', '.###.', '.....', '.....', '.....'],
+  // Added for the search_feature figure, whose panel labels ARE the six enum values (-x, +x,
+  // -y, +y, -z, +z) -- a label of "plus x" would not be the string the file has to contain.
+  '+': ['.....', '.....', '..#..', '.###.', '..#..', '.....', '.....'],
+  ':': ['.....', '..#..', '.....', '.....', '..#..', '.....', '.....'],
+  ' ': ['.....', '.....', '.....', '.....', '.....', '.....', '.....'],
+}
+const GLYPH_SCALE = 2
+const GLYPH_ADVANCE = 6 // 5 columns plus one of spacing, in glyph pixels
+
+function drawLabel(canvas, text) {
+  const g = canvas.getContext('2d')
+  g.fillStyle = '#14161a'
+  g.fillRect(0, 0, canvas.width, canvas.height)
+  g.fillStyle = '#d8dde6'
+  const x0 = 8
+  const y0 = Math.floor((canvas.height - 7 * GLYPH_SCALE) / 2)
+  ;[...text].forEach((ch, n) => {
+    const rows = GLYPHS[ch]
+    if (!rows) throw new Error(`wiki image pipeline: no glyph for ${JSON.stringify(ch)} in label ${JSON.stringify(text)} -- labels are lowercase, digits, "_", "-", "+", ":" and space`)
+    rows.forEach((row, r) => {
+      ;[...row].forEach((cell, c) => {
+        if (cell === '#') g.fillRect(x0 + (n * GLYPH_ADVANCE + c) * GLYPH_SCALE, y0 + r * GLYPH_SCALE, GLYPH_SCALE, GLYPH_SCALE)
+      })
+    })
+  })
 }

@@ -1,0 +1,41 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "wiki:tree_panel_cherry_trunk"
+    },
+    "cherry_trunk": {
+      "trunk_height": {
+        "base": 15
+      },
+      "trunk_block": "minecraft:oak_log",
+      "branches": {
+        "branch_horizontal_length": {
+          "range_min": 5,
+          "range_max": 6
+        },
+        "branch_start_offset_from_top": {
+          "range_min": -3,
+          "range_max": 0
+        },
+        "branch_end_offset_from_top": {
+          "range_min": -1,
+          "range_max": 0
+        },
+        "branch_canopy": {
+          "canopy": {
+            "leaf_block": "minecraft:oak_leaves",
+            "canopy_offset": {
+              "min": -1,
+              "max": 0
+            }
+          }
+        }
+      }
+    },
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:oak_leaves"
+    ]
+  }
+}

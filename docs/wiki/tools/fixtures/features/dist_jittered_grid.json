@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:dist_jittered_grid" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": {
+      "iterations": 64,
+      "x": { "distribution": "jittered_grid", "extent": [0, 15], "step_size": 2 },
+      "y": 0,
+      "z": { "distribution": "jittered_grid", "extent": [0, 15], "step_size": 2 }
+    }
+  }
+}

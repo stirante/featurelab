@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:vegetation_patch_feature": {
+    "description": { "identifier": "wiki:veg_panel_patch_floor" },
+    "replaceable_blocks": ["minecraft:stone"],
+    "ground_block": "minecraft:moss_block",
+    "vegetation_feature": "wiki:threshold_marker",
+    "depth": 1,
+    "vertical_range": 4,
+    "vegetation_chance": 0.6,
+    "horizontal_radius": 2,
+    "surface": "floor"
+  }
+}

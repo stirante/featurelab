@@ -13,18 +13,35 @@
 //
 // Usage: node docs/wiki/tools/gen-fixture-structures.mjs
 //
-// Produces fixtures/structures/wiki/lamp_post.mcstructure -- structure_name "wiki:lamp_post",
-// referenced by the structure_template_feature JSON example on
-// docs/wiki/structure-template-feature.md. A small, deliberately ASYMMETRIC 1x4x2 "lamp post"
-// (a cobblestone foundation, an oak_log shaft, a glowstone lantern arm offset to one side) --
-// asymmetric on purpose, so the page's facing_direction example is actually visible: a symmetric
-// test structure would rotate into itself and prove nothing.
+// Produces two files under fixtures/structures/wiki/:
+//
+//   lamp_post.mcstructure     structure_name "wiki:lamp_post", the structure_template_feature
+//                             JSON example's own subject. A small, deliberately ASYMMETRIC 1x4x2
+//                             "lamp post" (a cobblestone foundation, an oak_log shaft, a
+//                             glowstone lantern arm offset to one side) -- asymmetric on purpose,
+//                             so the page's facing_direction example is actually visible: a
+//                             symmetric test structure would rotate into itself and prove nothing.
+//   facing_post.mcstructure   structure_name "wiki:facing_post", built only for the page's
+//                             four-panel facing_direction FIGURE. The same five cells and the
+//                             same blocks as the lamp post, rearranged so the picture works: the
+//                             post stands on the ARM cell (local +Z, one along from the origin)
+//                             and a gold marker is left on the structure's own origin cell.
+//                             Rotation turns local positions about that origin cell and local +Z
+//                             is the axis facing_direction names, so the post lands due south of
+//                             the marker for "south", due west for "west", due north for "north"
+//                             and due east for "east" -- four positions that share no cell, inside
+//                             a footprint only 3x3 wide, with the marker clear of the post in
+//                             every one of them. The lamp post cannot carry this figure: four of
+//                             its five cells sit ON the origin column, which every rotation leaves
+//                             exactly where it is, so only the single lantern cell moves and two
+//                             of the four panels came out 1.84% different -- under the pipeline's
+//                             own refusal threshold.
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 
 const toolsDir = path.dirname(fileURLToPath(import.meta.url))
-const outPath = path.join(toolsDir, 'fixtures', 'structures', 'wiki', 'lamp_post.mcstructure')
+const structuresDir = path.join(toolsDir, 'fixtures', 'structures', 'wiki')
 
 // ---------------------------------------------------------------------------
 // Minimal NBT tag encoder -- little-endian, uncompressed, exactly the subset
@@ -71,52 +88,81 @@ function tagCompoundPayload(entries) {
 }
 
 // ---------------------------------------------------------------------------
-// The lamp post itself: size {X:1, Y:4, Z:2}, block_indices linearized
-// x*(sizeY*sizeZ) + y*sizeZ + z (nbt.go's own documented iteration order).
-// sizeX=1 so index = y*2 + z.
+// One structure file. `cells` is keyed "x,y,z" -> palette index; every other
+// cell is void (-1, nbt's own "no block here" convention). block_indices is
+// linearized x*(sizeY*sizeZ) + y*sizeZ + z (nbt.go's own documented iteration
+// order), which is also the linearization features/structure_template.go's
+// blockAt reads back.
 // ---------------------------------------------------------------------------
-const SIZE = { x: 1, y: 4, z: 2 }
-// palette index per painted cell; -1 = void (nbt's own "no block here" convention).
-const PALETTE = ['minecraft:cobblestone', 'minecraft:oak_log', 'minecraft:glowstone']
-const cellPaletteIndex = {
-  '0,0': 0, // (y=0,z=0) -- cobblestone foundation, sits at the placement origin itself
-  '1,0': 1, // (y=1,z=0) -- oak_log shaft
-  '2,0': 1, // (y=2,z=0) -- oak_log shaft
-  '3,0': 1, // (y=3,z=0) -- oak_log shaft, top
-  '3,1': 2, // (y=3,z=1) -- glowstone lantern, offset +Z from the shaft -- the asymmetric arm
-}
-
-const cellCount = SIZE.x * SIZE.y * SIZE.z
-const layer0 = new Array(cellCount).fill(-1)
-const layer1 = new Array(cellCount).fill(-1) // waterlogging layer, unused -- every cell void
-for (let y = 0; y < SIZE.y; y++) {
-  for (let z = 0; z < SIZE.z; z++) {
-    const idx = y * SIZE.z + z // x is always 0
-    const key = `${y},${z}`
-    if (key in cellPaletteIndex) layer0[idx] = cellPaletteIndex[key]
+function writeStructure(fileName, size, palette, cells) {
+  const cellCount = size.x * size.y * size.z
+  const layer0 = new Array(cellCount).fill(-1)
+  const layer1 = new Array(cellCount).fill(-1) // waterlogging layer, unused -- every cell void
+  for (let x = 0; x < size.x; x++) {
+    for (let y = 0; y < size.y; y++) {
+      for (let z = 0; z < size.z; z++) {
+        const key = `${x},${y},${z}`
+        if (key in cells) layer0[x * (size.y * size.z) + y * size.z + z] = cells[key]
+      }
+    }
   }
+
+  const sizeList = tagListPayload(TAG_INT, [tagIntPayload(size.x), tagIntPayload(size.y), tagIntPayload(size.z)])
+  const originList = tagListPayload(TAG_INT, [tagIntPayload(0), tagIntPayload(0), tagIntPayload(0)])
+  const layer0Payload = tagListPayload(TAG_INT, layer0.map(tagIntPayload))
+  const layer1Payload = tagListPayload(TAG_INT, layer1.map(tagIntPayload))
+  const blockIndicesPayload = tagListPayload(TAG_LIST, [layer0Payload, layer1Payload])
+  const blockPaletteElements = palette.map((name) => tagCompoundPayload([['name', TAG_STRING, nbtString(name)]]))
+  const blockPalettePayload = tagListPayload(TAG_COMPOUND, blockPaletteElements)
+  const defaultCompoundPayload = tagCompoundPayload([['block_palette', TAG_LIST, blockPalettePayload]])
+  const paletteCompoundPayload = tagCompoundPayload([['default', TAG_COMPOUND, defaultCompoundPayload]])
+  const structureCompoundPayload = tagCompoundPayload([
+    ['block_indices', TAG_LIST, blockIndicesPayload],
+    ['palette', TAG_COMPOUND, paletteCompoundPayload],
+  ])
+  const rootPayload = tagCompoundPayload([
+    ['size', TAG_LIST, sizeList],
+    ['structure_world_origin', TAG_LIST, originList],
+    ['structure', TAG_COMPOUND, structureCompoundPayload],
+  ])
+  const fileBytes = Buffer.concat([u8(TAG_COMPOUND), nbtString(''), rootPayload])
+
+  const outPath = path.join(structuresDir, fileName)
+  fs.mkdirSync(path.dirname(outPath), { recursive: true })
+  fs.writeFileSync(outPath, fileBytes)
+  console.log(`wrote ${outPath} (${fileBytes.length} bytes)`)
 }
 
-const sizeList = tagListPayload(TAG_INT, [tagIntPayload(SIZE.x), tagIntPayload(SIZE.y), tagIntPayload(SIZE.z)])
-const originList = tagListPayload(TAG_INT, [tagIntPayload(0), tagIntPayload(0), tagIntPayload(0)])
-const layer0Payload = tagListPayload(TAG_INT, layer0.map(tagIntPayload))
-const layer1Payload = tagListPayload(TAG_INT, layer1.map(tagIntPayload))
-const blockIndicesPayload = tagListPayload(TAG_LIST, [layer0Payload, layer1Payload])
-const blockPaletteElements = PALETTE.map((name) => tagCompoundPayload([['name', TAG_STRING, nbtString(name)]]))
-const blockPalettePayload = tagListPayload(TAG_COMPOUND, blockPaletteElements)
-const defaultCompoundPayload = tagCompoundPayload([['block_palette', TAG_LIST, blockPalettePayload]])
-const paletteCompoundPayload = tagCompoundPayload([['default', TAG_COMPOUND, defaultCompoundPayload]])
-const structureCompoundPayload = tagCompoundPayload([
-  ['block_indices', TAG_LIST, blockIndicesPayload],
-  ['palette', TAG_COMPOUND, paletteCompoundPayload],
-])
-const rootPayload = tagCompoundPayload([
-  ['size', TAG_LIST, sizeList],
-  ['structure_world_origin', TAG_LIST, originList],
-  ['structure', TAG_COMPOUND, structureCompoundPayload],
-])
-const fileBytes = Buffer.concat([u8(TAG_COMPOUND), nbtString(''), rootPayload])
+// Each structure carries its OWN palette list. They are not shared: a structure's palette is part
+// of its bytes, so appending an entry one of them does not use would rewrite the other file for
+// nothing.
+const POST_PALETTE = ['minecraft:cobblestone', 'minecraft:oak_log', 'minecraft:glowstone']
 
-fs.mkdirSync(path.dirname(outPath), { recursive: true })
-fs.writeFileSync(outPath, fileBytes)
-console.log(`wrote ${outPath} (${fileBytes.length} bytes)`)
+// The lamp post: 1x4x2, the whole post on the structure's own origin column with the lantern
+// arm one cell along +Z.
+writeStructure('lamp_post.mcstructure', { x: 1, y: 4, z: 2 }, POST_PALETTE, {
+  '0,0,0': 0, // cobblestone foundation, sits at the placement origin itself
+  '0,1,0': 1, // oak_log shaft
+  '0,2,0': 1, // oak_log shaft
+  '0,3,0': 1, // oak_log shaft, top
+  '0,3,1': 2, // glowstone lantern, offset +Z from the shaft -- the asymmetric arm
+})
+
+// The facing post: 1x4x2, the lamp post's own five cells with the post moved off the origin cell
+// and onto the ARM cell (local +Z), and a gold marker left behind on the origin. Rotation turns
+// local positions about that origin cell, and local +Z is the axis facing_direction names -- so
+// the post lands due south of the marker for "south", due west for "west", and so on, and the
+// four positions share no cell. Gold rather than more cobblestone so the pivot reads as the pivot
+// and not as part of the post.
+// Four tall, the lamp post's own height. A taller post was tried and buys nothing: these panels
+// are far taller than they are wide, so the camera fits the volume by its width, and a taller
+// volume pushes the camera back by as much as the extra logs add (seven cells measured 4.4%
+// between the closest pair against four cells' 4.6%). Four also keeps the marker and the post
+// reading as one small L that turns, rather than as a column with a speck beside it.
+writeStructure('facing_post.mcstructure', { x: 1, y: 4, z: 2 }, [...POST_PALETTE, 'minecraft:gold_block'], {
+  '0,0,0': 3, // gold_block marker ON the origin cell -- the pivot, identical in all four rotations
+  '0,0,1': 0, // cobblestone foot of the post, one cell along local +Z from the origin
+  '0,1,1': 1, // oak_log shaft
+  '0,2,1': 1, // oak_log shaft
+  '0,3,1': 2, // glowstone lantern on top
+})

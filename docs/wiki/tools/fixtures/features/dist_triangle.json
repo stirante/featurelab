@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": { "identifier": "wiki:dist_triangle" },
+    "places_feature": "wiki:rng_marker",
+    "distribution": {
+      "iterations": 64,
+      "x": { "distribution": "triangle", "extent": [0, 15] },
+      "y": 0,
+      "z": { "distribution": "triangle", "extent": [0, 15] }
+    }
+  }
+}

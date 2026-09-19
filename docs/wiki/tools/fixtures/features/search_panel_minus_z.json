@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:search_feature": {
+    "description": { "identifier": "wiki:search_panel_minus_z" },
+    "places_feature": "wiki:threshold_marker",
+    "search_volume": { "min": [-2, -2, -2], "max": [2, 2, 2] },
+    "search_axis": "-z",
+    "required_successes": 30
+  }
+}

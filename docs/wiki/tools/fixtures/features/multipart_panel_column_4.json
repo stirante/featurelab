@@ -1,0 +1,13 @@
+{
+  "format_version": "1.26.50",
+  "minecraft:multipart_block_column_feature": {
+    "description": { "identifier": "wiki:multipart_panel_column_4" },
+    "direction": "up",
+    "base_block": "minecraft:gold_block",
+    "middle_block": "minecraft:lapis_block",
+    "frustum_block": "minecraft:redstone_block",
+    "tip_block": "minecraft:diamond_block",
+    "weighted_heights": [ { "value": 4, "weight": 1 } ],
+    "may_replace": [ "minecraft:air" ]
+  }
+}

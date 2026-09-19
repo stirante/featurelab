@@ -11,6 +11,11 @@
 //   node docs/wiki/tools/generate-images.mjs
 //   node docs/wiki/tools/generate-images.mjs --only ore-coal-vein   # regenerate one image
 //
+// An entry is either one image (a `feature` or a `rule`) or a FIGURE: an entry with `panels`,
+// each panel a `{label, feature}` generated with the entry's own env/seed/origin/size and
+// rendered into one grid at the same 1000x650, labelled, so a reader compares like with like.
+// See figureLayout() below and render-entry.mjs's __flRenderPanels for what a figure guarantees.
+//
 // Requirements already satisfied by this repo's own workspace, nothing extra to install:
 //   - Go toolchain on PATH (builds cmd/featurelab fresh every run -- see buildEngine below)
 //   - `npm install` at the repo root (or `npm run build` under frontend/) already run at least
@@ -100,6 +105,15 @@ function generateFeature(entry) {
   return result
 }
 
+// generateEntry runs an entry's CLI calls: one for a single image, one PER PANEL for a figure
+// (an entry with `panels` -- see images.manifest.mjs). Every panel is generated with the entry's
+// own env/seed/origin/size/minY and only its `feature` swapped in, which is the whole point of a
+// comparison figure: the panels differ in the one thing the manifest says they differ in.
+function generateEntry(entry) {
+  if (!entry.panels) return generateFeature(entry)
+  return entry.panels.map((panel) => ({ label: panel.label, result: generateFeature({ ...entry, panels: undefined, rule: undefined, feature: panel.feature }) }))
+}
+
 async function bundleRenderEntry() {
   const result = await esbuild.build({
     entryPoints: [path.join(toolsDir, 'render-entry.mjs')],
@@ -120,6 +134,62 @@ const PAGE_HTML = `<!doctype html>
   html, body { margin: 0; padding: 0; background: #14161a; }
   canvas { display: block; width: ${CANVAS_WIDTH}px; height: ${CANVAS_HEIGHT}px; }
 </style></head><body><canvas id="canvas"></canvas></body></html>`
+
+// A figure -- an entry with `panels` -- is the same 1000x650 as a single image, cut into a grid
+// of `columns` panels with a 2px divider between them (the same stripe generate-texture-figure.mjs
+// uses), each panel a label strip over a view canvas. The geometry is computed once here and
+// used twice: to lay the page out, and to cut the screenshot back into panels for the check
+// below that the panels actually differ.
+const FIGURE_GAP = 2
+const FIGURE_LABEL_HEIGHT = 22
+
+function figureLayout(entry) {
+  const columns = entry.columns ?? entry.panels.length
+  const rows = Math.ceil(entry.panels.length / columns)
+  const panelWidth = Math.floor((CANVAS_WIDTH - FIGURE_GAP * (columns - 1)) / columns)
+  const panelHeight = Math.floor((CANVAS_HEIGHT - FIGURE_GAP * (rows - 1)) / rows)
+  return {
+    columns,
+    rows,
+    panelWidth,
+    panelHeight,
+    viewHeight: panelHeight - FIGURE_LABEL_HEIGHT,
+    width: panelWidth * columns + FIGURE_GAP * (columns - 1),
+    height: panelHeight * rows + FIGURE_GAP * (rows - 1),
+    // Where panel i's VIEW (not its label) sits in the figure, for the pairwise comparison.
+    viewRect: (i) => ({
+      x: (i % columns) * (panelWidth + FIGURE_GAP),
+      y: Math.floor(i / columns) * (panelHeight + FIGURE_GAP) + FIGURE_LABEL_HEIGHT,
+      w: panelWidth,
+      h: panelHeight - FIGURE_LABEL_HEIGHT,
+    }),
+  }
+}
+
+function figurePageHtml(entry, layout) {
+  const panels = entry.panels
+    .map(
+      (_, i) =>
+        `<div class="panel"><canvas id="label-${i}" width="${layout.panelWidth}" height="${FIGURE_LABEL_HEIGHT}"></canvas>` +
+        `<canvas id="view-${i}" class="view"></canvas></div>`
+    )
+    .join('')
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; padding: 0; background: #14161a; }
+  #figure { display: grid; grid-template-columns: repeat(${layout.columns}, ${layout.panelWidth}px); gap: ${FIGURE_GAP}px; background: #2b2f36; width: ${layout.width}px; height: ${layout.height}px; }
+  .panel { display: block; width: ${layout.panelWidth}px; height: ${layout.panelHeight}px; background: #14161a; overflow: hidden; }
+  canvas { display: block; }
+  canvas.view { width: ${layout.panelWidth}px; height: ${layout.viewHeight}px; }
+  /* VoxelViewer inserts its on-canvas toolbar into the canvas's PARENT, right after the canvas
+     (see frontend/src/viewer.ts createOverlay). In the single-image page that parent is <body>
+     and the toolbar lands below the fold, outside the #canvas screenshot; here the parent is the
+     panel box, and the toolbar's edge showed as a thin light bar at the bottom of every panel in
+     the first render of this figure. The toolbar is an affordance for a person with a mouse, not
+     part of what a feature generates, so it is not drawn. */
+  .panel > :not(canvas) { display: none; }
+</style></head><body><div id="figure">${panels}</div></body></html>`
+}
 
 // captureOne renders one entry, RETRYING a blank frame rather than writing it.
 //
@@ -146,21 +216,31 @@ class BlankFrameError extends Error {}
 
 async function captureOnce(browser, bundledScript, entry, rawResult, attempt) {
   const settle = 500 * attempt
+  const layout = entry.panels ? figureLayout(entry) : null
   const page = await browser.newPage({ viewport: { width: CANVAS_WIDTH, height: CANVAS_HEIGHT }, deviceScaleFactor: 1 })
   try {
-    await page.setContent(PAGE_HTML)
+    await page.setContent(layout ? figurePageHtml(entry, layout) : PAGE_HTML)
     await page.addScriptTag({ content: bundledScript })
     // See apps/vscode/scripts/capture-screenshots.mjs's own comment on this same wait: SwiftShader
     // (software WebGL, see the launch args below) loses its context on startup and auto-restores
     // shortly after -- give it time to settle before rendering, or the first paint can land
     // mid-restore.
     await page.waitForTimeout(settle)
-    await page.evaluate((payload) => window.__flRender(payload), { raw: rawResult, slice: entry.slice ?? null, envMode: entry.envMode ?? null })
+    if (layout) {
+      await page.evaluate((payload) => window.__flRenderPanels(payload), {
+        panels: rawResult.map((p) => ({ raw: p.result, label: p.label })),
+        slice: entry.slice ?? null,
+        envMode: entry.envMode ?? null,
+        framing: entry.framing ?? 'content',
+      })
+    } else {
+      await page.evaluate((payload) => window.__flRender(payload), { raw: rawResult, slice: entry.slice ?? null, envMode: entry.envMode ?? null })
+    }
     await page.waitForFunction(() => window.__flReady === true, { timeout: 10_000 })
     // A couple of animate() frames so OrbitControls' damping settles and the just-set camera
     // position has actually been rendered at least once (see viewer.ts's animate loop).
     await page.waitForTimeout(300 * attempt)
-    const canvas = await page.$('#canvas')
+    const canvas = await page.$(layout ? '#figure' : '#canvas')
     const outPath = path.join(imagesDir, entry.out)
 
     // Refuse to write a blank frame.
@@ -230,8 +310,58 @@ async function captureOnce(browser, bundledScript, entry, rawResult, attempt) {
         `${entry.id}: the rendered frame has only ${distinctColours} distinct colour(s) after ` +
           `${attempt} attempt(s) -- blank or half-drawn, not a picture. Nothing was written. If ` +
           `this persists for one entry specifically, check that its feature still places anything ` +
-          `at all: featurelab generate --pack docs/wiki/tools/fixtures --feature ${entry.feature}`
+          `at all: featurelab generate --pack docs/wiki/tools/fixtures --feature ${entry.feature ?? entry.panels?.[0]?.feature}`
       )
+    }
+
+    // A comparison figure has one more way to be a valid PNG and a useless picture: two panels
+    // that came out the same. Same reasoning as generate-texture-figure.mjs's halves check --
+    // six renders captioned with six different names that show the same thing would be worse
+    // than no figure -- so every pair of panels is compared and the figure is refused if any pair
+    // is nearly identical. The pairs that are SUPPOSED to be close (fixed_grid against
+    // jittered_grid, gaussian against triangle) are exactly the ones this exists to prove apart.
+    if (layout) {
+      const pairs = await page.evaluate(
+        async ({ dataUri, rects }) => {
+          const img = new Image()
+          await new Promise((resolve, reject) => {
+            img.onload = resolve
+            img.onerror = () => reject(new Error('could not decode the screenshot'))
+            img.src = dataUri
+          })
+          const off = document.createElement('canvas')
+          off.width = img.width
+          off.height = img.height
+          const g = off.getContext('2d')
+          g.drawImage(img, 0, 0)
+          const pixels = rects.map((r) => g.getImageData(r.x, r.y, r.w, r.h).data)
+          const out = []
+          for (let a = 0; a < pixels.length; a++) {
+            for (let b = a + 1; b < pixels.length; b++) {
+              let differing = 0
+              const pa = pixels[a]
+              const pb = pixels[b]
+              for (let i = 0; i < pa.length; i += 4) {
+                if (pa[i] !== pb[i] || pa[i + 1] !== pb[i + 1] || pa[i + 2] !== pb[i + 2]) differing++
+              }
+              out.push({ a, b, fraction: differing / (pa.length / 4) })
+            }
+          }
+          return out
+        },
+        { dataUri: `data:image/png;base64,${shot.toString('base64')}`, rects: entry.panels.map((_, i) => layout.viewRect(i)) }
+      )
+      const tooClose = pairs.filter((p) => p.fraction < 0.02)
+      if (tooClose.length > 0) {
+        const names = tooClose.map((p) => `${entry.panels[p.a].label} / ${entry.panels[p.b].label} (${(p.fraction * 100).toFixed(2)}%)`).join(', ')
+        throw new Error(
+          `${entry.id}: these panels are nearly identical: ${names}. A figure whose panels do not ` +
+            `differ demonstrates nothing, so nothing was written -- pick parameters that actually ` +
+            `separate them (images.manifest.mjs).`
+        )
+      }
+      const closest = pairs.reduce((m, p) => (p.fraction < m.fraction ? p : m))
+      console.log(`       ${entry.id}: ${pairs.length} panel pairs compared; closest ${entry.panels[closest.a].label} / ${entry.panels[closest.b].label} at ${(closest.fraction * 100).toFixed(1)}% differing`)
     }
 
     fs.writeFileSync(outPath, shot)
@@ -256,7 +386,7 @@ async function main() {
   checkFixturePack()
 
   console.log(`[3/4] featurelab generate (${images.length} image${images.length === 1 ? '' : 's'})`)
-  const results = images.map((entry) => ({ entry, result: generateFeature(entry) }))
+  const results = images.map((entry) => ({ entry, result: generateEntry(entry) }))
 
   console.log('[4/4] rendering + screenshotting')
   const bundledScript = await bundleRenderEntry()
