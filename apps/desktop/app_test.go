@@ -171,6 +171,87 @@ func TestApp_GenerateGrownWithoutLoadPackFails(t *testing.T) {
 	}
 }
 
+// TestApp_GenerateDiagnosticsSpellFilesPackRelative pins the one thing App.Generate stamps on
+// its params that the frontend cannot: session.Config.PackDir, by way of wire.GenerateParams.
+//
+// Without it a preview diagnostic named the loader's kind-relative id ("broken.json") while
+// `featurelab check`, the graph canvas and the VS Code preview all named the same file
+// "features/broken.json" -- one file, two spellings, in the one host whose entire window is a
+// preview. Asserted on the "/" in the id rather than on the message, because the message is
+// prose and the path is the contract.
+func TestApp_GenerateDiagnosticsSpellFilesPackRelative(t *testing.T) {
+	root := t.TempDir()
+	// A structure_name nothing defines: raises a pack-scoped diagnostic against the feature
+	// file, which is exactly the shape whose fileId this test is about.
+	writeTestFile(t, filepath.Join(root, "features", "broken.json"),
+		`{"format_version":"1.21.110","minecraft:structure_template_feature":{"description":{"identifier":"test:broken"},`+
+			`"structure_name":"test:nothing_defines_this","adjustment_radius":0,"facing_direction":"north","constraints":{}}}`)
+
+	app := NewApp()
+	t.Cleanup(func() { app.shutdown(nil) })
+	if _, err := app.LoadPack(root); err != nil {
+		t.Fatalf("App.LoadPack: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		run  func(wire.GenerateParams) (string, error)
+	}{
+		{"Generate", app.Generate},
+		{"GenerateGrown", app.GenerateGrown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := tc.run(wire.GenerateParams{Feature: "test:broken", Env: "void"})
+			if err != nil {
+				t.Fatalf("App.%s: %v", tc.name, err)
+			}
+			var decoded struct {
+				Diagnostics []struct {
+					FileID string `json:"fileId"`
+				} `json:"diagnostics"`
+			}
+			if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+				t.Fatalf("App.%s did not return valid JSON: %v", tc.name, err)
+			}
+			var found bool
+			for _, d := range decoded.Diagnostics {
+				if d.FileID == "features/broken.json" {
+					found = true
+				}
+				if d.FileID == "broken.json" {
+					t.Errorf("diagnostic fileId = %q -- the kind-relative spelling means PackDir was never stamped on the params", d.FileID)
+				}
+			}
+			if !found {
+				t.Errorf("no diagnostic spelled \"features/broken.json\"; got %+v", decoded.Diagnostics)
+			}
+		})
+	}
+}
+
+// TestApp_LoadPackDoesNotWarnAboutConventionalDirectoriesAPackSimplyLacks pins the levelling
+// packWarnings does. The pack below has features/ and nothing else, which is a perfectly normal
+// pack; every notice pack.Load raises about it is the informational kind, so the toolbar's
+// warning banner must stay down. Before this, opening it painted a warning saying the pack was
+// fine as it is.
+func TestApp_LoadPackDoesNotWarnAboutConventionalDirectoriesAPackSimplyLacks(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "features", "place_diamond.json"), singleBlockFeatureJSON("test:place_diamond", "minecraft:diamond_block"))
+
+	app := NewApp()
+	t.Cleanup(func() { app.shutdown(nil) })
+	result, err := app.LoadPack(root)
+	if err != nil {
+		t.Fatalf("App.LoadPack: %v", err)
+	}
+	if len(result.Warnings) != 0 {
+		t.Errorf("LoadPackResult.Warnings = %q, want none for a pack that merely has no structures/feature_rules/biomes/blocks", result.Warnings)
+	}
+	if result.Warnings == nil {
+		t.Error("LoadPackResult.Warnings must marshal as [] rather than null -- the frontend reads .length off it")
+	}
+}
+
 func TestApp_ListEnvironments(t *testing.T) {
 	app := NewApp()
 	envs := app.ListEnvironments()

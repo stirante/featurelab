@@ -41,6 +41,14 @@ Same viewer, same engine, three real differences:
   the whole pack.
 - **It opens a directory, not a document.** There is no "current file", so the
   feature you are previewing is always chosen in the panel.
+- **A long load is silent here.** The extension talks to `featurelab serve`,
+  which sends a `progress` notification on its two long methods (loading a
+  pack, building the graph) once the request passes 750ms and then once a
+  second, so the editor can say how far a big pack has got. A bound
+  Wails call has no such channel, so opening a large pack in this window is one
+  wait with nothing said about it. The texture build is the exception — it has
+  its own `textures:progress` event, because a 150 MB download with no sign of
+  life reads as a hang.
 
 Everything about the panel itself — the sections, the diagnostics, the budgets,
 the view controls — is shared with the extension and described in
@@ -61,5 +69,15 @@ difference affects your file, and in this project's documentation set otherwise.
 |---|---|
 | `main.go` | the Wails entry point and window options |
 | `app.go` | every method the frontend can call, and the one loaded pack they share |
+| `identifier.go` | how a file on disk becomes an entry in the feature/rule picker |
+| `textures.go` | the block-texture first run — status, the native download question, the build |
 | `watcher.go` | the debounced pack-directory watcher and the change batches it reports |
 | `frontend/` | the built shared viewer, embedded into the binary |
+
+## Block textures
+
+Same atlas, same question, same cache as every other host — see [Block Textures in the
+Preview](../../docs/wiki/block-textures.md), which documents the whole mechanism. The window's
+own differences are that the "may I download Mojang's assets?" question is a native dialog
+rather than a terminal prompt, and that this app has one switch instead of the extension's two:
+`FEATURELAB_BLOCK_TEXTURES=0` turns both the preparation and the drawing off. Unset means on.

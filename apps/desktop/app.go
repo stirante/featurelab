@@ -64,9 +64,9 @@ type EnvironmentOption struct {
 	BuildsSea bool `json:"buildsSea"`
 }
 
-// LoadPackResult is OpenPack's return shape: warnings (mirrors pack.Pack.Warnings -- e.g. no
-// feature_rules/ directory in this pack) plus every feature/rule this app found and could
-// identify, for the picker.
+// LoadPackResult is OpenPack's return shape: warnings (pack.Pack.Warnings, minus the notices
+// that are merely informational, plus every delegation that resolves to nothing -- see
+// packWarnings) plus every feature/rule this app found and could identify, for the picker.
 type LoadPackResult struct {
 	Dir      string     `json:"dir"`
 	Warnings []string   `json:"warnings"`
@@ -189,11 +189,103 @@ func (a *App) LoadPack(dir string) (*LoadPackResult, error) {
 	a.watcher = watcher
 	a.mu.Unlock()
 
-	warnings := loaded.Warnings
-	if warnings == nil {
-		warnings = []string{}
+	return &LoadPackResult{Dir: dir, Warnings: packWarnings(loaded), Items: listPackItems(loaded)}, nil
+}
+
+// delegationWarnings is everything only the GRAPH can see -- the findings that are about how
+// two files relate rather than about either one of them -- as sentences for the one channel
+// this app has. The same two `check` reports from the same two calls, in the same order (see
+// cmd/featurelab/check.go's delegationDiagnostics):
+//
+//   - A delegation whose target no loaded file defines and the game does not provide
+//     (wire.UnresolvedTargetDiagnostics).
+//   - A delegation cycle (wire.DelegationCycleDiagnostics). A -> B -> A means one of the two
+//     delegations places nothing: the recursion guard refuses the re-entry at run time,
+//     silently, at every seed. Legal, so `check` calls it a warning -- which is exactly what
+//     this channel is.
+//
+// THE POINT IS THAT THIS APP SAID NOTHING. A pack with one letter wrong in one
+// `"places_feature"` is made of perfectly well-formed files, so every loader loads it without a
+// word; `featurelab check` has reported it since the check existed, and the VS Code extension
+// gets it over `serve` -- but the finding was written in cmd/featurelab, and this app links the
+// engine in-process and never goes near that package. So the one host whose entire window is a
+// preview opened such a pack, painted no banner, generated nothing, and gave the author no
+// clue. It is now wire's, which is where the graph is, and this is a call to it.
+//
+// Reported through Warnings because that is the only channel there is: one banner, one colour,
+// and a string list the frontend joins. The level cannot be shown, which is fine in the
+// direction that matters -- packWarnings exists to keep things that are NOT warnings out of
+// this list, and a delegation that resolves to nothing is comfortably past that bar (`check`
+// calls it an error).
+//
+// ONE GRAPH, built here and shared by both, exactly as `check` does it. A graph costs a JSON
+// re-parse of every source file in the pack -- the same work `featurelab graph` does, and a
+// fraction of the pack.Load above it -- so letting each finding build its own would double it
+// for nothing. Deliberately not deferred like the Workspace is: a warning that arrives after
+// the user has started work is a warning about a pack they have already begun to trust.
+//
+// Silent on a graph that cannot be built, exactly as `check` is: that says nothing about
+// delegations either way, and this must never be the reason opening a pack fails.
+func delegationWarnings(loaded *pack.Pack) []string {
+	ctx := context.Background()
+	graph, err := wire.BuildGraphContext(ctx, loaded)
+	if err != nil {
+		return nil
 	}
-	return &LoadPackResult{Dir: dir, Warnings: warnings, Items: listPackItems(loaded)}, nil
+	found, ok := wire.UnresolvedTargetDiagnostics(ctx, loaded, graph)
+	if !ok {
+		return nil
+	}
+	found = append(found, wire.DelegationCycleDiagnostics(graph)...)
+	out := make([]string, 0, len(found))
+	for _, d := range found {
+		out = append(out, d.Message)
+	}
+	return out
+}
+
+// packWarnings is everything worth painting the toolbar's banner for: pack.Pack.Warnings with
+// the merely-informational notices dropped, then the graph's findings about delegations.
+//
+// Both halves are about the banner MEANING something, from opposite directions. The filter
+// stops it firing on every pack ever opened; delegationWarnings stops it staying down on a
+// pack that cannot place what it says it places. The notices come first because they are about
+// the pack as a whole, and the delegations name individual files.
+//
+// `check` now carries a level per diagnostic and calls these four "info", not "warning" (see
+// cmd/featurelab/check.go's packWarningLevel). A conventional directory a pack does not happen
+// to have is normal; a directory an explicit override NAMED and that is not there is a typo'd
+// path and stays a warning. This app has exactly one warning channel -- one banner, one colour
+// -- so the level cannot be shown here; what it can do is not raise a warning for something
+// that is not one. Before this, opening any pack without biomes/ and blocks/ -- which is most
+// of them -- painted a warning banner saying the pack was fine as it is, and a banner that
+// fires on every pack ever opened is a banner people stop reading.
+//
+// Decided from pack.MissingDir.Explicit, the structured fact, and never by matching the
+// sentence: the prose belongs to pack.Load and is free to be reworded, and a filter keyed to it
+// would stop matching with nothing failing. The pairing is by message because Warnings[i] and
+// MissingDirs[i] are written together from the same string (pack.Pack.noteMissingDir).
+// Anything in Warnings that is not a missing-directory notice at all is kept, unconditionally.
+func packWarnings(loaded *pack.Pack) []string {
+	out := make([]string, 0, len(loaded.Warnings))
+	for _, w := range loaded.Warnings {
+		if informationalNotice(loaded, w) {
+			continue
+		}
+		out = append(out, w)
+	}
+	return append(out, delegationWarnings(loaded)...)
+}
+
+// informationalNotice reports whether one of pack.Load's notices is the "this conventional
+// directory is not here, which is fine" kind -- see packWarnings.
+func informationalNotice(loaded *pack.Pack, warning string) bool {
+	for _, m := range loaded.MissingDirs {
+		if m.Message == warning {
+			return !m.Explicit
+		}
+	}
+	return false
 }
 
 // ListPackItems returns the currently loaded pack's feature/rule identifiers again, without
@@ -261,6 +353,14 @@ func (a *App) LoadAtlas() (string, error) {
 // is loaded" for "generation ran and produced nothing" -- exactly the "never leave a silently
 // frozen preview" requirement.
 //
+// PackDir is stamped on from the pack THIS APP has open, after the params arrive and never from
+// them -- the same thing cmd/featurelab/serve.go's methodGenerate does, for the same reason (see
+// wire.GenerateParams.PackDir and session/packpaths.go). Without it this app's preview
+// diagnostics spelled a file "broken.json", the loader's kind-relative id, while `check`, the
+// graph canvas and the VS Code preview all said "features/broken.json" -- the same file under two
+// names, in the one host that shows nothing but previews. It is not a placement input: setting it
+// changes the spelling of a diagnostic's fileId and nothing else about what gets placed.
+//
 // Returns the ALREADY JSON-ENCODED result (a string), not *wire.GenerateOutput directly, for a
 // concrete, verified reason: GenerateOutput embeds *session.Result, which promotes fields
 // from half a dozen other packages (block.Entry, session.Placement/Diagnostic,
@@ -280,6 +380,7 @@ func (a *App) Generate(params wire.GenerateParams) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	params.PackDir = a.loaded.Dir
 	out, err := wire.RunGenerateFromWorkspace(ws, params)
 	if err != nil {
 		return "", err
@@ -317,7 +418,8 @@ func (a *App) ensureWorkspaceLocked() (*session.Workspace, error) {
 // (see Generate's own doc comment on why: Wails' TS codegen cannot fully resolve
 // GenerateOutput's cross-package embedded fields, and GrownGenerateOutput embeds one). The
 // decoded JSON carries `grown`/`preGrowBounds` alongside every field Generate's own response
-// has -- frontend/src/protocol.ts's decodeGenerateResult reads both.
+// has -- frontend/src/protocol.ts's decodeGenerateResult reads both. PackDir is stamped on here
+// too, and for the same reason -- see Generate.
 func (a *App) GenerateGrown(params wire.GenerateParams) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -325,6 +427,7 @@ func (a *App) GenerateGrown(params wire.GenerateParams) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	params.PackDir = a.loaded.Dir
 	out, err := wire.RunGenerateGrownFromWorkspace(ws, params)
 	if err != nil {
 		return "", err
