@@ -35,14 +35,12 @@ const BASE_CLUSTER_ENTRY: readonly FieldSpec[] = [
     key: 'num_clusters',
     kind: 'integer',
     required: true,
-    min: 0,
     source: 'builder',
   },
   {
     key: 'cluster_radius',
     kind: 'integer',
     required: true,
-    min: 0,
     source: 'builder',
   },
 ]
@@ -74,14 +72,12 @@ const MANGROVE_ROOTS_ENTRY: readonly FieldSpec[] = [
     key: 'max_root_width',
     kind: 'integer',
     required: true,
-    min: 0,
     source: 'builder',
   },
   {
     key: 'max_root_length',
     kind: 'integer',
     required: true,
-    min: 0,
     source: 'builder',
   },
   {
@@ -171,18 +167,31 @@ export const TREE_GROUND_DOCS: Readonly<Record<string, DocEntry>> = {
     summary: 'How many patches to lay.',
     detail:
       'A whole number, not a range -- unlike most sizes on this type. Writing `{range_min, range_max}` ' +
-      'here is refused rather than read as a range.',
+      'here is refused rather than read as a range. Nothing enforces a minimum: 0 or less loads ' +
+      'clean and lays no patch at all.',
   },
   'base_cluster.cluster_radius': {
     summary: 'How far a patch reaches from its own centre.',
-    detail: 'A whole number, not a range, for the same reason as the count beside it.',
+    detail:
+      'A whole number, not a range, for the same reason as the count beside it. Nothing enforces a ' +
+      'minimum here either: at 0 or less every patch comes out empty, so no ground is replaced.',
   },
   mangrove_roots: {
     summary: 'The stilt roots a mangrove stands on.',
     detail: 'Leaving it out means no roots at all, not roots of some default shape.',
   },
-  'mangrove_roots.max_root_width': { summary: 'How far the roots may spread from the trunk.' },
-  'mangrove_roots.max_root_length': { summary: 'How long one root may grow before it stops.' },
+  'mangrove_roots.max_root_width': {
+    summary: 'How far the roots may spread from the trunk.',
+    detail:
+      'Nothing enforces a minimum: 0 or less loads clean and behaves the same either way -- the ' +
+      'roots never step sideways, they only drop straight down under the trunk.',
+  },
+  'mangrove_roots.max_root_length': {
+    summary: 'How long one root may grow before it stops.',
+    detail:
+      'Nothing enforces a minimum, but 0 or less is fatal rather than inert: the root pass fails ' +
+      'on the first direction and the whole tree is abandoned -- no roots, no trunk, no canopy.',
+  },
   'mangrove_roots.y_offset': {
     summary: 'How far above or below the trunk base the roots start.',
     detail: 'Drawn once per tree, so two trees from the same settings can start their roots at different heights.',
