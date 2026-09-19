@@ -39,7 +39,7 @@ rm -rf "$bin_dir"
 mkdir -p "$bin_dir"
 
 echo "package-vsix: GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 go build -o $bin_dir/$binname ./cmd/featurelab"
-( cd "$repo_root" && GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -o "$bin_dir/$binname" ./cmd/featurelab )
+( cd "$repo_root" && GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -ldflags "-X main.buildVersion=${version#v}" -o "$bin_dir/$binname" ./cmd/featurelab )
 
 mkdir -p "$outdir"
 out_abs="$(cd "$outdir" && pwd)"

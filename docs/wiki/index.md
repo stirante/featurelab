@@ -46,10 +46,11 @@ were something the game itself can't do. If a fact is not known with certainty, 
 left out or explicitly marked as uncertain. This is the standard every page in this set is
 held to.
 
-Two pages are deliberate exceptions and say so in their opening lines: [Coverage and Known
-Gaps](./coverage-and-known-gaps.md) and [Block Textures in the Preview](./block-textures.md)
-are about the *bench* these pages were written with — how far its checking goes, and how it
-draws what it found — rather than about the game. Nothing in either should be read as a
+Three pages are deliberate exceptions and say so in their opening lines: [Coverage and Known
+Gaps](./coverage-and-known-gaps.md), [Block Textures in the Preview](./block-textures.md) and
+[When the Preview Shows Nothing](./preview-shows-nothing.md) are about the *bench* these pages
+were written with — how far its checking goes, how it draws what it found, and what it says when
+it places nothing — rather than about the game. Nothing in any of them should be read as a
 statement about Minecraft.
 
 ## Images
@@ -159,7 +160,8 @@ Subtract/reshape existing terrain rather than add to it.
 | [Coverage and Known Gaps](./coverage-and-known-gaps.md) | A transparency page: how the claims on these pages are backed, which types the tooling behind them implements fully and which only partially, the bench-wide approximations that cut across every page, and what has never been checked against real content — so the silences elsewhere are legible rather than accidental. |
 | [RNG and Determinism in World Generation](./rng-and-determinism.md) | Where a feature's seed actually comes from — world seed to chunk to decoration entry, and the two independent streams that entry gets — plus which operations skip their draw entirely, why a rename moves a feature, and why draw *order*, not just draw *count*, is part of a feature's contract. |
 | [Feature Rules](./feature-rules.md) | How a feature reaches a world at all — the `{distribution, places_feature}` pair a `minecraft:feature_rules` file attaches to every matching biome's chunks, rooted at the chunk corner and run once per chunk; the biome filter that decides which biomes those are; the eleven ordered `placement_pass` values (plus the separately-kept `pregeneration_pass`) and what the ordering buys an author; and the seven ways a rule places nothing while looking correct. |
-| [Block Textures in the Preview](./block-textures.md) | How the bench draws real Minecraft textures instead of flat colours: where Mojang's assets come from and what the first run asks, how a pack's own blocks are resolved through its own resource pack, which six shapes and which single block state change the drawing, and every way of not having textures at all. *About the bench, not the game.* |
+| [Block Textures in the Preview](./block-textures.md) | How the bench draws real Minecraft textures instead of flat colours: where Mojang's assets come from and what the first run asks, how a pack's own blocks are resolved through its own resource pack — including texture sets and per-state art from a block's `permutations` — which six shapes are modelled, and every way of not having textures at all. *About the bench, not the game.* |
+| [When the Preview Shows Nothing](./preview-shows-nothing.md) | The reasons a run places no blocks, and where each one is reported: zero iterations, a lost chance roll, no surface to snap to, an unresolved reference, the recursion guard, a spent budget — plus the refusals that are deliberately silent, and the separate set of reasons a feature rule decorates no chunks. *About the bench, not the game.* |
 | [Feature Delegation and Composite Features](./feature-delegation.md) | The general shape every Proxy feature shares — which types substitute the origin and which pass it through, what the shared RNG stream and Molang scope mean for a chain, how the recursion guard is keyed, and what a delegate's return value does and does not promise. |
 
 ## Version-specific divergences worth flagging up front

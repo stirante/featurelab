@@ -4,10 +4,27 @@
 // assertions -- this script exists so "re-capture the screenshots" is a repeatable command
 // instead of a one-off manual process no later change can easily reproduce.
 //
-// Usage: node scripts/capture-screenshots.mjs   (run from apps/vscode/)
+// Usage: node scripts/capture-screenshots.mjs [--out <dir>]   (run from apps/vscode/)
+//        --out writes elsewhere, for checking a change without overwriting the committed images.
+//
+// Each shot gets its OWN page (see loadReady/page.close below) and there is no shared browser
+// state between them. That is deliberate and worth keeping: the sibling script
+// capture-graph-screenshots.mjs drove every shot from one long-lived page, an overlay that
+// refused to close on Escape stayed up for the rest of the run, and two of its images shipped
+// showing a surface that belonged to an earlier step.
+//
+// Every shot is MEASURED after it is written, against the viewport for a page shot and against
+// the element's own box for a cropped one (shotPage/shotElement below). That sibling script had
+// spelled Playwright's `viewport` option `viewportSize`; the key is unknown, unknown keys in that
+// bag are discarded in silence, and so every graph-*.png ever committed was Chromium's 1280x720
+// default under a script that said 1440x900. This script's own option name happened to be right,
+// which is not the same as being checked -- and the shot most at risk here is a different one:
+// panel-sidebar-expanded.png is an ELEMENT screenshot of a scrollable box, and an element
+// screenshot silently crops to the rendered box, so the one thing worth failing on is the image
+// coming out shorter than the content the viewport was grown to fit.
 import { chromium } from 'playwright'
 import * as esbuild from 'esbuild'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
@@ -17,7 +34,8 @@ import { createReadStream } from 'node:fs'
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
 const distDir = path.join(dir, '..', 'dist')
-const docsDir = path.join(dir, '..', 'docs')
+const outFlag = process.argv.indexOf('--out')
+const docsDir = outFlag === -1 ? path.join(dir, '..', 'docs') : path.resolve(process.argv[outFlag + 1] ?? '')
 const fixturePath = path.join(dir, '..', '..', '..', 'frontend', 'test', 'fixtures', 'wiki-ceiling-patch-with-entries.json')
 const previewPanelPath = path.join(dir, '..', 'src', 'previewPanel.ts')
 
@@ -150,8 +168,78 @@ function loadAugmentedFixture() {
   return raw
 }
 
+/** The size a PNG actually is, read off its IHDR chunk: 8-byte signature, a length and the 'IHDR'
+ * tag, then width and height as big-endian uint32 at offsets 16 and 20.
+ *
+ * Measured from the FILE, not asked of the page. `page.viewportSize()` reports what Playwright was
+ * told, and being told the wrong thing is the failure this exists to catch. */
+function pngSize(file) {
+  const head = readFileSync(file).subarray(0, 24)
+  if (head.length < 24 || head.toString('latin1', 1, 8) !== 'PNG\r\n\n' || head.toString('latin1', 12, 16) !== 'IHDR') {
+    throw new Error(`capture-screenshots: ${file} is not a PNG`)
+  }
+  return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) }
+}
+
+/** A full-page shot, checked against the size that was ASKED FOR.
+ *
+ * Not against `page.viewportSize()`, which is the trap this check exists to avoid. That reports
+ * the viewport the page ended up with -- so when the option is dropped and the page is 1280x720,
+ * the file is 1280x720 too and the two agree perfectly about the wrong number. Verified the hard
+ * way: with the `viewportSize` typo deliberately reintroduced, the viewportSize()-based version of
+ * this function passed all five shots. `loadReady` records what the caller asked for, and that is
+ * the only number here with any independence from the fault. */
+async function shotPage(page, name) {
+  const file = path.join(docsDir, `${name}.png`)
+  await page.screenshot({ path: file })
+  const want = page.__wantedViewport
+  const got = pngSize(file)
+  if (got.width !== want.width || got.height !== want.height) {
+    throw new Error(
+      `capture-screenshots: ${name}.png came out ${got.width}x${got.height}, not the ${want.width}x${want.height} ` +
+        'viewport it was taken at. The image is not of the page this script describes.',
+    )
+  }
+}
+
+/** A cropped shot of one element, checked against that element's own rendered box.
+ *
+ * The box is the right yardstick rather than the viewport: these two shots are deliberately not
+ * viewport-sized. What they must not be is SHORTER than the element -- an element screenshot
+ * captures the rendered box and nothing behind an internal scroll, so a sidebar that stopped
+ * being grown to its content would come out quietly truncated and look like nothing had changed.
+ * A pixel of rounding is allowed; a cropped section is not. */
+async function shotElement(page, selector, name) {
+  const el = await page.$(selector)
+  if (el === null) throw new Error(`capture-screenshots: ${name}.png needs ${selector}, which is not on the page.`)
+  const box = await el.boundingBox()
+  const file = path.join(docsDir, `${name}.png`)
+  await el.screenshot({ path: file })
+  const got = pngSize(file)
+  if (Math.abs(got.width - box.width) > 1 || Math.abs(got.height - box.height) > 1) {
+    throw new Error(
+      `capture-screenshots: ${name}.png came out ${got.width}x${got.height} for a ${selector} whose box is ` +
+        `${Math.round(box.width)}x${Math.round(box.height)}. The image is a crop of the element, not the element.`,
+    )
+  }
+}
+
 async function loadReady(browser, viewport) {
+  // `viewport`, NOT `viewportSize`: Playwright discards an unknown key in this bag without a word,
+  // and the sibling graph script spent its whole life capturing at 1280x720 through that typo.
+  // Asked for here, confirmed here, and confirmed again on each written file.
   const page = await browser.newPage({ viewport })
+  const applied = page.viewportSize()
+  if (applied?.width !== viewport.width || applied?.height !== viewport.height) {
+    throw new Error(
+      `capture-screenshots: asked for a ${viewport.width}x${viewport.height} page and got ` +
+        `${applied?.width}x${applied?.height}. The option Playwright wants has changed name; every shot from ` +
+        'this run would be the wrong size.',
+    )
+  }
+  // What was ASKED for, carried on the page so shotPage can check the written file against a
+  // number that does not come from the browser. See shotPage.
+  page.__wantedViewport = viewport
   await page.goto(`http://127.0.0.1:${globalThis.__port}/`)
   await page.waitForSelector('#fl-sidebar .fl-section', { timeout: 10_000 })
   // SwiftShader (software WebGL, see this script's launch args) loses its context on startup
@@ -205,7 +293,42 @@ async function setAllSections(page, collapsed) {
   await page.waitForTimeout(150)
 }
 
+/** The newest modification time under a directory, .ts files only. */
+function newestSource(where) {
+  let newest = 0
+  for (const entry of readdirSync(where, { withFileTypes: true })) {
+    const full = path.join(where, entry.name)
+    if (entry.isDirectory()) newest = Math.max(newest, newestSource(full))
+    else if (entry.name.endsWith('.ts')) newest = Math.max(newest, statSync(full).mtimeMs)
+  }
+  return newest
+}
+
+/** Refuses to photograph a build older than the sources it came from.
+ *
+ * "Run `npm run compile` first" is in this file's header, and a header is not a check. A compile
+ * that FAILS leaves the previous dist/webview.js exactly where it was, so the obvious
+ * `npm run compile && node scripts/capture-screenshots.mjs` still yields five confident
+ * screenshots of the build before the one being reviewed -- which is the same fault as
+ * photographing the wrong document, arrived at from the other end. */
+function requireFreshBundle() {
+  const bundle = path.join(distDir, 'webview.js')
+  if (!existsSync(bundle)) {
+    throw new Error('capture-screenshots: dist/webview.js is missing. Run `npm run compile` first.')
+  }
+  const newest = Math.max(newestSource(path.join(dir, '..', 'src')), newestSource(path.join(dir, '..', 'webview')))
+  if (newest > statSync(bundle).mtimeMs) {
+    throw new Error(
+      'capture-screenshots: dist/webview.js is older than the sources it is built from, so every shot would ' +
+        'photograph a build nobody is running. Run `npm run compile` and check that it SUCCEEDS -- a failed ' +
+        'compile leaves the previous bundle in place.',
+    )
+  }
+}
+
 async function main() {
+  requireFreshBundle()
+  await fsPromises.mkdir(docsDir, { recursive: true })
   const renderShellHtml = await loadRenderShellHtml()
   const server = await startServer(renderShellHtml)
   globalThis.__port = server.port
@@ -219,7 +342,7 @@ async function main() {
     // 1. panel-full-view.png -- default state (nothing collapsed, nothing scrolled), full page.
     {
       const page = await loadReady(browser, { width: 1400, height: 900 })
-      await page.screenshot({ path: path.join(docsDir, 'panel-full-view.png') })
+      await shotPage(page, 'panel-full-view')
       await page.close()
     }
 
@@ -228,7 +351,7 @@ async function main() {
       const page = await loadReady(browser, { width: 1400, height: 900 })
       await page.click('.fl-splitter-toggle')
       await page.waitForTimeout(150)
-      await page.screenshot({ path: path.join(docsDir, 'panel-sidebar-hidden.png') })
+      await shotPage(page, 'panel-sidebar-hidden')
       await page.close()
     }
 
@@ -237,8 +360,7 @@ async function main() {
     {
       const page = await loadReady(browser, { width: 1400, height: 900 })
       await setAllSections(page, true)
-      const el = await page.$('#fl-sidebar')
-      await el.screenshot({ path: path.join(docsDir, 'panel-sidebar-collapsed.png') })
+      await shotElement(page, '#fl-sidebar', 'panel-sidebar-collapsed')
       await page.close()
     }
 
@@ -255,15 +377,14 @@ async function main() {
       const contentHeight = await page.evaluate(() => document.getElementById('fl-sidebar').scrollHeight)
       await page.setViewportSize({ width: 1400, height: contentHeight + 20 })
       await page.waitForTimeout(150)
-      const el = await page.$('#fl-sidebar')
-      await el.screenshot({ path: path.join(docsDir, 'panel-sidebar-expanded.png') })
+      await shotElement(page, '#fl-sidebar', 'panel-sidebar-expanded')
       await page.close()
     }
 
     // 5. panel-narrow-width.png -- a narrower overall window, default section state.
     {
       const page = await loadReady(browser, { width: 700, height: 800 })
-      await page.screenshot({ path: path.join(docsDir, 'panel-narrow-width.png') })
+      await shotPage(page, 'panel-narrow-width')
       await page.close()
     }
 

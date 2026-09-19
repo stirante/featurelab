@@ -267,8 +267,10 @@ featurelab generate --pack <pack> --feature wiki:pumpkin_patch --env plains --se
 The two failed iterations aren't a bug to work around — they're `wiki:pumpkin_patch_block`'s
 own `may_attach_to.bottom` doing exactly its job at a couple of the sampled offsets. A
 scatter_feature reports every iteration's delegate diagnostics the same way any other delegated
-call does; `featurelab check`/`generate`'s diagnostics array names the exact position and
-delegation chain for each one, rather than silently dropping the failure.
+call does; `featurelab generate`'s `diagnostics` array names the exact position and
+delegation chain for each one, rather than silently dropping the failure. `featurelab check` will
+not show you these — it never runs a placement, so a per-iteration refusal is not a thing it has;
+what it checks is whether the files load and whether every delegation resolves.
 :::
 
 ## Field reference

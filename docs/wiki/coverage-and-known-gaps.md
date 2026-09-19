@@ -60,10 +60,22 @@ counts as blocking. A handful of internal checks elsewhere in the bench (the geo
 the sculk-patch neighbour scan) still answer from the bench's own block classification, which is
 a different question and is right for those uses.
 
-**No per-block-type state registry.** The bench knows the states of a block it placed, not the
-states a block *type* declares. Every check of the form "does this block have state X at all" is
-therefore assumed rather than performed, with a warning. Horizontal Tree Decoration above is the
-case where this is load-bearing.
+**No per-block-type state registry, for placement.** On the *placement* path the bench knows the
+states of a block it placed, not the states a block *type* declares. Every check of the form "does
+this block have state X at all" is therefore assumed rather than performed, with a warning.
+Horizontal Tree Decoration above is the case where this is load-bearing.
+
+For *appearance* this is no longer true of a pack's own blocks: the renderer reads each block's
+`description.states` and enumerates the concrete state sets its `permutations` conditions
+distinguish, so a pack block's state-specific art is drawn. That registry is used for drawing
+only — nothing on the placement path consults it. See [Block Textures in the
+Preview](./block-textures.md#your-own-blocks).
+
+**Textures approximate several things too.** The bench-wide list here is about placement; the
+rendering approximations are listed on their own page, and one of them is a real bench-vs-game
+divergence worth knowing here: **a `terrain_texture` entry with `variations` is pinned to its
+first entry**, where the game rolls a weighted die per placed block. See [Block Textures in the
+Preview](./block-textures.md#what-is-drawn-and-what-is-approximated) for that and the other four.
 
 **Directional block states are rewritten only where you wrote them.** The bench applies the
 game's own rotation table — all sixteen state families, on both [Single
@@ -124,15 +136,16 @@ and Determinism](./rng-and-determinism.md) for which Molang randoms are reproduc
 
 ## What has, and has not, been checked against real content
 
-Most types on these pages were checked against a large behaviour pack that is not part of this
-repository — thousands of feature files, placed and compared block for block against a recorded baseline, so a change in
-behaviour anywhere shows up as a difference. That is the strongest evidence in this set, and it
+Most types on these pages were checked differentially against a large body of real add-on
+content — thousands of feature files, placed and compared block for block against a recorded
+baseline, so a change in behaviour anywhere shows up as a difference. That is the strongest
+evidence in this set, and it
 covers the types packs actually use heavily: scatter, single block, trees, aggregates and
 sequences, ores, and the rest of the common vocabulary.
 
 Three groups fall outside it:
 
-- **The carvers.** The behaviour pack behind the paragraph above does not use any of the three
+- **The carvers.** The content behind the paragraph above does not use any of the three
   carver types, so the [Cave
   Carver](./cave-carver-feature.md), [Underwater Cave
   Carver](./underwater-cave-carver-feature.md) and [Nether Cave
