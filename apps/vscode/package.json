@@ -2,7 +2,7 @@
   "name": "featurelab",
   "displayName": "Feature Lab",
   "description": "A node editor and live 3D preview for Minecraft Bedrock worldgen packs: browse a pack's features as a graph, edit them in forms, and see what they place.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "publisher": "stirante",
   "license": "MIT",
