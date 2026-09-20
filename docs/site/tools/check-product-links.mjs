@@ -41,8 +41,15 @@ const siteDir = path.resolve(toolsDir, '..')
 const repoRoot = path.resolve(siteDir, '..', '..')
 
 const SITE_ORIGIN = 'https://stirante.github.io/featurelab/'
-const REPO_BLOB = /https:\/\/github\.com\/stirante\/featurelab\/blob\/[^/\s"'`)]+\/([^\s"'`)#]+)(?:#([^\s"'`)]*))?/g
-const SITE_URL = /https:\/\/stirante\.github\.io\/featurelab\/([^\s"'`)#]*)(?:#([^\s"'`)]*))?/g
+// `>` ends a Markdown autolink (`<https://.../>`) and `,` `;` a sentence, so neither can be part
+// of a route. Without them a CHANGELOG line reading `<https://stirante.github.io/featurelab/>.**`
+// was read as a route named `>.**` and failed the build for punctuation.
+const REPO_BLOB = /https:\/\/github\.com\/stirante\/featurelab\/blob\/[^/\s"'`)>]+\/([^\s"'`)>#]+)(?:#([^\s"'`)>]*))?/g
+const SITE_URL = /https:\/\/stirante\.github\.io\/featurelab\/([^\s"'`)>#]*)(?:#([^\s"'`)>]*))?/g
+
+/** Trailing sentence punctuation is not part of a route either: `...\/features\/scatter_feature.`
+ *  and `...,` both name the page, not a page plus a full stop. */
+const trimTrailing = (s) => s.replace(/[.,;:!?*_]+$/, '')
 const REL_DOC = /\]\(((?:\.\.\/)+docs\/(?:wiki|site)\/[^)\s#]+\.md)(?:#([^)\s]*))?\)/g
 
 const redirects = JSON.parse(fs.readFileSync(path.join(siteDir, 'redirects.json'), 'utf-8'))
@@ -83,7 +90,8 @@ for (const rel of files) {
 
   for (const m of text.matchAll(REPO_BLOB)) {
     refs++
-    const [url, repoPath] = m
+    const [url, rawRepoPath] = m
+    const repoPath = trimTrailing(rawRepoPath)
     const where = `${rel}:${lineOf(m.index)}`
     const onDisk = path.join(repoRoot, repoPath)
     if (!fs.existsSync(onDisk)) {
@@ -103,7 +111,8 @@ for (const rel of files) {
 
   for (const m of text.matchAll(SITE_URL)) {
     refs++
-    const [url, route, anchor] = m
+    const [url, rawRoute, anchor] = m
+    const route = trimTrailing(rawRoute)
     const where = `${rel}:${lineOf(m.index)}`
     const file = routeToFile(route)
     if (file) {
