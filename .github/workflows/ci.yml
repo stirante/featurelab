@@ -66,6 +66,13 @@ jobs:
             exit 1
           fi
 
+      # cmd/playground only compiles for js/wasm, so nothing above builds it: every command in
+      # this job targets the runner's own platform, where its build constraint excludes it. Its
+      # logic is tested natively (internal/playground); this is what catches the glue itself
+      # breaking.
+      - name: Build the playground engine (js/wasm)
+        run: GOOS=js GOARCH=wasm go vet ./cmd/playground && GOOS=js GOARCH=wasm go build -o /dev/null ./cmd/playground
+
       - name: go test ./...
         run: |
           set -o pipefail
