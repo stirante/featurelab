@@ -29,7 +29,7 @@ const problem = ref<JsonProblem | null>(null)
 const engine = ref<EngineState>({ status: 'idle' })
 const waiting = ref(false)
 const running = ref(false)
-const result = ref<{ placed: number; ms: number; errors: string[] } | null>(null)
+const result = ref<{ placed: number; ms: number; errors: string[]; summary: string } | null>(null)
 const runError = ref<string | null>(null)
 const stageReady = ref(false)
 
@@ -190,7 +190,13 @@ async function mountStage(): Promise<void> {
   // Its own key: the docs site's sidebar width has nothing to do with the extension's.
   const splitter = frontend.createSplitter({ container: stage.value, sidebar: sidebar.value, storageKey: 'featurelab.layout.docs' })
   if (stage.value.clientWidth < 560) splitter.collapse()
-  viewer = new frontend.VoxelViewer(canvas.value)
+  try {
+    viewer = new frontend.VoxelViewer(canvas.value)
+  } catch (err) {
+    // No WebGL (disabled, blocklisted, or a context limit hit): say so where the result would be.
+    runError.value = `This browser could not start the 3D view: ${err instanceof Error ? err.message : String(err)}`
+    return
+  }
   panel = frontend.createPanel(sidebar.value, {
     viewer,
     // The panel's own controls (preset, size, seed, the picker) re-run, as they do in the
@@ -249,7 +255,16 @@ async function run(fromPanel?: object): Promise<void> {
       .filter((d) => d.level === 'error' && (d.fileId === mainPath.value || d.fileId === ''))
       .slice(0, 3)
       .map((d) => d.message)
-    result.value = { placed: decoded.counts.placed, ms, errors }
+    const c = decoded.counts
+    const parts = [
+      [c.placed, 'placed'],
+      [c.replaced, 'replaced'],
+      [c.carved, 'carved'],
+    ].filter(([n]) => (n as number) > 0).map(([n, what]) => `${n === 1 ? '1 block' : `${n} blocks`} ${what}`)
+    // "Placed" alone would say an ore vein did nothing: an ore replaces stone, it places into
+    // no empty cell. The three are the panel's own three tiles.
+    const summary = parts.length > 0 ? `${parts.join(', ')}, in ${ms} ms.` : `Nothing placed (${ms} ms). The Diagnostics section in the sidebar says why.`
+    result.value = { placed: c.placed, ms, errors, summary }
   } catch (err) {
     if (seq !== runSeq || disposed) return
     const message = err instanceof Error ? err.message : String(err)
@@ -285,10 +300,15 @@ function whenIdle(fn: () => void): void {
 }
 
 function onNear(): void {
+  // The viewer first: nothing can be run until it is there, and a 9 MB engine download started
+  // alongside it only slows it down.
   void mountStage()
-  whenIdle(() => {
-    if (!disposed && eng) void eng.startEngine()
-  })
+    .catch(() => undefined)
+    .finally(() =>
+      whenIdle(() => {
+        if (!disposed && eng) void eng.startEngine()
+      }),
+    )
 }
 
 onMounted(async () => {
@@ -381,7 +401,7 @@ onBeforeUnmount(() => {
           <span v-if="engineLine" :class="{ 'is-bad': engine.status === 'missing' || engine.status === 'failed' }">{{ engineLine }}</span>
           <span v-else-if="runError" class="is-bad">{{ runError }}</span>
           <span v-else-if="result">
-            {{ result.placed === 1 ? '1 block' : `${result.placed} blocks` }} placed, in {{ result.ms }} ms.
+            {{ result.summary }}
             <template v-if="result.errors.length"><br /><span v-for="(e, i) in result.errors" :key="i" class="is-bad">{{ e }}<br /></span></template>
           </span>
         </p>
