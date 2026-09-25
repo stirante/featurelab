@@ -980,7 +980,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     if (config.biomeId) params.biomeId = config.biomeId
 
     // biomeTags: independent of biomeId above (wire.GenerateParams.BiomeTags is a tags-only
-    // override, source 3 of query.has_biome_tag/any_tag/all_tags identity, layered on top of
+    // override, source 3 of query.has_biome_tag/has_any_biome_tags/has_all_biome_tags identity, layered on top of
     // whichever of the preset/selected-biome identity is active) -- only sent once the user has
     // armed this override, so the untouched case
     // always defers to the engine's own real default (the preset's own tags, or the selected
@@ -2113,7 +2113,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
    * materials -- picking one changes the blocks the preview shows (see this section's own
    * header note below for the precedence). This is a genuinely
    * different knob from "Biome tags" below: biomeTags is a
-   * tags-only override of query.has_biome_tag/any_tag/all_tags, independent of whichever pack
+   * tags-only override of query.has_biome_tag/has_any_biome_tags/has_all_biome_tags, independent of whichever pack
    * biome (if any) is selected here -- see wire.GenerateParams's own doc comment for the full
    * source-1/2/3 precedence. */
   const packBiomeSelect = h('select', 'fl-select') as HTMLSelectElement
@@ -2189,7 +2189,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
 
   biomeBody.append(
     row('Pack biome', packBiomeSelect, 'A biome from the loaded pack whose surface_builder materials layer over the preset\'s; a Materials override still wins per slot.'),
-    row('Biome tags', biomeTagsInput, 'Comma-separated tags for query.has_biome_tag / any_tag / all_tags, independent of the pack biome.'),
+    row('Biome tags', biomeTagsInput, 'Comma-separated tags for query.has_biome_tag / has_any_biome_tags / has_all_biome_tags, independent of the pack biome.'),
     biomeClearButton,
   )
 

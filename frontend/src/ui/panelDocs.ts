@@ -274,7 +274,7 @@ export function panelDocs(ctx: PanelDocsContext): DocSection[] {
         name: 'Biome tags',
         glyph: DOC_GLYPH.text,
         kindLabel: 'text',
-        summary: 'Comma-separated tags for query.has_biome_tag / any_tag / all_tags, independent of the pack biome.',
+        summary: 'Comma-separated tags for query.has_biome_tag / has_any_biome_tags / has_all_biome_tags, independent of the pack biome.',
         detail: ['Until edited it only shows the tags that are in effect -- the selected pack biome\'s, else the preset\'s -- and sends nothing.'],
       },
       {

@@ -144,7 +144,7 @@ export interface MolangValidateRequest {
    * response, because an evaluation is only ever true of one origin and a response that does
    * not say which is not reportable. */
   origin: OriginPoint
-  /** The biome whose tags back has_biome_tag/any_tag/all_tags, when the run selected one. */
+  /** The biome whose tags back has_biome_tag/has_any_biome_tags/has_all_biome_tags, when the run selected one. */
   biomeId?: string
 }
 
