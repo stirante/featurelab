@@ -1,6 +1,8 @@
 package wgen
 
 import (
+	"sort"
+
 	"github.com/stirante/featurelab/random"
 
 	molang "github.com/stirante/molang-go"
@@ -27,9 +29,9 @@ func (h heightSource) AboveTopSolidAt(x, z float64) float64 {
 func NewScope() *molang.Scope { return molang.NewScope() }
 
 // NewMolangContext builds the molang-go Context feature Molang evaluates
-// against: math.random*/math.die_roll* draw from rnd, query.noise/
-// has_biome_tag/any_tag/all_tags/heightmap/above_top_solid are registered
-// world_gen queries, everything else falls back to the plain scope lookup.
+// against: math.random*/math.die_roll* draw from rnd, the six world_gen queries
+// (WorldGenQueryNames) are registered, everything else falls back to the plain
+// scope lookup.
 // world may be nil (heightmap/above_top_solid then read 0, the "no world -> 0"
 // fallback); biome may be nil (tag queries then read 0, likewise).
 //
@@ -64,8 +66,106 @@ func NewMolangContext(rnd random.IRandom, scope *molang.Scope, biome *MolangBiom
 		hs = heightSource{api: world}
 	}
 
-	worldgen.Register(ctx.QueryFuncs, hasTag, hs)
+	ctx.QueryFuncs["noise"] = worldgen.NoiseFunc()
+	for name, fn := range worldgen.HeightFuncs(hs) {
+		ctx.QueryFuncs[name] = fn
+	}
+	for name, fn := range biomeTagQueries(hasTag) {
+		ctx.QueryFuncs[name] = fn
+	}
 	return ctx
+}
+
+// worldGenQueries is the whole query surface of world generation Molang: the
+// game resolves a feature's or feature rule's Molang against one query set,
+// world_gen, and these six are everything in it. The tag queries that item and
+// block descriptors use (query.any_tag, query.all_tags) live in a different
+// set, and the entity-side catalogue in a third; neither is reachable here.
+//
+// A name outside this set is not a query that answers 0. The game refuses to
+// parse the expression at all -- see features.UnresolvedQueryError for what
+// that costs in each field.
+var worldGenQueries = map[string]bool{
+	"has_biome_tag":      true,
+	"has_any_biome_tags": true,
+	"has_all_biome_tags": true,
+	"noise":              true,
+	"heightmap":          true,
+	"above_top_solid":    true,
+}
+
+// IsWorldGenQuery reports whether query.<name> resolves in world generation
+// Molang. name is the member, lower-case, without the namespace.
+func IsWorldGenQuery(name string) bool { return worldGenQueries[name] }
+
+// WorldGenQueryNames is the world_gen query set, sorted, for messages that
+// have to list it.
+func WorldGenQueryNames() []string {
+	names := make([]string, 0, len(worldGenQueries))
+	for name := range worldGenQueries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// WorldGenCounterpart names the world_gen query an author reaching for a block/item descriptor
+// tag query in feature Molang almost certainly meant: any_tag -> has_any_biome_tags, all_tags ->
+// has_all_biome_tags. ok is false for every other name.
+func WorldGenCounterpart(name string) (instead string, ok bool) {
+	instead, ok = descriptorTagCounterpart[name]
+	return instead, ok
+}
+
+var descriptorTagCounterpart = map[string]string{
+	"any_tag":  "has_any_biome_tags",
+	"all_tags": "has_all_biome_tags",
+}
+
+// biomeTagQueries is the three world_gen tag queries, answered against one
+// biome identity through hasTag (a tag name arrives as its interned numeric
+// id, see eval.InternString).
+//
+//   - has_biome_tag takes ONE tag. It accepts exactly 1, 3 or 4 arguments --
+//     (tag), (tag, x, z) and (tag, x, y, z) -- and answers 0 for any other
+//     count, two included. The positional forms ask about another block in
+//     game; this tool has one biome per run, so they ask the same biome.
+//   - has_any_biome_tags / has_all_biome_tags take any number of tags and
+//     always ask about the origin. With no tags at all BOTH answer 0: the
+//     game checks for an empty list before it looks at the biome, so the
+//     "every one of nothing" reading that would make has_all true never
+//     happens.
+func biomeTagQueries(hasTag func(argValue float64) bool) map[string]molang.QueryFunc {
+	return map[string]molang.QueryFunc{
+		"has_biome_tag": func(args []float64, _ *eval.Context) float64 {
+			switch len(args) {
+			case 1, 3, 4:
+				if hasTag(args[0]) {
+					return 1
+				}
+			}
+			return 0
+		},
+		"has_any_biome_tags": func(args []float64, _ *eval.Context) float64 {
+			for _, a := range args {
+				if hasTag(a) {
+					return 1
+				}
+			}
+			return 0
+		},
+		"has_all_biome_tags": func(args []float64, _ *eval.Context) float64 {
+			if len(args) == 0 {
+				return 0
+			}
+			for _, a := range args {
+				if !hasTag(a) {
+					return 0
+				}
+			}
+			return 1
+		},
+	}
 }
 
 // MolangContext returns the molang-go Context for this placement context's

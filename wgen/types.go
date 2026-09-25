@@ -48,8 +48,8 @@ type BlockWorld interface {
 	Palette() IPaletteView
 }
 
-// MolangBiome is the active biome identity for query.has_biome_tag/any_tag/
-// all_tags.
+// MolangBiome is the active biome identity for query.has_biome_tag/
+// has_any_biome_tags/has_all_biome_tags.
 type MolangBiome struct {
 	ID   string
 	Tags map[string]struct{}

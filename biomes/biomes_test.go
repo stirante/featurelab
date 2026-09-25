@@ -250,10 +250,11 @@ func TestBuildBiomeLibrary_PartialSurfaceBuilderFallsBackPerField(t *testing.T) 
 
 // TestResolvedBiomeTagsFeedMolangQueries proves the join point biomes.go's
 // header promises: a ResolvedBiome's Tags, converted via TagSet() into a
-// wgen.MolangBiome, actually drive query.has_biome_tag/any_tag/all_tags
-// through the real molang-go evaluator -- has_biome_tag matches a present
-// tag, any_tag is OR, all_tags is AND -- using a biome parsed by THIS
-// package instead of a hand-built MolangBiome literal.
+// wgen.MolangBiome, actually drive query.has_biome_tag/has_any_biome_tags/
+// has_all_biome_tags through the real molang-go evaluator -- has_biome_tag
+// matches a present tag, has_any_biome_tags is OR, has_all_biome_tags is AND --
+// using a biome parsed by THIS package instead of a hand-built MolangBiome
+// literal.
 func TestResolvedBiomeTagsFeedMolangQueries(t *testing.T) {
 	biome := BuildLibrary([]SourceFile{file("canyon.sb.json", canyonJSON)}).Resolve("wiki:canyon")
 	if biome == nil {
@@ -277,13 +278,13 @@ func TestResolvedBiomeTagsFeedMolangQueries(t *testing.T) {
 	if got := eval(`q.has_biome_tag('plains')`); got != 0 {
 		t.Errorf("has_biome_tag('plains') = %v, want 0", got)
 	}
-	if got := eval(`q.any_tag('plains', 'canyon')`); got != 1 {
-		t.Errorf("any_tag('plains','canyon') = %v, want 1", got)
+	if got := eval(`q.has_any_biome_tags('plains', 'canyon')`); got != 1 {
+		t.Errorf("has_any_biome_tags('plains','canyon') = %v, want 1", got)
 	}
-	if got := eval(`q.all_tags('overworld', 'canyon')`); got != 1 {
-		t.Errorf("all_tags('overworld','canyon') = %v, want 1", got)
+	if got := eval(`q.has_all_biome_tags('overworld', 'canyon')`); got != 1 {
+		t.Errorf("has_all_biome_tags('overworld','canyon') = %v, want 1", got)
 	}
-	if got := eval(`q.all_tags('overworld', 'plains')`); got != 0 {
-		t.Errorf("all_tags('overworld','plains') = %v, want 0", got)
+	if got := eval(`q.has_all_biome_tags('overworld', 'plains')`); got != 0 {
+		t.Errorf("has_all_biome_tags('overworld','plains') = %v, want 0", got)
 	}
 }

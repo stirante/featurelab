@@ -56,6 +56,7 @@ import (
 	"github.com/stirante/featurelab/internal/nearest"
 	"github.com/stirante/featurelab/pack"
 	"github.com/stirante/featurelab/session"
+	"github.com/stirante/featurelab/wgen"
 
 	molang "github.com/stirante/molang-go"
 	"github.com/stirante/molang-go/ast"
@@ -85,7 +86,7 @@ const (
 	// CheckMolangParse is a condition or iterations expression that is not
 	// Molang.
 	CheckMolangParse = "molang-parse"
-	// CheckMolangQuery is a query nothing answers during world generation.
+	// CheckMolangQuery is a query outside world generation's query set.
 	CheckMolangQuery = "molang-query"
 	// CheckMolangUnsetRead is a read of a slot nothing in the graph writes.
 	CheckMolangUnsetRead = "molang-unset-read"
@@ -111,21 +112,6 @@ var GraphCheckNames = []string{
 	CheckMolangUnsetRead,
 	CheckMolangSideEffect,
 	CheckCycle,
-}
-
-// checkWorldGenQueries is every query that resolves during world generation. The
-// list is short because the world_gen Molang surface IS short: noise, the three
-// biome-tag queries, and the two column-height queries. Anything else names a
-// query no world generation context publishes -- it does not evaluate to
-// something useful and unexpected, it evaluates to nothing, which is the reason
-// naming one is worth an error rather than a shrug.
-var checkWorldGenQueries = map[string]bool{
-	"noise":           true,
-	"has_biome_tag":   true,
-	"any_tag":         true,
-	"all_tags":        true,
-	"heightmap":       true,
-	"above_top_solid": true,
 }
 
 // checkEnginePublishedVars are the Molang slots world generation fills in
@@ -232,14 +218,11 @@ var checkListDelegation = map[string]struct {
 //     tables before shipping the checks.
 //
 //   - molang-parse (error), molang-query, molang-side-effect (warning). An
-//     expression that is not Molang, a query nothing answers during world
-//     generation, an assignment inside a condition. Wanted by a graph editor
-//     first -- they point at a character in a string, which is what an editor
-//     can show and a terminal row cannot. DECIDE: whether checkWorldGenQueries
-//     is the whole world-gen Molang surface. It is short because the surface
-//     is short, but anything missing from it becomes a wrong error on a
-//     correct pack, which is the failure mode this package spent thirteen
-//     wrong errors learning to avoid (see GraphNode.External).
+//     expression that is not Molang, a query outside the world_gen query
+//     set, an assignment inside a condition. Wanted by a graph editor first
+//     -- they point at a character in a string, which is what an editor can
+//     show and a terminal row cannot. The query set is wgen.IsWorldGenQuery,
+//     the same six the engine registers, so a correct pack cannot trip it.
 //
 //   - molang-unset-read (warning). A read of a variable./temp. slot nothing
 //     in the graph writes. The most useful thing here and the most likely to
@@ -848,13 +831,19 @@ func (c *graphChecker) checkExpr(e *GraphEdge, x *graphExpr) {
 		return
 	}
 
+	// The query set is wgen's: world generation resolves one set of six, and a name outside it is
+	// not a query that answers 0 -- the game refuses to parse the expression (see
+	// features.UnresolvedQueryError for what that costs per field). query.any_tag and
+	// query.all_tags are the case worth naming: real queries, but in the set block and item
+	// descriptors use, not this one.
 	for _, q := range x.refs.Queries {
-		if checkWorldGenQueries[q] {
+		if wgen.IsWorldGenQuery(q) {
 			continue
 		}
 		c.edgeDiag("error", CheckMolangQuery, e, fmt.Sprintf(
-			"%s names query.%s, which nothing answers during world generation. The queries available here are %s.",
-			x.what, q, strings.Join(sortedNameList(checkWorldGenQueries), ", ")))
+			"%s names query.%s, which the game does not resolve in world generation Molang: it fails to parse the "+
+				"expression (\"Failed to resolve query %s\"). The queries available here are %s.",
+			x.what, q, q, strings.Join(wgen.WorldGenQueryNames(), ", ")))
 	}
 
 	// The headline check: names this expression READS that nothing writes.
@@ -1134,13 +1123,4 @@ func (c *graphChecker) typeOf(id string) string {
 // the exact form it is written in the file.
 func graphCheckMessage(check, msg string) string {
 	return msg + " (@featurelab:ignore " + check + ")"
-}
-
-func sortedNameList(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

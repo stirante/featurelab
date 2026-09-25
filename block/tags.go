@@ -47,7 +47,6 @@ import (
 	"github.com/stirante/molang-go/ast"
 	"github.com/stirante/molang-go/eval"
 	"github.com/stirante/molang-go/mtrand"
-	"github.com/stirante/molang-go/worldgen"
 )
 
 // SourceFile is a blocks/**/*.json file as delivered by the pack loader --
@@ -1165,7 +1164,7 @@ func (m MatchSet) Contains(id ID) bool {
 		}
 		return m.palette.blockHasTag(canonical, name)
 	}
-	funcs := worldgen.BiomeTagFuncs(hasTag)
+	funcs := descriptorTagQueries(hasTag)
 	// RNG must be non-nil whenever any program here can draw. molang-go dereferences it without
 	// checking, so a predicate containing math.random -- which is legal Molang and which nothing
 	// else here rejects -- used to take down the whole process with a nil dereference. That is the
@@ -1204,6 +1203,34 @@ func (m MatchSet) Contains(id ID) bool {
 		}
 	}
 	return false
+}
+
+// descriptorTagQueries is query.any_tag/query.all_tags as a block descriptor's tag expression
+// answers them, against one block's tags through hasTag. These two belong to the descriptor tag
+// query set and to nothing else -- in particular not to feature Molang, whose biome-tag pair is
+// has_any_biome_tags/has_all_biome_tags (see wgen.IsWorldGenQuery).
+func descriptorTagQueries(hasTag func(argValue float64) bool) map[string]molang.QueryFunc {
+	return map[string]molang.QueryFunc{
+		"any_tag": func(args []float64, _ *eval.Context) float64 {
+			for _, a := range args {
+				if hasTag(a) {
+					return 1
+				}
+			}
+			return 0
+		},
+		"all_tags": func(args []float64, _ *eval.Context) float64 {
+			if len(args) == 0 {
+				return 0
+			}
+			for _, a := range args {
+				if !hasTag(a) {
+					return 0
+				}
+			}
+			return 1
+		},
+	}
 }
 
 // tagLiteralNames returns every distinct string literal passed to a

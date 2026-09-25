@@ -15,11 +15,14 @@
 package features
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/stirante/featurelab/profiler"
 	"github.com/stirante/featurelab/random"
+	"github.com/stirante/featurelab/wgen"
 
 	molang "github.com/stirante/molang-go"
 	"github.com/stirante/molang-go/eval"
@@ -45,6 +48,8 @@ type MolangExpr struct {
 	isConstant bool
 	constant   float64
 	program    *molang.Program
+	// failed marks FailedParse: never constant, always 0.
+	failed bool
 }
 
 // IsConstant reports whether Evaluate returns without touching its context. A caller that has to
@@ -77,6 +82,9 @@ func ParseMolangValue(v any) (*MolangExpr, error) {
 		if err != nil {
 			return nil, err
 		}
+		if bad := unresolvableQueries(prog); len(bad) > 0 {
+			return nil, &UnresolvedQueryError{Source: x, Queries: bad}
+		}
 		return &MolangExpr{program: prog}, nil
 	case nil:
 		return &MolangExpr{isConstant: true, constant: 0}, nil
@@ -87,10 +95,93 @@ func ParseMolangValue(v any) (*MolangExpr, error) {
 
 func constMolang(v float64) *MolangExpr { return &MolangExpr{isConstant: true, constant: v} }
 
+// UnresolvedQueryError is ParseMolangValue's answer to an expression that names a query outside
+// world generation's query set (wgen.WorldGenQueryNames). The game resolves query names while it
+// tokenizes, against the one set the field allows, so such an expression is not one that
+// evaluates a query to 0: it does not parse at all, and the game content-logs
+//
+//	Failed to resolve query <name>.  Either the query does not exist or it is not supported in this context.
+//
+// What that costs depends on the field, which is why this is a typed error rather than a message:
+//
+//   - conditional_list conditions and the caves' width_modifier are checked while the file is
+//     validated, and a failed parse fails the validation -- the feature does not load. Those
+//     callers return the error as they return any other.
+//   - a scatter's iterations, scatter_chance and coordinates (and a feature rule's distribution,
+//     which is the same object) are parsed after validation, and the failure is not looked at:
+//     the feature loads, and the whole expression -- not just the query in it -- evaluates to 0
+//     every time. Those callers take FailedParse instead of refusing.
+//
+// query.any_tag and query.all_tags are the case this exists for. They are real queries, in the
+// set item and block descriptors use, and they are one letter away from the world_gen pair
+// has_any_biome_tags/has_all_biome_tags.
+type UnresolvedQueryError struct {
+	Source  string
+	Queries []string
+}
+
+func (e *UnresolvedQueryError) Error() string {
+	var b strings.Builder
+	for i, q := range e.Queries {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		fmt.Fprintf(&b, "\"Failed to resolve query %s.  Either the query does not exist or it is not "+
+			"supported in this context.\"", q)
+	}
+	fmt.Fprintf(&b, " -- feature Molang resolves only query.%s",
+		strings.Join(wgen.WorldGenQueryNames(), ", query."))
+	for _, q := range e.Queries {
+		if instead, ok := wgen.WorldGenCounterpart(q); ok {
+			fmt.Fprintf(&b, "; query.%s is the block/item descriptor tag query -- for the biome, use query.%s", q, instead)
+		}
+	}
+	return b.String()
+}
+
+// unresolvableQueries is every query prog names that world generation does not resolve, sorted
+// and without duplicates (molang.References' own guarantee). Arguments are included: the game
+// tokenizes the whole string against the field's query set, calls inside calls too.
+func unresolvableQueries(prog *molang.Program) []string {
+	var bad []string
+	for _, q := range molang.References(prog.AST).Queries {
+		if !wgen.IsWorldGenQuery(q) {
+			bad = append(bad, q)
+		}
+	}
+	return bad
+}
+
+// FailedParse is what a scatter field holds when its expression failed to parse in game: a
+// non-constant expression that evaluates to 0. Non-constant matters -- the game's load-time
+// rewrites (a constant scatter_chance outside (0, 100] becomes 100, a negative constant
+// iterations becomes 1) only look at constants, and a failed expression is not one, so it keeps
+// its 0 where a literal 0 would have been rewritten.
+func FailedParse() *MolangExpr { return &MolangExpr{failed: true} }
+
+// scatterField applies the scatter-parameter rule for UnresolvedQueryError to one field's parse
+// result: a warning quoting the game's error, and FailedParse in place of the expression. Every
+// other error is returned unchanged.
+func scatterField(expr *MolangExpr, err error, field string, warn func(string)) (*MolangExpr, error) {
+	var uq *UnresolvedQueryError
+	if !errors.As(err, &uq) {
+		return expr, err
+	}
+	if warn != nil {
+		warn(fmt.Sprintf("%s %q: %v. In a scatter's distribution the game still loads the feature, but "+
+			"the whole expression evaluates to 0 every time -- so this field is 0 here too.",
+			field, uq.Source, uq))
+	}
+	return FailedParse(), nil
+}
+
 // Evaluate runs the expression against ctx.
 func (e *MolangExpr) Evaluate(ctx *molang.Context) float64 {
 	if e.isConstant {
 		return e.constant
+	}
+	if e.failed {
+		return 0
 	}
 	return e.program.Run(ctx)
 }
@@ -133,14 +224,16 @@ type CoordinateRange struct {
 	GridOffset float64     `json:"gridOffset"`
 }
 
-// ParseCoordinateRange parses one axis of a `distribution` block.
-func ParseCoordinateRange(raw any, jsonPath string) (CoordinateRange, error) {
+// ParseCoordinateRange parses one axis of a `distribution` block. warn receives the diagnostic for
+// an expression the game fails to parse but loads anyway (see UnresolvedQueryError); nil drops it.
+func ParseCoordinateRange(raw any, jsonPath string, warn func(string)) (CoordinateRange, error) {
 	if raw == nil {
 		return CoordinateRange{Kind: DistNone, Min: constMolang(0), Max: constMolang(0)}, nil
 	}
 	switch v := raw.(type) {
 	case float64, string, bool:
 		minExpr, err := ParseMolangValue(v)
+		minExpr, err = scatterField(minExpr, err, jsonPath, warn)
 		if err != nil {
 			return CoordinateRange{}, err
 		}
@@ -156,10 +249,12 @@ func ParseCoordinateRange(raw any, jsonPath string) (CoordinateRange, error) {
 			return CoordinateRange{}, fmt.Errorf("%s.extent must be a 2-element [min, max] array", jsonPath)
 		}
 		minExpr, err := ParseMolangValue(extent[0])
+		minExpr, err = scatterField(minExpr, err, jsonPath+".extent[0]", warn)
 		if err != nil {
 			return CoordinateRange{}, fmt.Errorf("%s.extent[0]: %w", jsonPath, err)
 		}
 		maxExpr, err := ParseMolangValue(extent[1])
+		maxExpr, err = scatterField(maxExpr, err, jsonPath+".extent[1]", warn)
 		if err != nil {
 			return CoordinateRange{}, fmt.Errorf("%s.extent[1]: %w", jsonPath, err)
 		}
@@ -352,6 +447,7 @@ func ParseScatterChance(raw any, warn func(string)) (ChanceSpec, error) {
 	switch v := raw.(type) {
 	case float64, string, bool:
 		expr, err := ParseMolangValue(v)
+		expr, err = scatterField(expr, err, "scatter_chance", warn)
 		if err != nil {
 			return ChanceSpec{}, err
 		}
@@ -706,6 +802,7 @@ func ParseScatterDistribution(dist map[string]any, jsonPath string, warn func(st
 		return ScatterDistribution{}, fmt.Errorf("%s.iterations must be a number or Molang string", jsonPath)
 	}
 	iterations, err := ParseMolangValue(iterRaw)
+	iterations, err = scatterField(iterations, err, jsonPath+".iterations", warn)
 	if err != nil {
 		return ScatterDistribution{}, fmt.Errorf("%s.iterations: %w", jsonPath, err)
 	}
@@ -752,15 +849,15 @@ func ParseScatterDistribution(dist map[string]any, jsonPath string, warn func(st
 				"Raise it to place anything.", jsonPath, raw))
 		}
 	}
-	ax, err := ParseCoordinateRange(dist["x"], jsonPath+".x")
+	ax, err := ParseCoordinateRange(dist["x"], jsonPath+".x", warn)
 	if err != nil {
 		return ScatterDistribution{}, err
 	}
-	ay, err := ParseCoordinateRange(dist["y"], jsonPath+".y")
+	ay, err := ParseCoordinateRange(dist["y"], jsonPath+".y", warn)
 	if err != nil {
 		return ScatterDistribution{}, err
 	}
-	az, err := ParseCoordinateRange(dist["z"], jsonPath+".z")
+	az, err := ParseCoordinateRange(dist["z"], jsonPath+".z", warn)
 	if err != nil {
 		return ScatterDistribution{}, err
 	}

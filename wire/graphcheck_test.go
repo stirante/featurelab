@@ -382,8 +382,14 @@ func TestGraphCheckMolang(t *testing.T) {
 		},
 		{
 			name:  "every query world generation answers is accepted",
-			graph: gcCond("query.noise(v.originx, v.originz) > 0.2 && query.has_biome_tag('forest') && query.any_tag('a','b') && query.all_tags('a') && query.heightmap(0,0) > query.above_top_solid(0,0)", nil),
+			graph: gcCond("query.noise(v.originx, v.originz) > 0.2 && query.has_biome_tag('forest') && query.has_any_biome_tags('a','b') && query.has_all_biome_tags('a') && query.heightmap(0,0) > query.above_top_solid(0,0)", nil),
 			want:  nil,
+		},
+		{
+			name:         "the descriptor tag queries are not world generation queries",
+			graph:        gcCond("query.any_tag('forest')", nil),
+			want:         []string{"error:test:list:molang-query"},
+			wantContains: []string{"query.any_tag", "has_any_biome_tags"},
 		},
 		{
 			name:         "a query nothing answers during world generation is an error",

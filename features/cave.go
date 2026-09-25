@@ -2167,7 +2167,7 @@ var _ wgen.IFeature = (*CaveFeature)(nil)
 // evaluation context for renderer components, and this port does not model everything it can
 // expose. This port binds width_modifier's query.* and variable.* resolution through the SAME
 // wgen.NewMolangContext bridge every other Molang-consuming feature type in this project uses
-// (ctx.Biome/ctx.API for query.has_biome_tag/any_tag/all_tags/heightmap/above_top_solid/noise,
+// (ctx.Biome/ctx.API for query.has_biome_tag/has_any_biome_tags/has_all_biome_tags/heightmap/above_top_solid/noise,
 // ctx.MolangScope for variable.*/temp.*). If a pack's width_modifier reads a query this bridge
 // does not register, or a variable.* this bench's shared scope was never populated with by an
 // ancestor feature, this port evaluates it as 0, which is molang-go's documented unresolved-lookup
