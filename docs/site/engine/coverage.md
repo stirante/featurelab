@@ -2,7 +2,8 @@
 title: Coverage and known gaps
 description: How far featurelab's checking goes — which feature types the bench implements fully, which partially and what each gap means for a pack, the approximations that cut across every page, and what has and has not been checked against real content.
 scope: bench
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 ---
 
 # Coverage and known gaps
@@ -38,7 +39,7 @@ const gaps = {
 const routeOf = (typeId) => withBase('/features/' + typeId.replace(/^minecraft:/, ''))
 </script>
 
-**This page describes how far the checking goes, not what the game does.** Every other page in this set describes Minecraft Bedrock **1.26.50.24**; this one says which of those claims were reproduced against a running implementation, which are less certain, and where the tool used to write them knowingly does something different from the game. It exists so that the silences elsewhere are legible: a page that does not mention a field is not the same as a page that mentions it and says it was never exercised.
+**This page describes how far the checking goes, not what the game does.** Every other page in this set describes Minecraft Bedrock **1.26.60.22**; this one says which of those claims were reproduced against a running implementation, which are less certain, and where the tool used to write them knowingly does something different from the game. It exists so that the silences elsewhere are legible: a page that does not mention a field is not the same as a page that mentions it and says it was never exercised.
 
 The tool is **featurelab**, a bench that loads a behaviour pack, runs one feature or one feature rule in a controlled volume, and reports the cells it wrote. Everything below is about the distance between that bench and the game.
 
@@ -163,4 +164,4 @@ Each page's own *How this page was checked* section says which of its claims fal
 
 The counts, the type ids and the per-type status in [type coverage](#type-coverage) are not written on this page at all: they are interpolated at build time from `generated/coverage.json`, which `npm run generate` writes from `featurelab types --json`, and the docs workflow fails if the committed copy differs from a fresh run. So the numbers here are the engine's, on the build that produced this page, and the wiki page's hand-typed counts cannot recur.
 
-Everything else is hand-written and is a claim about the bench: each gap above was read off the behaviour it describes, and each is stated as what the bench does *not* do rather than as something the game cannot do. The version pin — Bedrock 1.26.50.24 — matters here because the type list itself is version-specific: a type that does not exist in a build cannot be covered or missing in it.
+Everything else is hand-written and is a claim about the bench: each gap above was read off the behaviour it describes, and each is stated as what the bench does *not* do rather than as something the game cannot do. The version pin — Bedrock 1.26.60.22 — matters here because the type list itself is version-specific: a type that does not exist in a build cannot be covered or missing in it.

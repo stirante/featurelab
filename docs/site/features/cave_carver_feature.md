@@ -1,10 +1,10 @@
 ---
 title: Cave carver feature
-description: minecraft:cave_carver_feature digs rooms and branching tunnels through terrain, removing blocks instead of placing them. Every field in a table, the two defaults that carve nothing, the blocks a carve refuses to touch, and how a carve is pinned to one chunk — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:cave_carver_feature digs rooms and branching tunnels through terrain, removing blocks instead of placing them. Every field in a table, the two defaults that carve nothing, the blocks a carve refuses to touch, and how a carve is pinned to one chunk — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:cave_carver_feature
 category: carver
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -312,7 +312,7 @@ The worked example is [`cave_demo.json`](https://github.com/stirante/featurelab/
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: all three carver types are behaviourally identical between the two versions, so nothing on this page splits between them.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: all three carver types are behaviourally identical across all three versions, so nothing on this page splits between them.
 
 Every number quoted was produced by running the exact JSON above — or that file with one key changed — through `featurelab generate` and reading the counts and coordinates back out of the result: the three-origin table, the `skip_carve_chance` series, the `0`-versus-`1` pair, the two "carves nothing" defaults, the 2,516 cells from a body carrying only `fill_with` and `height_limit`, and the per-`height_limit` ceiling measurements. Both images were rendered from the two runs quoted beside them by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), sliced as the tip describes.
 

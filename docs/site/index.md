@@ -5,7 +5,7 @@ titleTemplate: Bedrock worldgen features, measured
 hero:
   name: Feature Lab
   text: Bedrock worldgen features, measured.
-  tagline: One page per feature type, every claim pinned to Minecraft Bedrock 1.26.50.24 and reproducible from a committed fixture pack. Plus the engine that measures them and the editor that shows them.
+  tagline: One page per feature type, every claim pinned to Minecraft Bedrock 1.26.60.22 and reproducible from a committed fixture pack. Plus the engine that measures them and the editor that shows them.
   actions:
     - theme: brand
       text: Feature types

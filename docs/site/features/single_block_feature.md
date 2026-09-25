@@ -1,10 +1,10 @@
 ---
 title: Single block feature
-description: minecraft:single_block_feature places exactly one block at the origin it is given. Every key in a table, the nine attach faces and the two different checks they run, what rotation rewrites and what it leaves alone, and why a refusal is usually the file working — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:single_block_feature places exactly one block at the origin it is given. Every key in a table, the nine attach faces and the two different checks they run, what rotation rewrites and what it leaves alone, and why a refusal is usually the file working — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:single_block_feature
 category: content
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -264,7 +264,7 @@ The order matters as much as the count: the weighted pick happens **before** the
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key, enum value and default — and its behaviour are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key, enum value and default — and its behaviour are identical in all three.
 
 The attach semantics, the nine faces, the two kinds of check, `min_sides_must_attach`'s default of 4 and the sixteen rotated state families are stated as facts about the game. The worked example was run end to end, and its result — one `minecraft:pumpkin` at `(0, 63, 0)` over grass at `y 62`, carrying `minecraft:cardinal_direction: "west"` — was read back out of `featurelab generate`; the image was rendered from that exact result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces the picture byte for byte. The `may_replace must be an array` refusal and the bare-versus-stated match result were reproduced the same way.
 

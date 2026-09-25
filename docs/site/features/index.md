@@ -1,7 +1,8 @@
 ---
 title: Feature types
-description: Every JSON feature type Minecraft Bedrock 1.26.50.24 accepts, grouped the way wiki.bedrock.dev groups them, with what each one is for and how far the featurelab bench implements it.
-game: 1.26.50.24
+description: Every JSON feature type Minecraft Bedrock 1.26.60.22 accepts, grouped the way wiki.bedrock.dev groups them, with what each one is for and how far the featurelab bench implements it.
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -9,7 +10,7 @@ scope: game
 
 <VersionBadge />
 
-One page per feature type, plus the pages on how features reach a world at all. Every page is a statement about **Minecraft Bedrock 1.26.50.24**, the version this project targets — said once here, and shown as a badge on each page rather than hedged in every paragraph. Worldgen internals move between releases: field defaults, draw order, which types exist at all. Where this version is known to diverge from Microsoft's public reference, the page says so.
+One page per feature type, plus the pages on how features reach a world at all. Every page is a statement about **Minecraft Bedrock 1.26.60.22**, the version this project targets — said once here, and shown as a badge on each page rather than hedged in every paragraph. Worldgen internals move between releases: field defaults, draw order, which types exist at all. Where this version is known to diverge from Microsoft's public reference, the page says so.
 
 ::: info Pages marked ↗ have not moved here yet
 They open on GitHub, in the documentation set this site is being built from. Every link on this site to one of them will become a local link when the page moves; the sidebar is complete now so that nothing you look for is missing.
@@ -93,9 +94,9 @@ Subtract or reshape existing terrain rather than add to it.
 
 ## Version-specific divergences worth knowing up front
 
-- This version has **29** JSON feature types. The previous target, 1.26.40.26, had 26: Microsoft's public reference documented `minecraft:horizontal_tree_decoration_feature` and `minecraft:multi_block_feature` before either existed in the game. Both are available in 1.26.50.24, along with `minecraft:multipart_block_column_feature`, which this version's own changelog introduces.
-- Between those two versions a field was renamed (`snap_to_surface_feature`'s `vertical_search_range` became `search_range`), an enum default changed meaning (`conditional_list`'s `early_out_scheme` now defaults to `none`), and at least one placement algorithm was rewritten without its JSON surface changing at all.
-- Microsoft's official reference classifies `minecraft:conditional_list` as internal or deprecated. That is out of date as of this version: the 1.26.50.24 changelog introduces it as a public feature. It is documented here as a first-class type.
+- This version has **29** JSON feature types, the same 29 as 1.26.50.24, the previous target. The target before that, 1.26.40.26, had 26: Microsoft's public reference documented `minecraft:horizontal_tree_decoration_feature` and `minecraft:multi_block_feature` before either existed in the game. Both became available in 1.26.50.24, along with `minecraft:multipart_block_column_feature`, which that version's own changelog introduces.
+- Between 1.26.40.26 and 1.26.50.24 a field was renamed (`snap_to_surface_feature`'s `vertical_search_range` became `search_range`), an enum default changed meaning (`conditional_list`'s `early_out_scheme` now defaults to `none`), and at least one placement algorithm was rewritten without its JSON surface changing at all.
+- Microsoft's official reference classifies `minecraft:conditional_list` as internal or deprecated. That has been out of date since 1.26.50.24, whose changelog introduces it as a public feature. It is documented here as a first-class type.
 - `minecraft:nether_cave_carver_feature` is this version's id for what older material calls `minecraft:hell_cave_carver_feature`.
 - `minecraft:scan_surface` and `minecraft:sculk_patch_feature` are classified internal by that same reference, but both are available and functional in this version. `scan_surface` has a page because packs in the wild use it; `sculk_patch_feature` does not.
 

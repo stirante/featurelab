@@ -1,10 +1,10 @@
 ---
 title: Fossil feature
-description: minecraft:fossil_feature buries one of the game's own eight fossil structures in the terrain and speckles its bones with an ore you choose. Both keys in a table, what max_empty_corners really tests, and why a rotation turns a fossil's bones when a structure template's blocks stay put — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:fossil_feature buries one of the game's own eight fossil structures in the terrain and speckles its bones with an ore you choose. Both keys in a table, what max_empty_corners really tests, and why a rotation turns a fossil's bones when a structure template's blocks stay put — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:fossil_feature
 category: content
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -243,7 +243,7 @@ The comparison the check makes is `(unsigned)count > (unsigned)max_empty_corners
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — both keys and their required status — and its whole behaviour, from the placement sequence through the structure stamp, the corner test and the structure-feature check, are unchanged between the two.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — both keys and their required status — and its whole behaviour, from the placement sequence through the structure stamp, the corner test and the structure-feature check, are unchanged across the three.
 
 Every number and every quoted message on this page was read back out of a run. The example's 107 blocks, their 92 / 15 split and their extent; the anchor at `(0, 45, 3)`; the `Too many empty corners` refusal at `max_empty_corners` `4` and the same run's 107 blocks at `8` and at `-1`; the three load errors; the `No blocks could be placed` message in a ten-block-tall area and its absence at eleven. The eight structures' sizes and block counts were read out of the files themselves, and are byte-identical across every build of the game checked. The 80 / 10 / 10 split was measured over 74,000 block decisions rather than inferred from the two integrity values.
 

@@ -1,10 +1,10 @@
 ---
 title: Height difference filter
-description: minecraft:height_difference_filter_feature looks at the ground around a position and only lets another feature place when the terrain nearby rises or falls the way you asked. Every key in a table, what the four constraint names do and do not mean, why zero blocks on flat ground is the right answer, and the two ways search_radius quietly accepts a value it cannot use — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:height_difference_filter_feature looks at the ground around a position and only lets another feature place when the terrain nearby rises or falls the way you asked. Every key in a table, what the four constraint names do and do not mean, why zero blocks on flat ground is the right answer, and the two ways search_radius quietly accepts a value it cannot use — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:height_difference_filter_feature
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -234,7 +234,7 @@ Because a refusal aborts mid-scan and an acceptance does not, the number of heig
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and it holds for **1.26.40.26** too: this type was introduced at 1.26.40 and neither its keys, their required and optional split, nor its decision changed at 1.26.50.
+Everything above is a statement about Bedrock **1.26.60.22**, and it holds for **1.26.50.24** and **1.26.40.26** too: this type was introduced at 1.26.40 and neither its keys, their required and optional split, nor its decision changed at 1.26.50 or at 1.26.60.
 
 The four constraint tests, the four-arm scan and its order, the "one column satisfies a requirement, one column breaks a limit" split, the below-1 radius branch and the fact that nothing is reported when the gate refuses are stated as facts about the game.
 

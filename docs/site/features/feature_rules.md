@@ -1,9 +1,10 @@
 ---
 title: Feature rules
-description: A minecraft:feature_rules file is how a feature reaches a world at all. Every key in a table, the biome filter, the eleven ordered placement passes and the twelfth, what moves a rule's output, and the seven ways a rule places nothing while looking correct — measured against Minecraft Bedrock 1.26.50.24.
+description: A minecraft:feature_rules file is how a feature reaches a world at all. Every key in a table, the biome filter, the eleven ordered placement passes and the twelfth, what moves a rule's output, and the seven ways a rule places nothing while looking correct — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:feature_rules
 category: guide
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -259,4 +260,4 @@ The per-cell arrays in that JSON are run-length encoded as `{"rle": [value, run,
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**. The per-chunk seeding, the two-stream split and the rename effect are reproduced by the two committed rule fixtures and the commands above, whose counts and coordinates were read back out of `featurelab generate`'s result; the image was rendered from rule A's result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs). The pass list, the accepted key set and the load-time behaviours (an unknown pass kept verbatim, a missing `distribution` defaulting to zero iterations) are stated as facts about the game; the `pregeneration_pass` note says what is not known. The "reach for it when" column of the pass table is advice about what the ordering guarantees, not a statement about what vanilla puts in each pass.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. The per-chunk seeding, the two-stream split and the rename effect are reproduced by the two committed rule fixtures and the commands above, whose counts and coordinates were read back out of `featurelab generate`'s result; the image was rendered from rule A's result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs). The pass list, the accepted key set and the load-time behaviours (an unknown pass kept verbatim, a missing `distribution` defaulting to zero iterations) are stated as facts about the game; the `pregeneration_pass` note says what is not known. The "reach for it when" column of the pass table is advice about what the ordering guarantees, not a statement about what vanilla puts in each pass.

@@ -107,7 +107,7 @@ const frontMatter = [
   `title: ${title}`,
   'description: TODO one sentence for search and the meta tag',
   ...(sitePath.startsWith('features/') ? [`typeId: minecraft:${path.posix.basename(sitePath)}`, 'category: TODO content | proxy | scene | carver | guide'] : []),
-  ...(isBench ? ['scope: bench'] : ['game: 1.26.50.24', 'scope: game']),
+  ...(isBench ? ['scope: bench'] : ['game: 1.26.60.22', 'scope: game']),
   '---',
   '',
 ].join('\n')

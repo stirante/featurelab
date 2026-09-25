@@ -1,10 +1,10 @@
 ---
 title: Aggregate feature
-description: minecraft:aggregate_feature runs a list of other features, in order, all at one position. Both keys in a table, the three early_out modes and when to reach for each, what the call reports when one entry fails, and what a mistyped name in the list actually does — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:aggregate_feature runs a list of other features, in order, all at one position. Both keys in a table, the three early_out modes and when to reach for each, what the call reports when one entry fails, and what a mistyped name in the list actually does — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:aggregate_feature
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -220,7 +220,7 @@ What the type *does* decide is position in the stream, and that is the whole of 
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — both keys, the three `early_out` values and the default — and its behaviour are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — both keys, the three `early_out` values and the default — and its behaviour are identical in all three.
 
 The walk order, the stickiness of the running result, the clearing of it on a refusal, and the meaning of each `early_out` mode are stated as facts about the game. The worked example was run end to end and its result read back out of `featurelab generate`: 8 blocks, the first entry's at world `(0, 63, 0)`, 7 of the scatter's 14 rounds attaching against 12 of 14 when the same scatter is run alone at the same seed, and `(-5, 63, 3)` reported as the call's own result. The image was rendered from that exact result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces the picture byte for byte.
 

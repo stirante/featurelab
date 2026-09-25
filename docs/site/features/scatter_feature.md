@@ -1,10 +1,10 @@
 ---
 title: Scatter feature
-description: minecraft:scatter_feature repeats another feature at random offsets around one origin. Every field in a table, the six distribution kinds side by side in one picture, and the two ways a scatter_chance does the opposite of what it looks like — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:scatter_feature repeats another feature at random offsets around one origin. Every field in a table, the six distribution kinds side by side in one picture, and the two ways a scatter_chance does the opposite of what it looks like — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:scatter_feature
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -296,6 +296,6 @@ The fixtures behind every table in this section are committed. Under [`docs/wiki
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: the JSON surface — every key, enum value and default — and the behaviour — draw kinds, bounds and ordering — are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: the JSON surface — every key, enum value and default — and the behaviour — draw kinds, bounds and ordering — are identical in all three.
 
 Four findings can be reproduced directly from the committed fixture pack: the degenerate-`uniform` skip (the three-way comparison), the `coordinate_eval_order` swap (the two-way comparison), the grid extent behaviour (the `fixed_grid` cells at -8, -4, 0, 4, 8, 12 were read out of a run of a `[-8, 7]`, `step_size: 4` axis in a volume wide enough not to clip them), and the worked example, whose placed-block counts and per-iteration diagnostics were read back out of `featurelab generate`'s result. Both images were rendered from those exact results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces each picture byte for byte. The distribution figure is additionally refused by that pipeline if any two of its panels come out nearly identical, and the per-panel cell counts in the kinds table were read out of the six panel runs.

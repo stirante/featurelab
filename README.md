@@ -312,13 +312,14 @@ it does not.
 The point of this tool is to match the real game's placement behaviour
 exactly, not approximately.
 
-- **Target version**: Bedrock **1.26.50.24**. This tool targets
+- **Target version**: Bedrock **1.26.60.22**. This tool targets
   that version and only that version — worldgen behaviour moves between
-  releases, so a statement here is a statement about 1.26.50.24, not about
-  Bedrock in general. The previous target was 1.26.40.26, which had 26
-  feature types against this one's 29; an algorithm can change behind an
-  unchanged set of JSON keys, so a version bump is checked for behaviour
-  changes, not only for schema changes.
+  releases, so a statement here is a statement about 1.26.60.22, not about
+  Bedrock in general. The previous target, 1.26.50.24, was checked against
+  it and found identical in everything the engine models; the one before
+  that, 1.26.40.26, had 26 feature types against these two's 29. An
+  algorithm can change behind an unchanged set of JSON keys, so a version
+  bump is checked for behaviour changes, not only for schema changes.
 - **Gaps are left as gaps.** Behaviour that is not known exactly is not
   guessed at in code.
 - **Anything not known exactly fails loudly**, as a diagnostic, rather than being

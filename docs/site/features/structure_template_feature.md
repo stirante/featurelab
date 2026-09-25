@@ -1,10 +1,10 @@
 ---
 title: Structure template feature
-description: minecraft:structure_template_feature copies a .mcstructure file into the world at a position it searches for near its origin. The four facing_direction values side by side, all four constraints in a table, and the one thing adjustment_radius will never do — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:structure_template_feature copies a .mcstructure file into the world at a position it searches for near its origin. The four facing_direction values side by side, all four constraints in a table, and the one thing adjustment_radius will never do — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:structure_template_feature
 category: content
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -271,7 +271,7 @@ The fixtures behind this page are committed in two packs. Under [`docs/wiki/tool
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key, enum value and default, constraints included — and its behaviour are unchanged between the two.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key, enum value and default, constraints included — and its behaviour are unchanged across the three.
 
 Both JSON examples were run end to end and produced the described results: the placed block names and coordinates, the constrained run's three constraint point lists, and the floating-origin run's warning text, which is quoted from it verbatim. The directions figure's four panels were each read back off their own results before the caption was written — the post's world position in each is `(0, 1)`, `(-1, 0)`, `(0, -1)` and `(1, 0)` relative to the marker, and all four report no writes outside the volume. Both images were rendered from those exact results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces each picture byte for byte. The figure is additionally refused by that pipeline if any two of its panels come out nearly identical; the closest pair is `south` against `west`, at 4.6% of pixels differing. It was refused once, at 1.84%, when it used the lamp post — four of that structure's five cells sit on the cell the rotation turns about, so only the lantern moved.
 

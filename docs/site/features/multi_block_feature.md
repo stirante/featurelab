@@ -1,9 +1,10 @@
 ---
 title: Multi block
-description: minecraft:multi_block_feature stamps a custom block that occupies two, three or four cells in a line as its complete set of parts, all or nothing. Every key in a table, the block trait that has to come first, what randomize_rotation really turns, and the two load-time complaints behind a feature that places nothing — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:multi_block_feature stamps a custom block that occupies two, three or four cells in a line as its complete set of parts, all or nothing. Every key in a table, the block trait that has to come first, what randomize_rotation really turns, and the two load-time complaints behind a feature that places nothing — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:multi_block_feature
 category: content
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -189,7 +190,7 @@ The long-form account of every key, generated from the editor's own catalogue �
 
 ## New in 1.26.50.24 {#new-in-this-version}
 
-This type does not exist in 1.26.40.26 — not with different behaviour, not under another name: the game has no such feature type, and neither does it have the `minecraft:multi_block` block trait the type depends on. Both arrived together in 1.26.50.24. It is one of three feature types new in this version, alongside `minecraft:multipart_block_column_feature` and `minecraft:horizontal_tree_decoration_feature`.
+This type does not exist in 1.26.40.26 — not with different behaviour, not under another name: the game has no such feature type, and neither does it have the `minecraft:multi_block` block trait the type depends on. Both arrived together in 1.26.50.24. It is one of three feature types new in 1.26.50.24, alongside `minecraft:multipart_block_column_feature` and `minecraft:horizontal_tree_decoration_feature`.
 
 Microsoft's public reference documented this type before the game had it, which is why a pack written against the reference alone may contain files that never worked.
 
@@ -230,7 +231,7 @@ Part `i`'s position is `origin + offset(direction) × i`, where `offset` is the 
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24** specifically. There is no companion claim for 1.26.40.26, because [the type does not exist there](#new-in-this-version).
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too, the build that introduced the type. There is no companion claim for 1.26.40.26, because [the type does not exist there](#new-in-this-version).
 
 The trait's field list and its ranges, the disable-rather-than-default rule for an invalid `direction` or `parts`, the two `places_block` complaints and the placeholder behind them, the sixteen rotation families and their absolute-set semantics, the untouched part index, the overlap rule, the all-or-nothing write with its erase-to-air rollback, and the `enforce_placement_rules` no-op are stated as facts about the game.
 

@@ -27,7 +27,7 @@ const base = process.env.DOCS_BASE ?? '/featurelab/'
 /** The Bedrock version every page is a statement about, exactly as the wiki index pins it.
  * A page's own front matter (`game:`) may pin a different one; this is only the default the
  * version badge falls back to, and the one the site title advertises. */
-const targetGame = '1.26.50.24'
+const targetGame = '1.26.60.22'
 
 /** Old page -> new page. Two uses: VitePress `rewrites` below, and `buildEnd`, which writes a
  * redirect stub at each old route so a deep link to a page that has not migrated yet (or that

@@ -1,10 +1,10 @@
 ---
 title: Surface relative threshold
-description: minecraft:surface_relative_threshold_feature places another feature only where the position is deep enough below the surface. Both keys in a table, the strictly-below rule that costs one block, the coarse grid the surface is read on, the two failures that report the same thing, and the values the field accepts without complaint — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:surface_relative_threshold_feature places another feature only where the position is deep enough below the surface. Both keys in a table, the strictly-below rule that costs one block, the coarse grid the surface is read on, the two failures that report the same thing, and the values the field accepts without complaint — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:surface_relative_threshold_feature
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -191,7 +191,7 @@ The delegate is called with the **same context object**: the same position, and 
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and it holds for **1.26.40.26** too: this type's two keys, their shapes, the default and the behaviour are unchanged between the two.
+Everything above is a statement about Bedrock **1.26.60.22**, and it holds for **1.26.50.24** and **1.26.40.26** too: this type's two keys, their shapes, the default and the behaviour are unchanged across the three.
 
 The strictly-below rule, the fixed order of the depth test and the reference lookup, the shared failure message, the silent recursion-guard path, the quarter-resolution lookup and the unchanged delegate position are stated as facts about the game.
 

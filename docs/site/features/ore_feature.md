@@ -1,10 +1,10 @@
 ---
 title: Ore feature
-description: minecraft:ore_feature places a whole ellipsoidal vein of blocks in one call, resolved cell by cell through an ordered list of replace rules. Every key in a table, the +8 offset that moves the vein off your origin, and what the air-exposure gate really does — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:ore_feature places a whole ellipsoidal vein of blocks in one call, resolved cell by cell through an ordered list of replace rules. Every key in a table, the +8 offset that moves the vein off your origin, and what the air-exposure gate really does — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:ore_feature
 category: content
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -227,7 +227,7 @@ What the gate rolls cannot do is move the vein. The angle, both endpoints, every
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key and default — and its placement are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key and default — and its placement are identical in all three.
 
 Both JSON examples are committed fixtures and were run end to end, and every count and coordinate on this page was read back out of `featurelab generate`'s result: the diamond vein's 10 cells at `(7–9, 30–32, 7–8)`, the clay vein's eleven cells with the single gravel at `(9, 63, 8)`, and the plains column beneath them. The image was rendered from the diamond vein's own result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) with a fixed seed and a deterministic camera, and sliced for visibility as described above.
 

@@ -1,10 +1,10 @@
 ---
 title: Search feature
-description: minecraft:search_feature tries another feature at every position in a box until enough of them work, and writes nothing until they do. Every field in a table, the six search_axis orders side by side in one picture, and what an exhausted search leaves behind — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:search_feature tries another feature at every position in a box until enough of them work, and writes nothing until they do. Every field in a table, the six search_axis orders side by side in one picture, and what an exhausted search leaves behind — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:search_feature
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -223,7 +223,7 @@ The example's own numbers: `wiki:search_pumpkin_down` visits eight positions and
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key, enum value and default — and its behaviour are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key, enum value and default — and its behaviour are identical in all three.
 
 The loop-order table and the two patterns under it are stated as facts about the game, and the picture is how they were confirmed: the six panel fixtures differ only in `search_axis`, and each panel's cells were read back out of `featurelab generate`'s own changed-cell coordinates before the caption was written. Both images were rendered from those exact results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces each picture byte for byte; the figure is additionally refused by that pipeline if any two of its panels come out nearly identical. The worked example and the too-shallow variant were both run end to end and their placements, returned positions and diagnostics read out of the result.
 

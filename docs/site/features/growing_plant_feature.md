@@ -1,10 +1,10 @@
 ---
 title: Growing plant feature
-description: minecraft:growing_plant_feature grows a one-block-wide column of blocks up from its origin or down from it, with a weighted height, weighted body and head blocks, and an age written into the tip. Every field in a table, up against down in one picture, and the look-ahead that stops a column one layer early — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:growing_plant_feature grows a one-block-wide column of blocks up from its origin or down from it, with a weighted height, weighted body and head blocks, and an age written into the tip. Every field in a table, up against down in one picture, and the look-ahead that stops a column one layer early — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:growing_plant_feature
 category: content
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -227,7 +227,7 @@ Every call spends its values in this order:
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key, its bounds and its required-or-optional status — and its placement are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key, its bounds and its required-or-optional status — and its placement are identical in all three.
 
 The two-stage height pick, the exclusive top of every range on the page, the air-only look-ahead, the silent skip of an unusable layer, the rule that a single usable layer guarantees a head, the gate on `age`'s top end and the unwrapped state write are stated as facts about the game. The worked example was run end to end and its changed cells read back out of `featurelab generate` before the prose was written: 12 cells from `y 10` down to `y -1`, eleven of them `minecraft:cave_vines` and the last carrying `growing_plant_age` 21, with a reported position of `(0, -1, 0)`. The up-against-down figure's two panels were each run the same way and their changed-cell coordinates read before the caption was written: 24 cells in both, 18 of them the two shared plates, five body cells and one head at `y 11` for `up` and at `y 1` for `down`, both carrying `growing_plant_age` 21 — and both stopping at six of the eight layers the file asked for. Both images were rendered from those exact results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces each picture byte for byte, and which refuses a figure whose panels come out nearly identical.
 

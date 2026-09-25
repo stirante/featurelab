@@ -1,10 +1,10 @@
 ---
 title: Vegetation patch feature
-description: minecraft:vegetation_patch_feature lays a patch of one block over a footprint of real ground — or a real ceiling — and grows another feature out of every column it keeps. Every field in a table, floor against ceiling in one picture, the radius that is wider than it says, and the two defaults that leave a patch bare — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:vegetation_patch_feature lays a patch of one block over a footprint of real ground — or a real ceiling — and grows another feature out of every column it keeps. Every field in a table, floor against ceiling in one picture, the radius that is wider than it says, and the two defaults that leave a patch bare — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:vegetation_patch_feature
 category: scene
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -283,7 +283,7 @@ The type's own draws, in the order a call takes them:
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key, enum value and default — and its behaviour are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key, enum value and default — and its behaviour are identical in all three.
 
 The widened radius, the corner and edge trimming, the two-phase column walk, the support test on the ground cell, the counted-not-rewritten cell, the `depth: 0` column, the exclusive top of a range and the two-pass order are stated as facts about the game. The worked example was run end to end and its changed cells read back out of `featurelab generate` before the prose was written: 66 cells, 13 of them `minecraft:dirt` turning into `minecraft:grass_block` one row below the ground layer, 53 of them pumpkins and jack o'lanterns, and a reported position of `(5, 62, 3)`. The ceiling example was run the same way: 105 cells, 57 moss and 42 hanging roots, with six scaffolding stone cells the scan never reached. The floor-against-ceiling figure's two panels were each run the same way and their changed-cell coordinates read before the caption was written: 64 cells in both, 25 stone plus 25 `minecraft:moss_block` plus 14 markers, with the moss at `y 0` and the markers at `y 1` for `floor` and at `y 8` and `y 7` for `ceiling` — and the same 14 columns growing in both panels, because the two files spend the same values in the same order. All three images were rendered from those exact results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces each picture byte for byte, and which refuses a figure whose panels come out nearly identical.
 

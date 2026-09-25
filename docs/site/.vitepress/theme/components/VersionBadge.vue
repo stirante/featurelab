@@ -2,9 +2,9 @@
 // The version pin, as a badge instead of a paragraph -- but the paragraph's content is what
 // the badge says. Read from the page's front matter:
 //
-//   game: "1.26.50.24"          the Bedrock version the page is a statement about (required
+//   game: "1.26.60.22"          the Bedrock version the page is a statement about (required
 //                               on every page whose scope is the game)
-//   alsoHolds: ["1.26.40.26"]   versions the page has been checked against and found identical
+//   alsoHolds: ["1.26.50.24"]   versions the page has been checked against and found identical
 //   scope: game | bench         a `bench` page is about the tool, not Minecraft, and its badge
 //                               says so instead of naming a game version
 //   recheck: true               the page was written against an older target and has not yet

@@ -1,10 +1,10 @@
 ---
 title: Nether cave carver feature
-description: minecraft:nether_cave_carver_feature digs tunnels through netherrack and almost nothing else. The three-block list that makes it look broken, the lava veto that shortens tunnels near the lava sea, the three fields it accepts and ignores, and the one it will not load without — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:nether_cave_carver_feature digs tunnels through netherrack and almost nothing else. The three-block list that makes it look broken, the lava veto that shortens tunnels near the lava sea, the three fields it accepts and ignores, and the one it will not load without — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:nether_cave_carver_feature
 category: carver
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -222,7 +222,7 @@ The worked example is [`nether_cave_demo.json`](https://github.com/stirante/feat
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type is behaviourally identical between the two versions. All three carvers use the same odd-number adjustment in their seed mixing.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type is behaviourally identical across the three versions. All three carvers use the same odd-number adjustment in their seed mixing.
 
 Every number quoted was produced by running the exact JSON above — or that file with one key changed — through `featurelab generate` and reading the counts and coordinates back out of the result: the two inert-field comparisons, the five-row radius-multiplier table, the `floor_level` pair, the 0-versus-1,322 diggable-list measurement, the 9 cells at origin `(0, 48, 0)`, and the example's own counts, coordinates and two bands. The Y clamp was checked by running the fixture in a 128-row bench across eight seeds and reading the highest and lowest row written; 120 and 3 both occur. The image was rendered from the example's own run by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), sliced as the tip describes.
 

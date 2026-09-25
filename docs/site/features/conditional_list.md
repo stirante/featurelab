@@ -1,9 +1,10 @@
 ---
 title: Conditional list
-description: minecraft:conditional_list walks a list of features in order and places the ones whose Molang condition holds. Every key in a table, the three early_out_scheme values side by side, the six variables a condition can read, and what changed when 1.26.50 made the type public — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:conditional_list walks a list of features in order and places the ones whose Molang condition holds. Every key in a table, the three early_out_scheme values side by side, the six variables a condition can read, and what changed when 1.26.50 made the type public — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:conditional_list
 category: proxy
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -207,6 +208,6 @@ The fixtures behind this page are committed under [`docs/wiki/tools/fixtures/fea
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24** specifically. This is the version that changed the type, so — unusually for these pages — nothing here should be read as also holding for **1.26.40.26**: the three differences are in [what changed](#what-changed), and a page or a pack written against the older version needs all three.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too: the type's JSON surface, its Molang variables and its behaviour are identical in both. 1.26.50.24 is the version that changed the type, so — unusually for these pages — nothing here should be read as also holding for **1.26.40.26**: the three differences are in [what changed](#what-changed), and a page or a pack written against the older version needs all three.
 
 The walk, its order, the six variables and both ways a list ends early are stated as facts about the game, and Mojang's changelog for this version documents the `early_out_scheme` semantics this page describes. All three JSON examples were run end to end, and their results — 12, 8 and 7 blocks changed — were read back out of `featurelab generate`, as were the per-fixture scatter splits in the Advanced section and the Molang scope each run finished with. The image was rendered from the first of those results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces the picture byte for byte.

@@ -1,8 +1,9 @@
 ---
 title: RNG and determinism
-description: Worldgen is deterministic from a seed. Where a feature's seed comes from, why renaming one moves everything it places, which situations skip their random draw entirely, and why draw order is part of a feature's contract — measured against Minecraft Bedrock 1.26.50.24.
+description: Worldgen is deterministic from a seed. Where a feature's seed comes from, why renaming one moves everything it places, which situations skip their random draw entirely, and why draw order is part of a feature's contract — measured against Minecraft Bedrock 1.26.60.22.
 category: guide
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -174,4 +175,4 @@ The seeding chain above is the game's. Two things about running it on the bench 
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**. The three-step derivation, the two-stream split and the five draw kinds are stated as facts about the game. The per-chunk spread and the rename effect are reproduced from the two committed rule fixtures and the commands above, whose counts and coordinates were read back out of `featurelab generate`'s result; the same two runs back [the feature rules page](./feature_rules.md#reproducing-it). The degenerate-`uniform` claim is reproduced on [the scatter page](./scatter_feature.md#a-degenerate-uniform-axis-draws-nothing) from three fixture features, not here, so that the numbers sit with the type that owns them. What is *not* claimed: the exact hash the entry name goes through, and the reason `pregeneration_pass` sits outside the ordered passes — neither is needed to predict what moves and what does not.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. The three-step derivation, the two-stream split and the five draw kinds are stated as facts about the game. The per-chunk spread and the rename effect are reproduced from the two committed rule fixtures and the commands above, whose counts and coordinates were read back out of `featurelab generate`'s result; the same two runs back [the feature rules page](./feature_rules.md#reproducing-it). The degenerate-`uniform` claim is reproduced on [the scatter page](./scatter_feature.md#a-degenerate-uniform-axis-draws-nothing) from three fixture features, not here, so that the numbers sit with the type that owns them. What is *not* claimed: the exact hash the entry name goes through, and the reason `pregeneration_pass` sits outside the ordered passes — neither is needed to predict what moves and what does not.

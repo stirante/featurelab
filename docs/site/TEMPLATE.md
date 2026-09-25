@@ -34,8 +34,8 @@ title: Scatter feature                  # the sidebar and <title>; a name, not a
 description: One sentence for search engines and the meta tag, naming the type id.
 typeId: minecraft:scatter_feature       # drives the coverage badge and the type-id contract
 category: proxy                         # content | proxy | scene | carver | guide
-game: 1.26.50.24                        # the version every claim is a statement about
-alsoHolds: ["1.26.40.26"]               # versions checked and found identical (optional)
+game: 1.26.60.22                        # the version every claim is a statement about
+alsoHolds: ["1.26.50.24"]               # versions checked and found identical (optional)
 recheck: true                           # written against an older target, not yet re-checked (optional)
 scope: game                             # game | bench -- a bench page's badge says so instead of naming a version
 ---

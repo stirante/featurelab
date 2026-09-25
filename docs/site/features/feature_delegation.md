@@ -1,8 +1,9 @@
 ---
 title: Delegation and composite features
-description: Most of what a pack places, it places through something else. What crosses a delegation boundary and what does not — the origin, the shared random stream, the Molang scope, the world — plus the recursion guard, what a delegate hands back, and why most failures are silent. Measured against Minecraft Bedrock 1.26.50.24.
+description: Most of what a pack places, it places through something else. What crosses a delegation boundary and what does not — the origin, the shared random stream, the Molang scope, the world — plus the recursion guard, what a delegate hands back, and why most failures are silent. Measured against Minecraft Bedrock 1.26.60.22.
 category: guide
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -119,6 +120,6 @@ The **placement deadline** is the one that covers a single feature's own work. A
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**. What crosses a boundary, which types substitute the origin, how the recursion guard is keyed, and what a denial does to an aggregate's running result are stated as facts about the game; each was read against the type it is about, and each per-type row is repeated — with its own measurements — on that type's own page. The two log wordings are quoted exactly as the game emits them, which is the only reason the difference between them is worth a paragraph.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. What crosses a boundary, which types substitute the origin, how the recursion guard is keyed, and what a denial does to an aggregate's running result are stated as facts about the game; each was read against the type it is about, and each per-type row is repeated — with its own measurements — on that type's own page. The two log wordings are quoted exactly as the game emits them, which is the only reason the difference between them is worth a paragraph.
 
 The three limits in [what the bench does differently](#what-the-bench-does-differently) are statements about featurelab and about nothing else: the game has no delegation budget, no write budget and no placement deadline, and the wall-clock one is explicitly not reproducible. What is *not* claimed here is any per-type accounting — how much any one type spends, and in what order, is on that type's own page, under its `## Advanced` heading, next to the fields it is about.

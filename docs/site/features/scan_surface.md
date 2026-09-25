@@ -1,10 +1,10 @@
 ---
 title: Scan surface
-description: minecraft:scan_surface runs one wrapped feature at the surface of every column of a chunk — all 256 of them, in a fixed order, with no sampling and no early exit. Its one field, the chunk it actually covers, what it hands back, and why Microsoft's reference calls it internal — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:scan_surface runs one wrapped feature at the surface of every column of a chunk — all 256 of them, in a fixed order, with no sampling and no early exit. Its one field, the chunk it actually covers, what it hands back, and why Microsoft's reference calls it internal — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:scan_surface
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -175,7 +175,7 @@ The chunk bounds are `floor(originX / 16) * 16` and `floor(originZ / 16) * 16` t
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and it holds for **1.26.40.26** too: this type's JSON surface and its placement are unchanged between the two.
+Everything above is a statement about Bedrock **1.26.60.22**, and it holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface and its placement are unchanged across the three.
 
 The chunk alignment, the fixed `x`-then-`z` walk with no skipping and no early exit, the last-success-wins return value, the shared Molang scope and the absence of any field but the feature reference are stated as facts about the game. The one thing that is **not** certain is the JSON key name itself, flagged in [Fields](#field-name) and in [what the bench does differently](#what-the-bench-does-differently).
 

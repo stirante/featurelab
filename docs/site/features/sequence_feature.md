@@ -1,10 +1,10 @@
 ---
 title: Sequence feature
-description: minecraft:sequence_feature runs a list of features in order, each one starting where the last one finished, and stops while nothing has succeeded yet. Its one key in a table, the origin threading side by side with aggregate_feature in one picture, and the probe-first pattern that turns a list into a conditional — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:sequence_feature runs a list of features in order, each one starting where the last one finished, and stops while nothing has succeeded yet. Its one key in a table, the origin threading side by side with aggregate_feature in one picture, and the probe-first pattern that turns a list into a conditional — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:sequence_feature
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -201,7 +201,7 @@ Two consequences are specific to this type:
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — one key, no `early_out`, no default to state — and its behaviour are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — one key, no `early_out`, no default to state — and its behaviour are identical in all three.
 
 The threading rule, the fallback to the original origin while nothing has succeeded, the permanent stop condition and the absence of an `early_out` key are stated as facts about the game. The worked example was run end to end and its result read back out of `featurelab generate`: 7 blocks, all at world Y 63, the first at `(0, 63, 0)` from a call that began at `(0, 71, 0)`, 6 of the scatter's 14 rounds attaching, and `(5, 63, 1)` reported as the call's own result. Both images were rendered from exactly those results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running either reproduces it byte for byte.
 

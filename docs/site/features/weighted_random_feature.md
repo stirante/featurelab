@@ -1,10 +1,10 @@
 ---
 title: Weighted random feature
-description: minecraft:weighted_random_feature picks exactly one feature from a weighted list and places it at its own origin. Its one key in a table, why fractional weights come to nothing, why a zero weight is unreachable, and what a lopsided split really buys you — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:weighted_random_feature picks exactly one feature from a weighted list and places it at its own origin. Its one key in a table, why fractional weights come to nothing, why a zero weight is unreachable, and what a lopsided split really buys you — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:weighted_random_feature
 category: proxy
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -198,7 +198,7 @@ The fixtures behind this page are committed under [`docs/wiki/tools/fixtures/fea
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — its one key and both accepted entry shapes — and its behaviour are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — its one key and both accepted entry shapes — and its behaviour are identical in all three.
 
 The pick, its order relative to resolution and the guard, and the whole-number arithmetic are stated as facts about the game. Every number on the page was read back out of `featurelab generate`: the worked example's single gold block at `(0, 63, 0)`, the lopsided list's jack o'lantern at the same position, and both twelve-seed tallies, which are counts of twenty-four real runs — one seed at a time — and far too small a sample to be a measurement of the probability. The image was rendered from the first of those results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces the picture byte for byte. The fractional, `1.6`, zero-weight and empty-array cases were each reproduced by running a file written for them: `0.5` and `0.5` place nothing and report `Feature could not be selected`; `1.6` and `1.6` place, behaving as `1` and `1`; a zero-weighted first entry never wins; and `"features": []` fails to build the file at all.
 

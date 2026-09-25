@@ -1,9 +1,10 @@
 ---
 title: Snap-to-surface feature
-description: minecraft:snap_to_surface_feature walks a straight line from its origin until it meets a floor, a ceiling or a wall, and places another feature there. Every field in a table, floor against ceiling in one picture, the field that was renamed at 1.26.50, and the one case where a working preview means a feature that does nothing in game — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:snap_to_surface_feature walks a straight line from its origin until it meets a floor, a ceiling or a wall, and places another feature there. Every field in a table, floor against ceiling in one picture, the field that was renamed at 1.26.50, and the one case where a working preview means a feature that does nothing in game — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:snap_to_surface_feature
 category: proxy
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -249,7 +250,7 @@ where `steps` is how many passable cells the walk crossed — at most `search_ra
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24** specifically, and for this type that matters more than usual: the behaviour is **not** the same in 1.26.40.26, so instead of claiming both versions the page lists every difference in [what changed in 1.26.50](#what-changed-in-12650).
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. For this type the version matters more than usual: the behaviour is **not** the same in 1.26.40.26, so instead of claiming that version too the page lists every difference in [what changed in 1.26.50](#what-changed-in-12650).
 
 The rename gate, the `floor` default, the reach, the two passability gates, the per-face surface test and the buried-start inversion are stated as facts about the game. The worked example was run end to end and its returned position — `(0, 63, 0)`, from an origin of `(0, 71, 0)` — read back out of `featurelab generate`, along with the zero-placement result and the warning from the `allow_air_placement: false` variant. The floor-against-ceiling figure's two panels were each run the same way and their changed-cell coordinates read before the caption was written: 27 cells in both, the delegate's 25-cell sheet at `y 1` for `floor` and at `y 7` for `ceiling`. Both images were rendered from those exact results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running it reproduces each picture byte for byte, and which refuses a figure whose panels come out nearly identical.
 
