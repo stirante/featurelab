@@ -5,8 +5,10 @@
 // docs/wiki/ is the image pipeline (tools/), its fixture pack (tools/fixtures/) and its
 // committed renders (images/). The only things this config reads from outside its own directory
 // are docs/wiki/images/ -- referenced by relative path from each page, so the pipeline stays
-// untouched -- and the extension's catalogue modules, through tools/extract-catalog.mjs, which
-// runs before the build and never during it.
+// untouched -- the extension's catalogue modules, through tools/extract-catalog.mjs, which
+// runs before the build and never during it -- and, for the playground, the viewer's source
+// (frontend/src), the fixture pack's JSON (docs/wiki/tools/fixtures) and the engine built into
+// public/playground/ by scripts/build-playground.sh (see `vite` below and README.md).
 import { defineConfig } from 'vitepress'
 import container from 'markdown-it-container'
 import fs from 'node:fs'
@@ -14,6 +16,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const siteDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const repoDir = path.resolve(siteDir, '..', '..')
 
 /** The site's root on the host. GitHub Pages serves a project site under /<repo>/, so links,
  * assets and the deep-link contract all carry this prefix; DOCS_BASE lets a custom domain (base
@@ -58,6 +61,31 @@ export default defineConfig({
   ignoreDeadLinks: false,
 
   sitemap: { hostname: 'https://stirante.github.io' + base },
+
+  // The playground (theme/components/Playground.vue) reuses the viewer the extension and the
+  // desktop app draw with, and it takes it from SOURCE, not from frontend/dist. This site is
+  // installed on its own and CI runs `npm ci` here and nowhere else, so depending on the built
+  // dist would mean installing the root workspace and running the frontend's tsc in the Pages
+  // job just to produce files Vite can compile from the .ts directly. The alias points the
+  // package name at its entry point; three.js is this site's own dependency (same range as
+  // frontend/package.json) and `dedupe` makes frontend/src resolve it from here, because from
+  // frontend/src's own location Node resolution would look in a root node_modules the Pages job
+  // never installs. The fixture pack is read the same way, for the playground's examples.
+  vite: {
+    resolve: {
+      alias: [
+        // A pattern rather than a string key, so the `?inline` the playground imports it with
+        // survives: see Playground.vue for why the panel's stylesheet is not a plain import.
+        { find: /^featurelab-frontend\/panel\.css/, replacement: path.join(repoDir, 'frontend', 'src', 'ui', 'panel.css').replace(/\\/g, '/') },
+        { find: /^featurelab-frontend$/, replacement: path.join(repoDir, 'frontend', 'src', 'index.ts').replace(/\\/g, '/') },
+      ],
+      dedupe: ['three'],
+    },
+    server: {
+      fs: { allow: [siteDir, path.join(repoDir, 'frontend', 'src'), path.join(repoDir, 'docs', 'wiki')] },
+    },
+    worker: { format: 'es' },
+  },
 
   markdown: {
     // h2 and h3 in the right-hand outline; the generated field reference uses h4 so that a type
@@ -114,6 +142,7 @@ export default defineConfig({
       { text: 'Features', link: '/features/', activeMatch: '^/features/' },
       { text: 'Engine & CLI', link: '/engine/', activeMatch: '^/engine/' },
       { text: 'Editor', link: '/editor/', activeMatch: '^/editor/' },
+      { text: 'Playground', link: '/playground', activeMatch: '^/playground' },
     ],
 
     // The sidebar is the information architecture, so it is written out rather than generated:
@@ -126,7 +155,10 @@ export default defineConfig({
       '/features/': [
         {
           text: 'Feature types',
-          items: [{ text: 'Overview and taxonomy', link: '/features/' }],
+          items: [
+            { text: 'Overview and taxonomy', link: '/features/' },
+            { text: 'Try one in the playground', link: '/playground' },
+          ],
         },
         {
           text: 'Content features',
@@ -209,6 +241,7 @@ export default defineConfig({
             { text: 'The VS Code extension', link: '/editor/extension' },
             { text: 'The desktop app', link: '/editor/desktop' },
             { text: 'When the preview shows nothing', link: '/editor/preview_shows_nothing' },
+            { text: 'The playground, in your browser', link: '/playground' },
           ],
         },
       ],
