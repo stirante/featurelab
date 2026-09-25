@@ -196,7 +196,7 @@ describe('available names: exactly what worldgen reaches', () => {
   it('offers the six worldgen queries and nothing else', () => {
     const completions = completionsAt('query.', 'query.'.length, { field: 'iterations' })
     expect(completions.map((c) => c.label).sort()).toEqual(
-      ['above_top_solid', 'all_tags', 'any_tag', 'has_biome_tag', 'heightmap', 'noise'].sort(),
+      ['above_top_solid', 'has_all_biome_tags', 'has_any_biome_tags', 'has_biome_tag', 'heightmap', 'noise'].sort(),
     )
     expect(WORLDGEN_QUERIES).toHaveLength(6)
   })
@@ -217,13 +217,33 @@ describe('available names: exactly what worldgen reaches', () => {
     expect(first?.insertText).not.toContain('.')
   })
 
-  it('reports an unreachable query as an error, because the real game refuses to load it', () => {
+  it('reports an unreachable query as an error, because the real game cannot parse it', () => {
     const problems = localProblems('query.block_property(\'x\') * 4', 'iterations')
     const found = problem(problems as EdgeProblem[], 'unreachable-query')
     expect(found?.severity).toBe('error')
     expect(found?.message).toContain('Failed to resolve query')
+    // In iterations the feature still loads; the whole expression is 0.
+    expect(found?.message).toContain('WHOLE expression at 0')
     // Spanned so the renderer can underline the name rather than the whole field.
     expect(found?.span).toEqual({ offset: 0, length: 'query.block_property'.length })
+  })
+
+  it('says a condition that names one keeps the feature from loading', () => {
+    const found = problem(localProblems('query.is_daytime', 'condition') as EdgeProblem[], 'unreachable-query')
+    expect(found?.message).toContain('the feature does not load')
+  })
+
+  it('points the descriptor tag queries at their world_gen counterparts', () => {
+    // any_tag and all_tags are real queries, in the set block and item descriptors use. In feature
+    // Molang they do not resolve, and the pair that does is one rename away.
+    for (const [name, instead] of [
+      ['any_tag', 'has_any_biome_tags'],
+      ['all_tags', 'has_all_biome_tags'],
+    ] as const) {
+      const found = problem(localProblems(`query.${name}('forest')`, 'condition') as EdgeProblem[], 'unreachable-query')
+      expect(found?.severity).toBe('error')
+      expect(found?.message).toContain(`use query.${instead}`)
+    }
   })
 
   it('reports a wrong argument count, which the engine answers with a silent 0', () => {
@@ -272,10 +292,10 @@ describe('available names: exactly what worldgen reaches', () => {
       ).toBeUndefined()
     })
 
-    it('says of any_tag and all_tags that they cannot be pointed at another column', () => {
+    it('says of has_any_biome_tags and has_all_biome_tags that they cannot be pointed at another column', () => {
       // Every argument is read as a tag name, so a trailing x/z is silently two junk tags.
       // The hover is the only place an author can learn that, which is why it is asserted.
-      for (const name of ['any_tag', 'all_tags']) {
+      for (const name of ['has_any_biome_tags', 'has_all_biome_tags']) {
         const hint = WORLDGEN_QUERIES.find((q) => q.name === name)
         expect(hint?.doc).toContain("run's own origin")
       }

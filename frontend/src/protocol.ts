@@ -522,7 +522,7 @@ export interface EnvironmentOptionWire {
    * says up front what env.InertSeaSlotOverrides would otherwise only say in a warning attached to
    * a finished run. */
   buildsSea: boolean
-  /** This preset's default query.has_biome_tag/any_tag/all_tags identity -- shown (never
+  /** This preset's default query.has_biome_tag/has_any_biome_tags/has_all_biome_tags identity -- shown (never
    * auto-sent) as the Biome section's placeholder/prefill until the user selects a pack biome
    * or arms an explicit tags override -- see panel.ts. */
   biome: string

@@ -5,16 +5,17 @@
 // that is decidable from the text alone stays instant and offline, which is what makes typing
 // in a 3-character text field feel like an editor rather than a form.
 //
-// The catalogue is deliberately CLOSED. During worldgen the engine registers exactly six
-// query.* functions (molang-go's worldgen.Register: noise, has_biome_tag, any_tag, all_tags,
-// heightmap, above_top_solid) and publishes exactly six variable.* names from the placement
-// origin. Offering anything else -- query.block_property, query.is_daytime, the entity-side
-// catalogue people know from client files -- would be inventing reach the engine does not have,
-// and the cost of that is not cosmetic: an unknown query. name is rejected by the real game at
-// TOKENIZE time ("Failed to resolve query"), so a file carrying one fails to load outright.
-// This tool substitutes 0 and keeps going, which means the ONLY place an author can find out is
-// a diagnostic like the one below. That is why unreachable-query is an error here and not a
-// suggestion.
+// The catalogue is deliberately CLOSED. Worldgen Molang resolves exactly one query set, the six
+// world_gen queries (noise, has_biome_tag, has_any_biome_tags, has_all_biome_tags, heightmap,
+// above_top_solid -- featurelab's wgen.IsWorldGenQuery), and the engine publishes exactly six
+// variable.* names from the placement origin. Offering anything else -- query.block_property,
+// query.is_daytime, the entity-side catalogue people know from client files, or query.any_tag /
+// query.all_tags, which are the block and item DESCRIPTOR tag queries -- would be inventing reach
+// the engine does not have, and the cost is not cosmetic: the game resolves query names while it
+// tokenizes ("Failed to resolve query"), so the expression does not parse at all. On a
+// conditional_list condition that fails the file's validation and the feature does not load; in a
+// scatter's iterations the feature loads and the WHOLE expression is 0 every time, so the scatter
+// places nothing. Either way it is an error here and not a suggestion.
 //
 // The one import is molangFormat.ts's scanner, and it is here rather than duplicated because the
 // highlighter at the bottom of this file has to agree, character for character, with the thing
@@ -68,7 +69,7 @@ export interface QueryHint {
   /** How the completion renders the call, including its parameter names. */
   signature: string
   minArgs: number
-  /** null for the variadic tag queries (any_tag/all_tags take one tag or many). */
+  /** null for the variadic tag queries (has_any_biome_tags/has_all_biome_tags take any number). */
   maxArgs: number | null
   /**
    * The counts the engine actually dispatches on, when they are a SET rather than a range.
@@ -91,8 +92,15 @@ export interface QueryHint {
   biomeSensitive: boolean
 }
 
-/** The complete set of query.* functions reachable while worldgen Molang runs -- registered by
- * molang-go's worldgen.Register and wired up by featurelab's wgen/molangbridge.go. Arities are
+/** The descriptor-side tag queries, mapped to the world_gen query an author reaching for one in
+ * feature Molang almost certainly meant. */
+const DESCRIPTOR_TAG_QUERIES: Readonly<Record<string, string>> = {
+  any_tag: 'has_any_biome_tags',
+  all_tags: 'has_all_biome_tags',
+}
+
+/** The complete set of query.* functions reachable while worldgen Molang runs -- the world_gen
+ * query set, wired up by featurelab's wgen/molangbridge.go. Arities are
  * the engine's own gates: noise/heightmap/above_top_solid answer 0 outright unless given
  * exactly two arguments, which is why a wrong count is worth saying out loud rather than
  * leaving as a silently-zero expression. */
@@ -127,25 +135,28 @@ export const WORLDGEN_QUERIES: readonly QueryHint[] = [
     biomeSensitive: true,
   },
   {
-    name: 'any_tag',
-    signature: "query.any_tag('a', 'b', ...)",
+    name: 'has_any_biome_tags',
+    signature: "query.has_any_biome_tags('a', 'b', ...)",
     minArgs: 1,
     maxArgs: null,
     doc:
       'Whether the biome carries ANY of the given tags. Always asks about the run\'s own origin: ' +
       'every argument is read as a tag name, so there is no way to point it at another column. ' +
-      'To test tags somewhere else, OR together several four-argument has_biome_tag calls.',
+      'To test tags somewhere else, OR together several four-argument has_biome_tag calls. ' +
+      'Not query.any_tag -- that is the block and item descriptor query, and feature Molang ' +
+      'cannot resolve it.',
     originSensitive: false,
     biomeSensitive: true,
   },
   {
-    name: 'all_tags',
-    signature: "query.all_tags('a', 'b', ...)",
+    name: 'has_all_biome_tags',
+    signature: "query.has_all_biome_tags('a', 'b', ...)",
     minArgs: 1,
     maxArgs: null,
     doc:
       "Whether the biome carries EVERY one of the given tags. Always asks about the run's own " +
-      'origin, for the same reason any_tag does: every argument is a tag name.',
+      'origin, for the same reason has_any_biome_tags does: every argument is a tag name. ' +
+      'With no tags at all it answers 0, not 1.',
     originSensitive: false,
     biomeSensitive: true,
   },
@@ -644,14 +655,20 @@ export function localProblems(source: string, field: MolangEdgeField): LocalProb
     if (ref.namespace === 'query') {
       const hint = WORLDGEN_QUERIES.find((q) => q.name === ref.member)
       if (hint === undefined) {
+        const instead = DESCRIPTOR_TAG_QUERIES[ref.member]
         problems.push({
           code: 'unreachable-query',
           severity: 'error',
           message:
-            `query.${ref.member} is not one of the six queries worldgen registers ` +
-            `(${WORLDGEN_QUERIES.map((q) => q.name).join(', ')}). The game rejects an unknown query ` +
-            'name while tokenizing -- "Failed to resolve query" -- so this file would fail to load ' +
-            'outright. This tool reads it as 0 and keeps going, which is why nothing else will tell you.',
+            `query.${ref.member} is not one of the six queries worldgen resolves ` +
+            `(${WORLDGEN_QUERIES.map((q) => q.name).join(', ')}). The game resolves query names ` +
+            'while tokenizing -- "Failed to resolve query" -- so this expression does not parse, and ' +
+            (field === 'condition'
+              ? 'a conditional_list whose condition does not parse fails validation: the feature does not load.'
+              : 'a scatter keeps loading with the WHOLE expression at 0, so it places nothing.') +
+            (instead === undefined
+              ? ''
+              : ` query.${ref.member} is the block and item descriptor tag query; for the biome, use query.${instead}.`),
           span,
         })
         continue

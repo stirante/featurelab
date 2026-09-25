@@ -196,18 +196,19 @@ describe('highlighting', () => {
   }
 
   it('colours the six worldgen queries as queries', () => {
-    for (const name of ['noise', 'has_biome_tag', 'any_tag', 'all_tags', 'heightmap', 'above_top_solid']) {
+    for (const name of ['noise', 'has_biome_tag', 'has_any_biome_tags', 'has_all_biome_tags', 'heightmap', 'above_top_solid']) {
       expect(kindOf(`query.${name}(1, 2)`, `query.${name}`), name).toBe('query')
     }
   })
 
   it('agrees with the diagnostic about a query the engine does not register', () => {
-    // THE RULE. `unreachable-query` is an ERROR the editor already reports -- the real game refuses
-    // to tokenize a file carrying one -- so a highlighter that painted it in the same colour as a
+    // THE RULE. `unreachable-query` is an ERROR the editor already reports -- the real game cannot
+    // parse an expression carrying one -- so a highlighter that painted it in the same colour as a
     // real query would have the field saying two different things about one word, and the
     // prettier of the two would be the wrong one.
     expect(kindOf('query.block_property(1)', 'query.block_property')).toBe('query-unknown')
     expect(kindOf('query.is_daytime', 'query.is_daytime')).toBe('query-unknown')
+    expect(kindOf("query.any_tag('forest')", 'query.any_tag')).toBe('query-unknown')
     expect(kindOf('q.noise(1, 2)', 'q.noise')).toBe('query')
   })
 
