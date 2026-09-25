@@ -3,6 +3,10 @@ node_modules/
 # VitePress build output and its Vite cache.
 .vitepress/dist/
 .vitepress/cache/
+# The playground engine (featurelab.<hash>.wasm, Go's wasm_exec.<hash>.js, manifest.json), built
+# by scripts/build-playground.sh before every build. A 9 MB binary that changes with every engine
+# commit has no business in history; see README.md for building it locally.
+public/playground/
 # The esbuild bundle extract-catalog.mjs makes of the extension's catalogue modules. Rebuilt on
 # every run; never the source of anything.
 .cache/

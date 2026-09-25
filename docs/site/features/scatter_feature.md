@@ -75,6 +75,12 @@ Run against `plains` with feature seed `9`, **12 of the 14 iterations attach** â
 They are `wiki:pumpkin_patch_block`'s own `may_attach_to.bottom` doing exactly its job at two of the sampled offsets. A scatter reports every iteration's delegate diagnostics the same way any other delegated call does: `featurelab generate`'s `diagnostics` array names the position and the delegation chain for each one, rather than dropping the failure. `featurelab check` will not show you these â€” it never runs a placement, so a per-iteration refusal is not a thing it has; what it checks is whether the files load and whether every `places_feature` resolves.
 :::
 
+### Try it
+
+The same two files, running in your browser. Change `iterations` or an `extent` and press **Run preview**; change a `distribution` to `gaussian` and watch the patch pull in towards its middle. The seed and the preset are in the sidebar. More examples are on the [playground](../playground.md).
+
+<Playground example="scatter" />
+
 ## Fields
 
 Three keys sit on the feature body; everything about *where* and *how often* is inside `distribution`. "Default" is what the game uses when the key is absent. The long-form account of every key, in the editor's own words, is the [field reference](#field-reference) further down; these tables are the short version.
