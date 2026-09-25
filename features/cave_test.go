@@ -6,6 +6,7 @@
 package features
 
 import (
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -2251,7 +2252,7 @@ func TestBuildCaveFeature_WidthModifierAcceptsNonRandomExpression(t *testing.T) 
 		"1 + 1.5",
 		"math.sin(0) + 2",
 		"query.has_biome_tag('nonexistent')",
-		"query.distance_from_camera", // an unresolved query -- legal Molang, resolves to 0, still not refused
+		"query.noise(variable.originx, variable.originz) + 1",
 	} {
 		body := caveDemoFeatureBody()
 		body["width_modifier"] = expr
@@ -2266,6 +2267,32 @@ func TestBuildCaveFeature_WidthModifierAcceptsNonRandomExpression(t *testing.T) 
 		}
 		if cf.roomCfg.WidthModifier.isConstant {
 			t.Fatalf("%q: expected a compiled Molang program (isConstant=false), got a constant", expr)
+		}
+	}
+}
+
+// TestBuildCaveFeature_WidthModifierRefusesNonWorldGenQuery: width_modifier is parsed against
+// the world_gen query set while the file is validated, so a query outside it fails the parse and
+// the feature does not load. query.any_tag is the realistic one -- a real query, in the set block
+// descriptors use -- and an entity query is the other.
+func TestBuildCaveFeature_WidthModifierRefusesNonWorldGenQuery(t *testing.T) {
+	for _, tc := range []struct{ expr, query string }{
+		{"query.distance_from_camera", "distance_from_camera"},
+		{"query.any_tag('stone') ? 2 : 1", "any_tag"},
+		{"query.has_biome_tag(query.is_baby)", "is_baby"},
+	} {
+		body := caveDemoFeatureBody()
+		body["width_modifier"] = tc.expr
+		_, err := buildCaveFeature(body, caveDemoBuildContext(block.NewPalette()))
+		var uq *UnresolvedQueryError
+		if !errors.As(err, &uq) {
+			t.Fatalf("%q: got error %v, want an UnresolvedQueryError", tc.expr, err)
+		}
+		if len(uq.Queries) != 1 || uq.Queries[0] != tc.query {
+			t.Fatalf("%q: unresolved queries %v, want [%s]", tc.expr, uq.Queries, tc.query)
+		}
+		if !strings.Contains(err.Error(), "Failed to resolve query "+tc.query) {
+			t.Fatalf("%q: message %q does not quote the game's error", tc.expr, err)
 		}
 	}
 }

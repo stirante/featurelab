@@ -410,7 +410,7 @@ import "github.com/stirante/featurelab/session"
 //     session.Config.EnvironmentBiomeID's own doc comment. Reporting the id is deliberate:
 //     an unknown biome id is never swallowed silently.
 //   - BiomeTags, independent of BiomeID, is a tags-ONLY manual override (source 3) of
-//     query.has_biome_tag/any_tag/all_tags on top of whichever of source 1/2 above is active --
+//     query.has_biome_tag/has_any_biome_tags/has_all_biome_tags on top of whichever of source 1/2 above is active --
 //     BuildConfig wires it to session.Config.BiomeOverride with its ID left "" so session.
 //     generate's own default (preset, or the selected pack biome's own identifier) supplies
 //     the id unchanged; only the tag set is overridden. nil/empty means no override at all.
@@ -435,7 +435,7 @@ type GenerateParams struct {
 	// "" means no pack biome selected -- see this type's doc comment for the unknown-id
 	// diagnostic and how this combines with BiomeTags.
 	BiomeID string `json:"biomeId,omitempty"`
-	// BiomeTags is a tags-only manual override of query.has_biome_tag/any_tag/all_tags,
+	// BiomeTags is a tags-only manual override of query.has_biome_tag/has_any_biome_tags/has_all_biome_tags,
 	// independent of BiomeID. nil/empty means no override -- see this type's doc comment for
 	// how it combines with BiomeID.
 	BiomeTags []string `json:"biomeTags,omitempty"`

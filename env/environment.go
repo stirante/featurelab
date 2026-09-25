@@ -172,7 +172,7 @@ type EnvironmentPreset struct {
 	// bury it mid-volume.
 	DefaultOriginY func(v *volume.Volume) int
 	// Biome/BiomeTags are this preset's default query.has_biome_tag/
-	// any_tag/all_tags identity -- the exact minecraft:tags component
+	// has_any_biome_tags/has_all_biome_tags identity -- the exact minecraft:tags component
 	// arrays from the real shipped vanilla *.biome.json files.
 	Biome     string
 	BiomeTags []string

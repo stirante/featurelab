@@ -62,7 +62,7 @@ type EnvironmentOption struct {
 	// engine stays the single source of truth for which presets those are: a client reads this
 	// flag rather than hardcoding "ocean" a second time.
 	BuildsSea bool `json:"buildsSea"`
-	// Biome/BiomeTags are this preset's default query.has_biome_tag/any_tag/all_tags identity
+	// Biome/BiomeTags are this preset's default query.has_biome_tag/has_any_biome_tags/has_all_biome_tags identity
 	// (env.EnvironmentPreset.Biome/BiomeTags) -- shown by a client as the Biome section's
 	// placeholder/prefill until the user opts into an explicit override, exactly what the
 	// deleted STOPGAP_ENVIRONMENTS mirror used to hand-copy.

@@ -13,7 +13,7 @@
 //     environment builder is a session-level concern, deliberately left
 //     out of this package's surface (see this package's own doc for why).
 //   - `minecraft:climate` -> read-only informational data.
-//   - `minecraft:tags` -> the biome's query.has_biome_tag/any_tag/all_tags
+//   - `minecraft:tags` -> the biome's query.has_biome_tag/has_any_biome_tags/has_all_biome_tags
 //     identity (see wgen.MolangBiome), the same role
 //     session.Config.BiomeOverride plays manually.
 //   - `minecraft:replace_biomes` -> informational only.
@@ -351,7 +351,7 @@ func BuildLibrary(files []SourceFile) *Library {
 }
 
 // TagSet converts a ResolvedBiome's Tags into the set shape wgen.MolangBiome
-// consumes for query.has_biome_tag/any_tag/all_tags — the join point
+// consumes for query.has_biome_tag/has_any_biome_tags/has_all_biome_tags — the join point
 // documented in this package's own header. Kept as a tiny, dependency-free
 // helper (map[string]struct{}, not a wgen import) so this package doesn't
 // have to depend on wgen just to hand its tags to a caller that does.
