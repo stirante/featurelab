@@ -91,7 +91,8 @@ Everywhere else a number is a number. The editor marks the slots that accept an 
 | `"iterations": "t.flag = query.noise(…) > 0;"` | The sequence ends without a `return`, so it evaluates to `0`, so the scatter places nothing. | End it with `return 1;` (or whatever count you meant). |
 | `m.random_integer(0, 3)` | `m.` is not a Molang alias. The game rejects the token and **the file does not load** — not this expression, the file. | Write `math.` in full. Only `query.`, `variable.`, `temp.` and `context.` have short forms. |
 | `v.trunk_height + 2`, with nothing upstream writing it | The read finds no value, and the expression **stops there**. It is worth `0`, and nothing after the read runs — no assignment, no randomness. | `(v.trunk_height ?? 4) + 2`, or write the slot in a feature above this one. |
-| `q.nosie(v.originx, v.originz)` | A misspelt `query.` name is refused when the file is tokenised and **the whole pack fails to load**. It is not a silent zero — that is what a misspelt `variable.` gives you. | One of [the six queries](#the-six-queries). The editor underlines anything else. |
+| `q.nosie(v.originx, v.originz)` | A misspelt `query.` name makes the **whole expression** fail to parse. In a condition or a `width_modifier` the feature does not load; in a scatter's `iterations`, `scatter_chance` or coordinates it loads and the expression is `0` every time. Either way it is not the silent zero a misspelt `variable.` gives you. | One of [the six queries](#the-six-queries). The editor underlines anything else. |
+| `query.any_tag('forest')` in a condition or `iterations` | `any_tag` and `all_tags` are the tag queries of [block predicates](#where-an-expression-can-go). Feature Molang does not have them, so this fails to parse exactly like a typo. | `query.has_any_biome_tags('forest')`, or `query.has_all_biome_tags(…)` for "all of". |
 | `query.noise(0, 0) > 0` as a gate | `query.noise(0, 0)` is exactly `0`, so `> 0` is false at the origin, every time, in every world. | Compare against something the noise can actually clear, or offset the arguments. |
 | `query.has_biome_tag('forest', x, z)` | The three-argument form leaves `y` at `0` — far underground, where the answer is about cave biomes rather than the surface. | Give it all four: `query.has_biome_tag('forest', x, query.above_top_solid(x, z) + 1, z)`. |
 | `0 && 0 \|\| 1 && 1` in a pack whose `min_engine_version` is below 1.18.20 | It groups as `0 && (0 \|\| 1) && 1` and is **false**, the opposite of the C-style reading. | Parenthesise what you mean, or raise `min_engine_version`. See [the precedence change](#precedence). |
@@ -105,25 +106,30 @@ Every name in a worldgen expression belongs to one of five dotted namespaces. Fo
 | Namespace | Short form | What it holds |
 |---|---|---|
 | `math.` | **none** | The stateless function library — `math.sin`, `math.floor`, `math.clamp`, [the random draws](#random-numbers). There is no `m.`: it looks like it ought to work, and a file that uses it does not load. |
-| `query.` | `q.` | Read-only values the engine computes. In world generation there are exactly [six](#the-six-queries), and asking for a seventh does not load. |
+| `query.` | `q.` | Read-only values the engine computes. In world generation there are exactly [six](#the-six-queries), and asking for a seventh does not parse. |
 | `variable.` | `v.` | Read and write. Shared down a whole delegation chain. |
 | `temp.` | `t.` | Read and write, and it lives [even longer than that](#scope-lifetime-temp-versus-variable). |
 | `context.` | `c.` | Read-only, supplied by the host. Any name parses — `context.anything` is legal to write — but **nothing in world generation supplies one**, so every `context.` read is a read of a slot nothing has written, with [everything that implies](#reading-a-slot-nothing-has-written). |
 
 ### The six queries {#the-six-queries}
 
-This is the whole list. It is much narrower than the query surface entity and render-controller Molang has, and unlike a misspelt variable, a name outside it is fatal to the file.
+This is the whole list. It is much narrower than the query surface entity and render-controller Molang has, and unlike a misspelt variable, a name outside it is fatal to the expression.
 
 | Query | What it answers |
 |---|---|
 | `query.noise(x, z)` | Fixed-seed 2D noise at those two numbers — see [below](#query-noise). |
-| `query.has_biome_tag('tag')` | Whether the biome here carries that tag. Also takes `('tag', x, y, z)` to ask somewhere else. |
-| `query.any_tag('a', 'b', …)` | Whether the biome carries any of them. |
-| `query.all_tags('a', 'b', …)` | Whether it carries all of them. |
+| `query.has_biome_tag('tag')` | Whether the biome here carries that tag. One tag only. Also takes `('tag', x, y, z)` to ask somewhere else; any other number of arguments answers `0`. |
+| `query.has_any_biome_tags('a', 'b', …)` | Whether the biome here carries any of them. Every argument is a tag, so it always asks about the origin. |
+| `query.has_all_biome_tags('a', 'b', …)` | Whether it carries all of them. With no tags at all it answers `0`, not `1`. |
 | `query.heightmap(x, z)` | The height of the column there — the first free cell above anything that is not air. |
 | `query.above_top_solid(x, z)` | The first free cell above the top *solid* block, skipping water and plants. Usually the one you want for "the surface". |
 
-Anything else — `query.is_baby`, a typo, a query that exists for entities — is refused when the expression is tokenised, with `Failed to resolve query <name>. Either the query does not exist or it is not supported in this context.`, and the pack does not load. That is the opposite of what a misspelt `variable.` does, and it is why the two kinds of typo have completely different symptoms.
+Anything else — `query.is_baby`, a typo, a query that exists for entities, or `query.any_tag` and `query.all_tags`, which belong to block predicates — is refused when the expression is tokenised, with `Failed to resolve query <name>. Either the query does not exist or it is not supported in this context.` The expression does not parse at all, and what that costs depends on where it is:
+
+- a `conditional_list` condition or a cave's `width_modifier` fails the file's validation, and **the feature does not load**;
+- a scatter's `iterations`, `scatter_chance` or `x`/`y`/`z` — including a feature rule's `distribution` — **loads**, and the whole expression is `0` every time. In `iterations` or `scatter_chance` that means the scatter never places anything.
+
+That is the opposite of what a misspelt `variable.` does, and it is why the two kinds of typo have completely different symptoms. featurelab does the same in each place: `check` refuses the first kind and warns about the second, quoting the game's message.
 
 ## Random numbers, and what each one returns {#random-numbers}
 
@@ -255,10 +261,9 @@ Every slot in [the editor](../editor/index.md) that accepts an expression is the
 
 ## What the bench does differently
 
-featurelab models this page's rules; three of them it deliberately does not reproduce.
+featurelab models this page's rules; two of them it deliberately does not reproduce.
 
 - **It does not stop on an unresolved read.** The bench places one feature in isolation with an empty scope, so a slot a parent feature would have written is unset *here* and set in a real chunk. It substitutes `0`, carries on, and reports every read it swallowed by name — the diagnostic says so in as many words, and tells you that the game would have stopped there. Read it as a question rather than a verdict; guarding the read with `?? <default>` settles it either way. See [coverage and known gaps](../engine/coverage.md#bench-wide-approximations).
-- **An unregistered `query.*` is not fatal here.** The bench evaluates it through Molang's general unregistered-member fallback: the arguments are still evaluated left to right, so nested calls and randomness inside them still happen in order, and then the call is discarded and the name reads back as `0`. So an expression the game refuses outright previews as one that quietly does nothing. The editor is the half that does tell you — it marks the name as an error and lists the six that exist — but a CLI run stays silent unless the query sits in a block predicate, which is named when the pack loads.
 - **`min_engine_version` does not change the grouping here.** The bench always applies the 1.18.20-and-later precedence. A pack that declares an older version is evaluated by the modern rule, so a legacy-grouping surprise is one this tool will not show you.
 
 One more, which is a difference in values rather than in behaviour: `math.random_integer` reaches its result by a different route in the bench than in the game. Both are inclusive of both ends, which is what this page states; where the two part company is on arguments written the wrong way round — the game reads them as a low and a high whichever order you write them, and the bench does not, and produces a very large number instead. Write the low bound first and the two agree.
@@ -273,7 +278,7 @@ One more, which is a difference in values rather than in behaviour: `math.random
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: the worldgen Molang surface and its behaviour are unchanged across the three.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: the worldgen Molang surface and its behaviour are unchanged across the three. The one exception is the query list: `query.has_any_biome_tags` and `query.has_all_biome_tags` were confirmed in 1.26.60.22 and 1.26.50.24, and 1.26.40.26 was not checked for them.
 
 The precedence change is the finding a reader can most easily re-check outside this project, against Microsoft's own "Versioned Changes" reference table. The two JSON files in *Start here* were run end to end through `featurelab check` and the `featurelab generate` command shown beside them, and the placed block, the branch taken and the `molangScope` values quoted are that run's output. The [random bounds table](#random-numbers) was re-measured rather than carried over: each call was evaluated several thousand times from different seeds and the extremes recorded, which is what settles `math.random` excluding its top end while `math.random_integer` includes both. The `??` results, the `query.noise` range and its value at the origin, the 32-bit rounding examples and the two precedence groupings were measured the same way. The editor behaviour in [Writing Molang in the editor](#in-the-editor) is quoted from the shipping control and its tests.
 
