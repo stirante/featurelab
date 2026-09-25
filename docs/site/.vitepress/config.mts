@@ -85,6 +85,9 @@ export default defineConfig({
       fs: { allow: [siteDir, path.join(repoDir, 'frontend', 'src'), path.join(repoDir, 'docs', 'wiki')] },
     },
     worker: { format: 'es' },
+    // Found only when a playground mounts, which in `npm run dev` would re-optimise and reload
+    // the page under the reader's first click.
+    optimizeDeps: { include: ['three', 'three/examples/jsm/controls/OrbitControls.js'] },
   },
 
   markdown: {

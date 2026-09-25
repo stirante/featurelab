@@ -40,7 +40,8 @@ export const EXAMPLES: Example[] = [
   { id: 'fancy_oak', title: 'Tree: fancy oak', main: 'features/tree_fancy_oak.json', env: 'plains', seed: 3 },
   { id: 'acacia', title: 'Tree: acacia branching', main: 'features/tree_acacia_branching.json', env: 'plains', seed: 3 },
   { id: 'fallen_log', title: 'Fallen log with leaf litter', main: 'features/horizontal_tree_decoration_scene.json', env: 'plains', seed: 1 },
-  { id: 'ore', title: 'Ore: a diamond vein', main: 'features/ore_diamond_vein.json', env: 'underground_stone', seed: 1 },
+  // No ore, geode or carver: what they do is inside solid rock, and their pictures on the site
+  // are cut-aways framed by hand. Here the first thing a reader would see is an unbroken slab.
 ]
 
 export function findExample(id: string | undefined): Example {
