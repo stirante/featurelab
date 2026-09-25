@@ -1,10 +1,10 @@
 ---
 title: Underwater cave carver feature
-description: minecraft:underwater_cave_carver_feature digs the same rooms and tunnels as the cave carver and fills them with water instead of air. The ocean tag it needs to do anything, the flat water line, the three fixed depth bands, and the deepslate it refuses — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:underwater_cave_carver_feature digs the same rooms and tunnels as the cave carver and fills them with water instead of air. The ocean tag it needs to do anything, the flat water line, the three fixed depth bands, and the deepslate it refuses — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:underwater_cave_carver_feature
 category: carver
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -222,7 +222,7 @@ The worked example is [`underwater_cave_demo.json`](https://github.com/stirante/
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface and its whole placement are unchanged between the two.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface and its whole placement are unchanged across the three.
 
 Every number quoted was produced by running the exact JSON above — or that file with one key changed, or the same file against a differently-built bench — through `featurelab generate` and reading the counts and coordinates back out of the result: the 0-versus-3,405 ocean-tag table, the deepslate table, the magma/obsidian ratios over 60 seeds, the 2,968-cell example with its per-block breakdown and its row-by-row bands, the 240 cells left when `fill_with` is omitted, and the byte-identical results with `replace_air_with` set to gold and removed altogether. The image was rendered from the example's own run by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), sliced as the tip describes.
 

@@ -1,9 +1,10 @@
 ---
 title: Tree feature
-description: minecraft:tree_feature grows a tree by pairing one trunk shape with one canopy shape. The eight trunk keys side by side in one picture, every sub-schema in a table, and the three pairings that grow a bare pole — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:tree_feature grows a tree by pairing one trunk shape with one canopy shape. The eight trunk keys side by side in one picture, every sub-schema in a table, and the three pairings that grow a bare pole — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:tree_feature
 category: content
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -710,7 +711,7 @@ Every measured claim on this page is reproducible from committed fixtures. `tree
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**. Everything except `poplar_trunk` and `poplar_canopy` also holds for **1.26.40.26**, which is why this page carries no "also holds" badge: those two keys do not exist in that build and a file using them does not load there.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. Everything except `poplar_trunk` and `poplar_canopy` also holds for **1.26.40.26**, which is why this page carries no "also holds" badge for that build: those two keys do not exist in that build and a file using them does not load there.
 
 Five findings can be reproduced directly from the committed fixture pack. The worked example's **47 blocks** (13 logs, 34 leaves) and the plain trunk's **97** (12 logs, 68 leaves, 17 vines, bottom log at world Y 62 against a requested origin of 63) were read back out of `featurelab generate`'s own result, as was the fancy oak's **405** (31 logs, 374 leaves). The `may_grow_through` claim on the plain trunk was checked both ways: dropping `minecraft:grass_block` from that list moves the whole column up one cell and turns Y 62 from a log into a `base_block` conversion. The three pairings that grow a bare pole, and the two that grow no crown at all, were each run: a `cherry_trunk` with a body-level `canopy` places its logs and not one leaf, and moving the same canopy body into `branches.branch_canopy` grows it at the branch tip. The `poplar_canopy` cross was read off a run with a working radius of 8: the log arms land three layers below the crown's topmost leaf layer and reach four cells from the centre, and at a working radius of 4 the cross is a single centre cell.
 

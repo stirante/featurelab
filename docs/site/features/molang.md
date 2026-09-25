@@ -1,9 +1,9 @@
 ---
 title: Molang in world generation
-description: Molang is the expression language you can write into a feature's numbers. What each namespace can reach, what math.random actually returns (and why it is not an integer picker), how long a variable lives across a delegation chain, and the reads that stop an expression dead — measured against Minecraft Bedrock 1.26.50.24.
+description: Molang is the expression language you can write into a feature's numbers. What each namespace can reach, what math.random actually returns (and why it is not an integer picker), how long a variable lives across a delegation chain, and the reads that stop an expression dead — measured against Minecraft Bedrock 1.26.60.22.
 category: guide
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -273,7 +273,7 @@ One more, which is a difference in values rather than in behaviour: `math.random
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: the worldgen Molang surface and its behaviour are unchanged between the two.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: the worldgen Molang surface and its behaviour are unchanged across the three.
 
 The precedence change is the finding a reader can most easily re-check outside this project, against Microsoft's own "Versioned Changes" reference table. The two JSON files in *Start here* were run end to end through `featurelab check` and the `featurelab generate` command shown beside them, and the placed block, the branch taken and the `molangScope` values quoted are that run's output. The [random bounds table](#random-numbers) was re-measured rather than carried over: each call was evaluated several thousand times from different seeds and the extremes recorded, which is what settles `math.random` excluding its top end while `math.random_integer` includes both. The `??` results, the `query.noise` range and its value at the origin, the 32-bit rounding examples and the two precedence groupings were measured the same way. The editor behaviour in [Writing Molang in the editor](#in-the-editor) is quoted from the shipping control and its tests.
 

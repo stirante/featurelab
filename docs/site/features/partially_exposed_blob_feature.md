@@ -1,10 +1,10 @@
 ---
 title: Partially exposed blob feature
-description: minecraft:partially_exposed_blob_feature fills a cube of cells below the origin with one block, keeping only the cells that are not submerged — except on the one face you name. Every key in a table, what exposed_face really exempts, and why the blob is a cube and not a ball — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:partially_exposed_blob_feature fills a cube of cells below the origin with one block, keeping only the cells that are not submerged — except on the one face you name. Every key in a table, what exposed_face really exempts, and why the blob is a cube and not a ball — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:partially_exposed_blob_feature
 category: scene
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -200,7 +200,7 @@ The walk order matters if you are reproducing the engine cell for cell. Candidat
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key, enum value, bound and default — and its behaviour are identical in both.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key, enum value, bound and default — and its behaviour are identical in all three.
 
 Both JSON examples are committed fixtures and were run end to end, and every count and coordinate on this page was read back out of `featurelab generate`: the magma blob's 174 cells at `(-3 to 3, 28 to 34, -3 to 3)` and the one coal ore among the 173 stone cells it replaced, the seabed blob's 199 cells and their layer-by-layer counts, the 343 cells of a full cube, and the `No blocks could be placed` failure in open water and at probability `0.0`. The three load refusals are quoted verbatim from `featurelab check`. The image was rendered from the magma blob's own result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, and sliced for visibility as described above.
 

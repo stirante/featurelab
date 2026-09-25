@@ -1,10 +1,10 @@
 ---
 title: Multiface feature
-description: minecraft:multiface_feature sticks a glow lichen or sculk vein onto the face of a block next to the origin and lets it creep one step further. Every key in a table, which of the origin's neighbours it really tries, the three blocks that can carry a face at all, and why a reported success can write nothing — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:multiface_feature sticks a glow lichen or sculk vein onto the face of a block next to the origin and lets it creep one step further. Every key in a table, which of the origin's neighbours it really tries, the three blocks that can carry a face at all, and why a reported success can write nothing — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:multiface_feature
 category: content
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -256,7 +256,7 @@ The consequence for a chain: turning `chance_of_spreading` up or down does not s
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface — every key, bound and required/optional status — its placement and its spreading are identical in both, including the two non-reproducible shuffles, so both warnings above hold for the two versions exactly as written.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key, bound and required/optional status — its placement and its spreading are identical in all three, including the two non-reproducible shuffles, so both warnings above hold for all three versions exactly as written.
 
 The example is a committed fixture and was run end to end; every count, coordinate and message on this page was read back out of `featurelab generate` or `featurelab check` against the [committed fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures): the two cells at `(0, 63, 0)` and `(-1, 63, 0)` and the face each carries, the plains column with grass at `Y 62`, the `Location does not contain air or water` end at origin `(0, 62, 0)`, the `No adjacent locations contain air or water` end with all three flags off, the identical result at `search_range` `1` and `64`, and the three load refusals quoted verbatim. The `can_place_on`-deleted run and the "0 against 2" comparison are control runs from the same file with that one key removed — the edit the section asks the reader to make for themselves. The image was rendered from the example's own result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine with a fixed seed and a deterministic camera, so re-running it reproduces the picture byte for byte.
 

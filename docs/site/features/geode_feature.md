@@ -1,10 +1,10 @@
 ---
 title: Geode feature
-description: minecraft:geode_feature builds an amethyst-geode-style blob of concentric shells with a crack through it. Every field in a table, the two whose names lie, and the range rule that makes vanilla's own 3-to-4 points always 3 — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:geode_feature builds an amethyst-geode-style blob of concentric shells with a crack through it. Every field in a table, the two whose names lie, and the range rule that makes vanilla's own 3-to-4 points always 3 — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:geode_feature
 category: scene
-game: 1.26.50.24
-alsoHolds: ["1.26.40.26"]
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24", "1.26.40.26"]
 scope: game
 ---
 
@@ -291,7 +291,7 @@ The worked example is [`geode_amethyst.json`](https://github.com/stirante/featur
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**, and holds for **1.26.40.26** too: this type's JSON surface and its whole placement are unchanged between the two, so nothing on this page splits between them.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface and its whole placement are unchanged across the three, so nothing on this page splits between them.
 
 The worked example was run end to end, and the block names, the cell counts and the extent quoted beside it were read back out of that run rather than predicted. The image was rendered from that exact result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), sliced as the tip beside it describes.
 

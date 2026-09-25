@@ -1,9 +1,10 @@
 ---
 title: Horizontal tree decoration feature
-description: minecraft:horizontal_tree_decoration_feature hangs one petal-carpet block on a random side of the block at the origin. All three keys in a table, the two block states it insists on, and what the spacing rule and the bark rule each actually refuse — measured against Minecraft Bedrock 1.26.50.24.
+description: minecraft:horizontal_tree_decoration_feature hangs one petal-carpet block on a random side of the block at the origin. All three keys in a table, the two block states it insists on, and what the spacing rule and the bark rule each actually refuse — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:horizontal_tree_decoration_feature
 category: content
-game: 1.26.50.24
+game: 1.26.60.22
+alsoHolds: ["1.26.50.24"]
 scope: game
 ---
 
@@ -189,7 +190,7 @@ The fixtures behind this page are committed under [`docs/wiki/tools/fixtures/fea
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.50.24**. It carries no "also holds" badge because there is nothing to compare against: the type does not exist in **1.26.40.26** at all.
+Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too, the build that introduced the type. It carries no "also holds" badge for **1.26.40.26** because there is nothing to compare against: the type does not exist there at all.
 
 Every number on this page was read back out of a run of the committed fixture pack. The example scene's five tufts from seven attempts at seed `1`, their cells, their four `south` and one `north` facings and their growth stages; the 86 / 96 split of growth stages and the 182 tufts over seeds 1 to 60; the 19 / 14 / 14 / 13 side counts and the 60 of 60 placements against a vertical log, with and without `bark_side_only`; and that a stone block at the origin with `bark_side_only` on places nothing while the same file with the flag off places normally.
 
