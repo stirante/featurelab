@@ -11,7 +11,7 @@ name: Docs site
 # checker exists to prevent. The build is a couple of minutes; a silently broken published link
 # costs more.
 #
-# Four things run around the build and each one can fail it:
+# Five things run around the build and each one can fail it:
 #   1. tools/extract-coverage.mjs  -- `featurelab types --json` -> generated/coverage.json. Needs Go.
 #   2. tools/extract-catalog.mjs   -- the extension's catalogue -> generated/fields/*.md. Needs
 #                                     only Node and esbuild; reads apps/vscode/src as text.
@@ -25,6 +25,13 @@ name: Docs site
 #   4. the two link checkers, in both directions -- site -> site (with --verify-dist, after the
 #      build, so the anchor rule is proved against what VitePress actually wrote) and
 #      product -> docs.
+#   5. tools/playground-smoke.mjs -- the playground on the BUILT site, in headless Chromium: the
+#      engine loads, a Run places what the scatter page says it places, the engine is reused
+#      across a navigation. It needs the engine, which scripts/build-playground.sh compiles to
+#      WebAssembly into docs/site/public/playground/ before the build (git-ignored; the Go
+#      toolchain is already set up for step 1). Pages cannot set Cache-Control, so the engine's
+#      file names are content hashes and the page caches it itself (see
+#      .vitepress/theme/playground/engine.worker.ts).
 #
 # The image pipeline (docs/wiki/tools/generate-images.mjs) is deliberately NOT run here. It
 # needs Playwright's Chromium and software WebGL, takes minutes, and its output is committed;
@@ -89,12 +96,23 @@ jobs:
         run: node tools/check-product-links.mjs
         working-directory: docs/site
 
+      - name: Build the playground engine into public/playground
+        run: bash scripts/build-playground.sh docs/site/public/playground "${GITHUB_SHA::12}"
+
       - name: Build
         run: npm run build
         working-directory: docs/site
 
       - name: Check site links and anchors against the built HTML
         run: node tools/check-links.mjs --verify-dist
+        working-directory: docs/site
+
+      - name: Install Chromium for the playground smoke test
+        run: npx playwright install --with-deps chromium
+        working-directory: docs/site
+
+      - name: Playground smoke test (the built site places a feature in a real browser)
+        run: node tools/playground-smoke.mjs
         working-directory: docs/site
 
       - name: Upload Pages artifact
