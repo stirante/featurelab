@@ -97,7 +97,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${S
 
 const browser = await chromium.launch()
 try {
-  const page = await browser.newPage({ viewportSize: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 })
+  // `viewport`, NOT `viewportSize`. Playwright names the page option `viewport` and silently
+  // drops keys it does not know, so the misspelling left the page at the default 1280x720 and
+  // the screenshot caught the whole of it with a 128px drawing in one corner. That icon shipped
+  // in 0.2.0. The written file is measured below so it cannot happen again unnoticed.
+  const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 })
   await page.setContent(
     `<!doctype html><meta charset="utf-8">` +
       `<style>html,body{margin:0;padding:0;width:${SIZE}px;height:${SIZE}px;background:transparent}` +
@@ -109,7 +113,7 @@ try {
   if (check) {
     // The legibility claim in this file's header, as an artefact somebody can open. Rendered by
     // downscaling the real 128px drawing, which is what the editor's extensions list does.
-    const small = await browser.newPage({ viewportSize: { width: 32, height: 32 }, deviceScaleFactor: 1 })
+    const small = await browser.newPage({ viewport: { width: 32, height: 32 }, deviceScaleFactor: 1 })
     await small.setContent(
       `<!doctype html><meta charset="utf-8">` +
         `<style>html,body{margin:0;padding:0;width:32px;height:32px;background:#f3f3f3}` +
@@ -121,7 +125,16 @@ try {
     await small.screenshot({ path: checkPath })
     console.log(`wrote ${checkPath} (the 32px legibility check)`)
   }
-  console.log(`wrote ${outPath}`)
+  // Measured from the FILE, not asked of the page: `page.viewportSize()` reports what Playwright
+  // was told, which is the very thing that was wrong. The IHDR of a PNG is width and height as
+  // two big-endian uint32 at byte 16.
+  const written = fs.readFileSync(outPath)
+  const w = written.readUInt32BE(16)
+  const h = written.readUInt32BE(20)
+  if (w !== SIZE || h !== SIZE) {
+    throw new Error(`make-icon: wrote ${w}x${h}, expected ${SIZE}x${SIZE} -- the icon must be square`)
+  }
+  console.log(`wrote ${outPath} (${w}x${h})`)
 } finally {
   await browser.close()
 }
