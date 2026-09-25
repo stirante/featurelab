@@ -106,6 +106,13 @@ func VanillaBlockNames() map[string]struct{} {
 		files := DefaultBlocks()
 		vanillaNames = make(map[string]struct{}, len(files))
 		for _, f := range files {
+			// The generated table already holds what the parse below
+			// would read; it is only a fallback for a file the table does
+			// not match (see vanilla_catalogue.go).
+			if id, ok := cataloguedIdentifier(f); ok {
+				vanillaNames[canonicalName(id)] = struct{}{}
+				continue
+			}
 			var doc struct {
 				Block struct {
 					Description struct {

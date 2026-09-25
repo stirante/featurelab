@@ -130,6 +130,19 @@ func (p *Palette) LoadBlockTags(files []SourceFile) []Diagnostic {
 	rdData := &blockRenderData{byBlock: make(map[string]BlockRender), notes: make(map[string]RenderNote)}
 
 	for _, f := range files {
+		// A vanilla catalogue file, unchanged: parsing it would find only
+		// this identifier, and the entries below are exactly what the walk
+		// further down records for a file with no tags, no placement filter,
+		// no traits and no appearance (see vanilla_catalogue.go). Applied here,
+		// in file order, so a later pack file for the same id still replaces
+		// it just as it would a parsed one.
+		if identifier, ok := cataloguedIdentifier(f); ok {
+			canonical := canonicalName(identifier)
+			data.byBlock[canonical] = make(map[string]struct{}, 0)
+			pfData.byBlock[canonical] = blockPlacementFilterEntry{}
+			mbData.byBlock[canonical] = multiBlockTraitEntry{}
+			continue
+		}
 		if jsonc.HasUTF8BOM([]byte(f.Text)) {
 			diags = append(diags, Diagnostic{Level: "warning", FileID: f.ID, Message: jsonc.UTF8BOMWarning})
 		}
