@@ -96,7 +96,21 @@ describe('creating a feature rule', () => {
       await expect.poll(() => ruleFiles(j).length, { timeout: 20_000 }).toBe(3)
       const created = ruleFiles(j).find((f) => !before.includes(f))
       expect(created).toBeDefined()
-      const body = JSON.parse(j.read(created!)) as Record<string, Record<string, unknown>>
+      // Waited for as a WHOLE FILE, not as a name in a directory listing. The engine writes it
+      // with os.WriteFile, which creates the file and then fills it, so the name appears before
+      // the contents do -- and a read in between got an empty string and failed this test with
+      // "Unexpected end of JSON input", once in a full run. The other creation journeys wait for
+      // the node instead, which the engine only reports after the write; this one cannot, because
+      // the node's id is read out of this file.
+      const parsed = (): Record<string, Record<string, unknown>> | null => {
+        try {
+          return JSON.parse(j.read(created!)) as Record<string, Record<string, unknown>>
+        } catch {
+          return null
+        }
+      }
+      await expect.poll(parsed, { timeout: 20_000 }).not.toBeNull()
+      const body = parsed()!
       expect(Object.keys(body)).toContain('minecraft:feature_rules')
       const rule = body['minecraft:feature_rules'] as { description?: Record<string, unknown> }
       // A rule with no identifier is not loadable and a rule with no places_feature places
