@@ -124,7 +124,7 @@ export function engineBinaryPath(): string {
 
 let bundleBuilt = false
 
-/** Rebuilds dist/ from source before the first journey of the process.
+/** Makes sure dist/ is built from the source under test before a journey reads it.
  *
  * Not a convenience. These journeys assert about dist/graph.js and about nothing else, so a
  * stale dist/ does not make them fail -- it makes them PASS while describing a build nobody has
@@ -132,59 +132,30 @@ let bundleBuilt = false
  * green off a bundle built before the wiring was removed, which is precisely the class of lie
  * this directory exists to make impossible.
  *
- * `npm run compile` itself, through its own esbuild config, so what is built here is what
- * `npm run package` ships. Once per process, because three bundles take about half a second and
- * a per-test rebuild would pay it thirty times over for no extra truth. Set
- * FEATURELAB_SKIP_BUILD=1 while iterating on a test against a bundle you built by hand. */
+ * Under vitest this is test/globalSetup.ts's job and this function does nothing: the bundle is
+ * built there once, before any file starts. It used to be built HERE, once per process -- and
+ * vitest runs every file in a process of its own, so every journey rewrote dist/ in place while
+ * the others were serving it to Chromium, and a page that loaded graph.js mid-write got an empty
+ * script and never drew a card. See globalSetup.ts for the measurement. The fallback below is for
+ * a harness driven outside that setup, where there is nobody else to build it.
+ *
+ * `npm run compile` itself, through its own esbuild config, so what is built is what
+ * `npm run package` ships. Set FEATURELAB_SKIP_BUILD=1 while iterating on a test against a bundle
+ * you built by hand.
+ *
+ * frontend/dist, which the bundles pull in as `featurelab-frontend`, is checked for staleness in
+ * globalSetup.ts as well, for every file rather than only for the journeys that open a preview:
+ * webview/graph.ts imports the same package. */
 export function ensureBundleBuilt(): void {
   if (bundleBuilt) return
   bundleBuilt = true
+  if (process.env['FEATURELAB_BUNDLE_SETTLED'] === '1') return
   if (process.env['FEATURELAB_SKIP_BUILD'] === '1') return
   const result = spawnSync(process.execPath, ['esbuild.config.mjs'], { cwd: appRoot, encoding: 'utf8' })
   if (result.error !== undefined || result.status !== 0) {
     throw new Error(
       `journey harness: the webview bundle would not build, so there is nothing honest to test.\n` +
         `  ${result.error?.message ?? result.stderr ?? `exit ${String(result.status)}`}`,
-    )
-  }
-}
-
-/** Refuses to run a preview journey against a stale featurelab-frontend build.
- *
- * ensureBundleBuilt rebuilds apps/vscode's OWN dist, but the preview bundle is esbuild over
- * `featurelab-frontend`, and that package resolves to frontend/dist -- tsc output this repo does
- * not check in and this harness does not build. So an edit to frontend/src/viewer.ts is invisible
- * here until somebody runs `npm run build` in frontend/, and a journey that ran anyway would
- * describe a viewer nobody has: the exact false green ensureBundleBuilt's own doc comment exists
- * to prevent, one package over.
- *
- * Checked rather than built, because building it is a tsc run plus an asset copy and belongs in
- * the command a developer already types, not once per test process. The message says which.
- *
- * Compared on mtime, which is the only signal available without reproducing tsc's own staleness
- * logic. A clock-skewed checkout could false-positive; being told to run a build you have already
- * run is a far better failure than a green test over a viewer from before your change. */
-function requireFreshFrontend(): void {
-  const frontendRoot = path.join(repoRoot, 'frontend')
-  const built = path.join(frontendRoot, 'dist', 'index.js')
-  if (!fs.existsSync(built)) {
-    throw new Error('journey harness: frontend/dist is missing. Run "npm run build" in frontend/ first.')
-  }
-  const builtAt = fs.statSync(built).mtimeMs
-  const newer: string[] = []
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) walk(full)
-      else if (fs.statSync(full).mtimeMs > builtAt) newer.push(path.relative(frontendRoot, full))
-    }
-  }
-  walk(path.join(frontendRoot, 'src'))
-  if (newer.length > 0) {
-    throw new Error(
-      `journey harness: frontend/dist is older than ${newer.slice(0, 3).join(', ')}${newer.length > 3 ? ` (and ${String(newer.length - 3)} more)` : ''}, ` +
-        `so this preview would run an old viewer and say nothing about your change. ` +
-        `Run "npm run build" in frontend/ first.`,
     )
   }
 }
@@ -533,16 +504,15 @@ export async function openJourney(options: OpenJourneyOptions = {}): Promise<Jou
     '/graph.css': [path.join(appRoot, 'media', 'graph.css'), 'text/css'],
   }
   if (options.withPreview === true) {
-    requireFreshFrontend()
     // The preview's own two files, the ones previewPanel.ts links. Both come out of dist/, which
-    // ensureBundleBuilt just rebuilt -- webview.css is generated from featurelab-frontend's
+    // globalSetup.ts built for this run -- webview.css is generated from featurelab-frontend's
     // panel.css by the same esbuild run, not checked in.
     assets['/webview.js'] = [path.join(appRoot, 'dist', 'webview.js'), 'text/javascript']
     assets['/webview.css'] = [path.join(appRoot, 'dist', 'webview.css'), 'text/css']
   }
   for (const [name, [file]] of Object.entries(assets)) {
-    // ensureBundleBuilt() just built dist/; media/graph.css is checked in. A miss here is a
-    // renamed or moved asset, not a forgotten build.
+    // dist/ was built for this run (see ensureBundleBuilt); media/graph.css is checked in. A miss
+    // here is a renamed or moved asset, not a forgotten build.
     if (!fs.existsSync(file)) throw new Error(`journey harness: ${file} is missing (${name})`)
   }
   const server = http.createServer((req, res) => {
