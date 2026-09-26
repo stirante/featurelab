@@ -949,7 +949,16 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
    *
    * Compositing and rasterisation are NOT in these numbers: they happen off the main thread and
    * CDP does not attribute them here. That is deliberate -- it is exactly what makes the
-   * remainder (frame interval minus this) readable as raster cost. */
+   * remainder (frame interval minus this) readable as raster cost.
+   *
+   * In THREAD TICKS, i.e. the CPU the main thread spent, not the wall-clock length of its tasks.
+   * The default time domain counts a task's whole duration, including every moment the thread
+   * was waiting for a core -- which is how the drag ratchet read 101 ms a frame against a
+   * yardstick of 94 in one full run (1.08 yardsticks against a ceiling of 0.95, measured 0.5
+   * everywhere else): the load came in bursts, and the drag caught a worse one than the
+   * yardstick taken moments before it. Both sides of that ratio come from here, so both are now
+   * CPU, and what is left between them is the work. See postGraph for the measurement that
+   * showed thread ticks holding still under load. */
   interface MainThreadCost {
     script: number
     style: number
@@ -959,7 +968,7 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
 
   async function mainThreadCost(page: Page, run: () => Promise<unknown>): Promise<MainThreadCost> {
     const client = await page.context().newCDPSession(page)
-    await client.send('Performance.enable')
+    await client.send('Performance.enable', { timeDomain: 'threadTicks' })
     const read = async (): Promise<Record<string, number>> => {
       const { metrics } = await client.send('Performance.getMetrics')
       return Object.fromEntries(metrics.map((m) => [m.name, m.value]))
