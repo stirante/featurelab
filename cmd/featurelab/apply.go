@@ -98,7 +98,7 @@ func methodApplyEdits(state *serverState, raw json.RawMessage) (any, error) {
 	if string(out) == string(src) {
 		return map[string]any{"file": p.File, "changed": false}, nil
 	}
-	if err := os.WriteFile(full, out, 0o644); err != nil {
+	if err := writeFileAtomic(full, out, 0o644); err != nil {
 		return nil, fmt.Errorf("applyEdits: writing %s: %v", p.File, err)
 	}
 
@@ -229,7 +229,7 @@ func methodCreateFiles(state *serverState, raw json.RawMessage) (any, error) {
 		if err := os.MkdirAll(filepath.Dir(f.full), 0o755); err != nil {
 			return nil, fmt.Errorf("createFiles: %s: %v (wrote %v first)", f.rel, err, written)
 		}
-		if err := os.WriteFile(f.full, []byte(p.Files[i].Contents), 0o644); err != nil {
+		if err := writeFileAtomic(f.full, []byte(p.Files[i].Contents), 0o644); err != nil {
 			return nil, fmt.Errorf("createFiles: %s: %v (wrote %v first)", f.rel, err, written)
 		}
 		written = append(written, f.rel)
@@ -339,7 +339,7 @@ func methodRegenerate(state *serverState, raw json.RawMessage) (any, error) {
 		if err := os.MkdirAll(filepath.Dir(w.full), 0o755); err != nil {
 			return nil, fmt.Errorf("regenerate: %s: %v", w.rel, err)
 		}
-		if err := os.WriteFile(w.full, []byte(w.contents), 0o644); err != nil {
+		if err := writeFileAtomic(w.full, []byte(w.contents), 0o644); err != nil {
 			return nil, fmt.Errorf("regenerate: %s: %v", w.rel, err)
 		}
 	}

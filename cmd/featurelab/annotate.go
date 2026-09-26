@@ -91,7 +91,7 @@ func methodAnnotate(state *serverState, raw json.RawMessage) (any, error) {
 	if string(out) == string(src) {
 		return map[string]any{"file": p.File, "changed": false}, nil
 	}
-	if err := os.WriteFile(full, out, 0o644); err != nil {
+	if err := writeFileAtomic(full, out, 0o644); err != nil {
 		return nil, fmt.Errorf("annotate: writing %s: %v", p.File, err)
 	}
 	if err := state.loaded.ReloadFile(full); err != nil {
@@ -203,7 +203,7 @@ func methodAnnotateBatch(state *serverState, raw json.RawMessage) (any, error) {
 			files = append(files, map[string]any{"file": fw.rel, "changed": false})
 			continue
 		}
-		if err := os.WriteFile(full, fw.current, 0o644); err != nil {
+		if err := writeFileAtomic(full, fw.current, 0o644); err != nil {
 			return nil, fmt.Errorf("annotateBatch: writing %s: %v", fw.rel, err)
 		}
 		if err := state.loaded.ReloadFile(full); err != nil {

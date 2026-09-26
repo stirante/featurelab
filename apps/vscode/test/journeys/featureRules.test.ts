@@ -96,12 +96,14 @@ describe('creating a feature rule', () => {
       await expect.poll(() => ruleFiles(j).length, { timeout: 20_000 }).toBe(3)
       const created = ruleFiles(j).find((f) => !before.includes(f))
       expect(created).toBeDefined()
-      // Waited for as a WHOLE FILE, not as a name in a directory listing. The engine writes it
-      // with os.WriteFile, which creates the file and then fills it, so the name appears before
-      // the contents do -- and a read in between got an empty string and failed this test with
-      // "Unexpected end of JSON input", once in a full run. The other creation journeys wait for
-      // the node instead, which the engine only reports after the write; this one cannot, because
-      // the node's id is read out of this file.
+      // Waited for as a WHOLE FILE, not as a name in a directory listing. The engine used to write
+      // it with os.WriteFile, which creates the file and then fills it, so the name appeared before
+      // the contents did -- and a read in between got an empty string and failed this test with
+      // "Unexpected end of JSON input", once in a full run. Saves are now renamed into place whole
+      // (cmd/featurelab/atomicwrite.go), but on Windows a save that finds the file held open falls
+      // back to writing in place, so the wait stays. The other creation journeys wait for the node
+      // instead, which the engine only reports after the write; this one cannot, because the
+      // node's id is read out of this file.
       const parsed = (): Record<string, Record<string, unknown>> | null => {
         try {
           return JSON.parse(j.read(created!)) as Record<string, Record<string, unknown>>
