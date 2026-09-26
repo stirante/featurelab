@@ -21,6 +21,13 @@ import { EngineProcess, type EngineNotification } from '../src/engineProcess.js'
 
 const FAKE_ENGINE = fileURLToPath(new URL('./fixtures/loadpack-fake-engine.mjs', import.meta.url))
 
+/** How long the fake engine may go silent before a request is given up on. Nothing in this file
+ * is about that timeout, so it is a ceiling for a hang and nothing more. It was 2 s, which is a
+ * claim about how fast a fresh Node process starts -- and on a machine running the rest of the
+ * suite beside it, the first loadPack sometimes took longer than that and failed a test about
+ * caching. */
+const REPLY_MS = 20_000
+
 let current: PreviewController | null = null
 afterEach(() => {
   current?.dispose()
@@ -70,15 +77,15 @@ describe('PreviewController', () => {
   it('loads a pack on the first generate() for a root', async () => {
     const ctl = makeController()
     current = ctl
-    const result = await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
+    const result = await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
     expect(result).toMatchObject({ echo: 'generate', params: { feature: 'f1' } })
   })
 
   it('does not re-issue loadPack for a second generate() against the SAME root', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
-    const second = await ctl.generate('/pack/a', { feature: 'f2' }, 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
+    const second = await ctl.generate('/pack/a', { feature: 'f2' }, REPLY_MS)
     expect(second).toMatchObject({ echo: 'generate', params: { feature: 'f2' } })
     // The fake engine's loadPack call counter is exposed via a dedicated method below.
     const loadCount = await requestLoadCount(ctl)
@@ -88,8 +95,8 @@ describe('PreviewController', () => {
   it('reloadPack() re-issues loadPack even when the root has not changed', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
-    await ctl.reloadPack('/pack/a', 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
+    await ctl.reloadPack('/pack/a', REPLY_MS)
     const loadCount = await requestLoadCount(ctl)
     expect(loadCount).toBe(2)
   })
@@ -102,7 +109,7 @@ describe('PreviewController', () => {
   it('coalesces two concurrent loads of the SAME root into one loadPack request', async () => {
     const ctl = makeController()
     current = ctl
-    const [a, b] = await Promise.all([ctl.generate('/pack/a', { feature: 'f1' }, 2000), ctl.generate('/pack/a', { feature: 'f2' }, 2000)])
+    const [a, b] = await Promise.all([ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS), ctl.generate('/pack/a', { feature: 'f2' }, REPLY_MS)])
     expect(a).toMatchObject({ echo: 'generate', params: { feature: 'f1' } })
     expect(b).toMatchObject({ echo: 'generate', params: { feature: 'f2' } })
     const loadCount = await requestLoadCount(ctl)
@@ -112,7 +119,7 @@ describe('PreviewController', () => {
   it('coalesces a reloadPack() racing an ensurePackLoaded() for the same root', async () => {
     const ctl = makeController()
     current = ctl
-    const [ensured, reloaded] = await Promise.all([ctl.ensurePackLoaded('/pack/a', 2000), ctl.reloadPack('/pack/a', 2000)])
+    const [ensured, reloaded] = await Promise.all([ctl.ensurePackLoaded('/pack/a', REPLY_MS), ctl.reloadPack('/pack/a', REPLY_MS)])
     // reloadPack rode the in-flight load; ensurePackLoaded initiated it, so IT carries the result.
     expect(ensured?.featureCount).toBe(1)
     expect(reloaded.featureCount).toBe(1)
@@ -123,8 +130,8 @@ describe('PreviewController', () => {
   it('loads a NEW pack when generate() is called against a different root', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
-    await ctl.generate('/pack/b', { feature: 'f2' }, 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
+    await ctl.generate('/pack/b', { feature: 'f2' }, REPLY_MS)
     const loadCount = await requestLoadCount(ctl)
     expect(loadCount).toBe(2)
   })
@@ -140,7 +147,7 @@ describe('PreviewController', () => {
       biomeTags: ['overworld', 'forest'],
       materials: { topMaterial: 'minecraft:diamond_block', seaFloorDepth: 5 },
     }
-    const result = await ctl.generate('/pack/a', params, 2000)
+    const result = await ctl.generate('/pack/a', params, REPLY_MS)
     expect(result).toMatchObject({ echo: 'generate', params })
   })
 
@@ -148,15 +155,15 @@ describe('PreviewController', () => {
     const ctl = makeController()
     current = ctl
     const params = { feature: 'test:root', env: 'void', origin: '0,0,0', size: '8x8x8' }
-    const result = await ctl.generateGrown('/pack/a', params, 2000)
+    const result = await ctl.generateGrown('/pack/a', params, REPLY_MS)
     expect(result).toMatchObject({ echo: 'generateGrown', params, grown: true, preGrowBounds: { minX: -4, minY: 0, minZ: -4, sizeX: 8, sizeY: 8, sizeZ: 8 } })
   })
 
   it('generateGrown() shares the same "load once per root" pack-loading policy as generate()', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
-    await ctl.generateGrown('/pack/a', { feature: 'f1' }, 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
+    await ctl.generateGrown('/pack/a', { feature: 'f1' }, REPLY_MS)
     const loadCount = await requestLoadCount(ctl)
     expect(loadCount).toBe(1) // second call reused the already-loaded pack for the SAME root
   })
@@ -171,8 +178,8 @@ describe('PreviewController', () => {
   it('reloadPackFile() re-reads only the saved file, without re-issuing loadPack', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
-    await ctl.reloadPackFile('/pack/a', '/pack/a/features/f1.json', 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
+    await ctl.reloadPackFile('/pack/a', '/pack/a/features/f1.json', REPLY_MS)
     const counts = await requestCounts(ctl)
     expect(counts.reloadFileCount).toBe(1)
     expect(counts.loadCount).toBe(1) // still just the original load
@@ -181,10 +188,10 @@ describe('PreviewController', () => {
   it('falls back to a full loadPack whenever the engine refuses the single-file update', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
     // The fixture refuses any path containing 'refuse', standing in for every reason the real
     // engine gives one (outside the pack, another pack's file, a kind it never loaded).
-    const result = await ctl.reloadPackFile('/pack/a', '/pack/a/refuse/me.json', 2000)
+    const result = await ctl.reloadPackFile('/pack/a', '/pack/a/refuse/me.json', REPLY_MS)
     // The caller gets a real LoadPackResult, not a rejection -- the fallback is the answer,
     // not an error to be handled again upstream.
     expect(result.featureCount).toBe(1)
@@ -196,18 +203,18 @@ describe('PreviewController', () => {
   it('a refused single-file reload still leaves the catalogues re-fetched, like the full load it became', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'x' }, 2000)
-    await ctl.reloadPackFile('/pack/a', '/pack/a/refuse/me.json', 2000)
-    const after = (await ctl.generate('/pack/a', { feature: 'x' }, 2000)) as { params: Record<string, unknown> }
+    await ctl.generate('/pack/a', { feature: 'x' }, REPLY_MS)
+    await ctl.reloadPackFile('/pack/a', '/pack/a/refuse/me.json', REPLY_MS)
+    const after = (await ctl.generate('/pack/a', { feature: 'x' }, REPLY_MS)) as { params: Record<string, unknown> }
     expect(after.params.omitCatalogs).toBeUndefined()
   })
 
   it('re-fetches the catalogues after a single-file reload, since the saved file may have added or removed a feature', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'x' }, 2000)
-    await ctl.reloadPackFile('/pack/a', '/pack/a/features/x.json', 2000)
-    const after = (await ctl.generate('/pack/a', { feature: 'x' }, 2000)) as { params: Record<string, unknown>; entries: unknown }
+    await ctl.generate('/pack/a', { feature: 'x' }, REPLY_MS)
+    await ctl.reloadPackFile('/pack/a', '/pack/a/features/x.json', REPLY_MS)
+    const after = (await ctl.generate('/pack/a', { feature: 'x' }, REPLY_MS)) as { params: Record<string, unknown>; entries: unknown }
     expect(after.params.omitCatalogs).toBeUndefined()
     expect(after.entries).toEqual([{ fileId: 'a.json', identifier: 'test:a', typeId: 'minecraft:single_block_feature' }])
   })
@@ -215,8 +222,8 @@ describe('PreviewController', () => {
   it('does a full load instead when the file belongs to a pack that is not the loaded one', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
-    await ctl.reloadPackFile('/pack/b', '/pack/b/features/f1.json', 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
+    await ctl.reloadPackFile('/pack/b', '/pack/b/features/f1.json', REPLY_MS)
     const counts = await requestCounts(ctl)
     expect(counts.reloadFileCount).toBe(0)
     expect(counts.loadCount).toBe(2)
@@ -227,7 +234,7 @@ describe('PreviewController', () => {
     current = ctl
     // No generate()/ensurePackLoaded() first -- the same state ensureEngine() leaves behind
     // after a crash, where the new process holds no pack at all.
-    await ctl.reloadPackFile('/pack/a', '/pack/a/features/f1.json', 2000)
+    await ctl.reloadPackFile('/pack/a', '/pack/a/features/f1.json', REPLY_MS)
     const counts = await requestCounts(ctl)
     expect(counts.reloadFileCount).toBe(0)
     expect(counts.loadCount).toBe(1)
@@ -238,7 +245,7 @@ describe('PreviewController', () => {
     current = ctl
     // Deliberately no generate()/loadPack() call before this -- see PreviewController.
     // listEnvironments's own doc comment: environments is pack-independent, static data.
-    const environments = await ctl.listEnvironments(2000)
+    const environments = await ctl.listEnvironments(REPLY_MS)
     expect(environments.map((e) => e.id)).toEqual(['plains', 'void'])
     const plains = environments.find((e) => e.id === 'plains')!
     expect(plains.defaults).toEqual({ sizeX: 32, sizeY: 48, sizeZ: 32, minY: 44 })
@@ -258,11 +265,11 @@ describe('PreviewController', () => {
   it('fetches the pack catalogues once and omits them from every later generate', async () => {
     const ctl = makeController()
     current = ctl
-    const first = (await ctl.generate('/pack', { feature: 'x' }, 2000)) as { params: Record<string, unknown>; entries: unknown }
+    const first = (await ctl.generate('/pack', { feature: 'x' }, REPLY_MS)) as { params: Record<string, unknown>; entries: unknown }
     expect(first.params.omitCatalogs).toBeUndefined()
     expect(first.entries).toEqual([{ fileId: 'a.json', identifier: 'test:a', typeId: 'minecraft:single_block_feature' }])
 
-    const second = (await ctl.generate('/pack', { feature: 'x' }, 2000)) as { params: Record<string, unknown>; entries: unknown; ruleEntries: unknown; biomeEntries: unknown }
+    const second = (await ctl.generate('/pack', { feature: 'x' }, REPLY_MS)) as { params: Record<string, unknown>; entries: unknown; ruleEntries: unknown; biomeEntries: unknown }
     expect(second.params.omitCatalogs).toBe(true)
     // ...and the caller still sees them, because the controller put its cached copy back.
     expect(second.entries).toEqual(first.entries)
@@ -273,25 +280,25 @@ describe('PreviewController', () => {
   it('re-fetches the catalogues after a reload, since that is when they can change', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack', { feature: 'x' }, 2000)
-    await ctl.reloadPack('/pack', 2000)
-    const afterReload = (await ctl.generate('/pack', { feature: 'x' }, 2000)) as { params: Record<string, unknown> }
+    await ctl.generate('/pack', { feature: 'x' }, REPLY_MS)
+    await ctl.reloadPack('/pack', REPLY_MS)
+    const afterReload = (await ctl.generate('/pack', { feature: 'x' }, REPLY_MS)) as { params: Record<string, unknown> }
     expect(afterReload.params.omitCatalogs).toBeUndefined()
   })
 
   it('re-fetches the catalogues when a different pack is loaded', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack-a', { feature: 'x' }, 2000)
-    const other = (await ctl.generate('/pack-b', { feature: 'x' }, 2000)) as { params: Record<string, unknown> }
+    await ctl.generate('/pack-a', { feature: 'x' }, REPLY_MS)
+    const other = (await ctl.generate('/pack-b', { feature: 'x' }, REPLY_MS)) as { params: Record<string, unknown> }
     expect(other.params.omitCatalogs).toBeUndefined()
   })
 
   it('shares the cache between generate() and generateGrown()', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack', { feature: 'x' }, 2000)
-    const grown = (await (ctl as unknown as { generateGrown(root: string, params: unknown, ms: number): Promise<unknown> }).generateGrown('/pack', { feature: 'x' }, 2000)) as {
+    await ctl.generate('/pack', { feature: 'x' }, REPLY_MS)
+    const grown = (await (ctl as unknown as { generateGrown(root: string, params: unknown, ms: number): Promise<unknown> }).generateGrown('/pack', { feature: 'x' }, REPLY_MS)) as {
       params: Record<string, unknown>
       entries: unknown
       grown: boolean
@@ -328,7 +335,7 @@ describe('progress notifications', () => {
     const ctl = makeController((note) => seen.push(note))
     current = ctl
 
-    const summary = await ctl.loadPackSummary('/pack/a', 2000)
+    const summary = await ctl.loadPackSummary('/pack/a', REPLY_MS)
 
     // The response is exactly what it always was -- the notification is an extra line in front
     // of it, not a change to it.
@@ -343,7 +350,7 @@ describe('progress notifications', () => {
     // change to a constructor half the extension uses.
     const ctl = makeController()
     current = ctl
-    await expect(ctl.loadPackSummary('/pack/a', 2000)).resolves.toMatchObject({ featureCount: 1 })
+    await expect(ctl.loadPackSummary('/pack/a', REPLY_MS)).resolves.toMatchObject({ featureCount: 1 })
   })
 })
 
@@ -366,11 +373,11 @@ describe('a disposed PreviewController', () => {
   it('refuses the next generate instead of restarting the old binary', async () => {
     const ctl = makeController()
     current = ctl
-    await ctl.generate('/pack/a', { feature: 'f1' }, 2000)
+    await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS)
 
     ctl.dispose()
 
-    await expect(ctl.generate('/pack/a', { feature: 'f2' }, 2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.generate('/pack/a', { feature: 'f2' }, REPLY_MS)).rejects.toThrow(EngineDisposedError)
     // And it did not quietly start one on the way to refusing.
     expect((ctl as unknown as { engine: EngineProcess | null }).engine).toBeNull()
   })
@@ -380,7 +387,7 @@ describe('a disposed PreviewController', () => {
     current = ctl
     ctl.dispose()
 
-    const err: Error = await ctl.generate('/pack/a', { feature: 'f1' }, 2000).then(
+    const err: Error = await ctl.generate('/pack/a', { feature: 'f1' }, REPLY_MS).then(
       () => new Error('the disposed controller answered instead of refusing'),
       (e: unknown) => e as Error,
     )
@@ -399,13 +406,13 @@ describe('a disposed PreviewController', () => {
     current = ctl
     ctl.dispose()
 
-    await expect(ctl.loadPackSummary('/pack/a', 2000)).rejects.toThrow(EngineDisposedError)
-    await expect(ctl.reloadPack('/pack/a', 2000)).rejects.toThrow(EngineDisposedError)
-    await expect(ctl.reloadPackFile('/pack/a', 'features/x.json', 2000)).rejects.toThrow(EngineDisposedError)
-    await expect(ctl.graph('/pack/a', 2000)).rejects.toThrow(EngineDisposedError)
-    await expect(ctl.listTypes(2000)).rejects.toThrow(EngineDisposedError)
-    await expect(ctl.loadAtlas(2000)).rejects.toThrow(EngineDisposedError)
-    await expect(ctl.listEnvironments(2000)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.loadPackSummary('/pack/a', REPLY_MS)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.reloadPack('/pack/a', REPLY_MS)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.reloadPackFile('/pack/a', 'features/x.json', REPLY_MS)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.graph('/pack/a', REPLY_MS)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.listTypes(REPLY_MS)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.loadAtlas(REPLY_MS)).rejects.toThrow(EngineDisposedError)
+    await expect(ctl.listEnvironments(REPLY_MS)).rejects.toThrow(EngineDisposedError)
   })
 
   it('says so before it is asked, so a holder can report it rather than wait to fail', async () => {
