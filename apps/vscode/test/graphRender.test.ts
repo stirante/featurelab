@@ -2141,11 +2141,20 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       const cameraBefore = await page.evaluate(() => (window as never as { view: { getCamera(): { x: number; y: number } } }).view.getCamera())
       const before = await cardAt(page, 'ex:agg')
 
+      // THE PAGE'S CLOCK IS HELD for the rest of this test. What is under test is a timer -- a
+      // burst is presses less than 300 ms apart, reported 300 ms after the last -- and with a real
+      // clock the test was racing it: four keypresses are eight CDP round trips, and on a busy
+      // machine those took longer than 300 ms, so the report fired between two presses (or before
+      // the "nothing yet" check) and the test failed saying the product reported too early. It
+      // did not; the keys were slow. Held, the timer fires exactly when the test moves time on,
+      // and the real keys still go through the real handler.
+      await page.clock.install()
+      await page.clock.pauseAt(Date.now() + 1_000)
       await page.keyboard.press('Alt+ArrowRight')
       await page.keyboard.press('Alt+ArrowRight')
       await page.keyboard.press('Alt+ArrowDown')
       await page.keyboard.press('Alt+Shift+ArrowDown')
-      await page.waitForTimeout(60)
+      await page.clock.runFor(60)
 
       const after = await cardAt(page, 'ex:agg')
       expect(after.x - before.x).toBeCloseTo(16, 3)
@@ -2156,7 +2165,7 @@ describe('graph render: real Chromium layout, interaction and theming', () => {
       // Nothing yet -- four presses are one gesture, and on the other end of a report is a file.
       expect(await movesReported(page)).toEqual([])
 
-      await page.waitForTimeout(450)
+      await page.clock.runFor(450)
       const reports = await movesReported(page)
       expect(reports).toHaveLength(1)
       expect(reports[0]).toHaveLength(1)
