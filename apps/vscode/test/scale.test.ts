@@ -1850,7 +1850,9 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
     const page = await harness.open()
     try {
       await postGraph(page)
-      const result = await page.evaluate((flushSource: string) => {
+      // Set up once, in the page; each timed action is then its OWN evaluate, so the main thread's
+      // CPU can be read either side of it (see cpuOf below).
+      const setup = await page.evaluate((flushSource: string) => {
         // eslint-disable-next-line no-new-func
         const force = new Function(`(${flushSource})()`) as () => void
         const root = document.querySelector('.flg-graph') as HTMLElement
@@ -1865,65 +1867,134 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
         })
         const view = (window as unknown as { __flgView: { setSelection: (s: null) => void; setHighlight: (ids: ReadonlySet<string> | null) => void } })
           .__flgView
-        const time = (act: () => void): number => {
-          const t = performance.now()
-          act()
-          force()
-          return performance.now() - t
-        }
-        const select: number[] = []
-        const clear: number[] = []
-        let quieted = 0
-        let focused = 0
-        const rounds = Math.min(6, onScreen.length)
-        for (let i = 0; i < rounds; i++) {
-          const box = onScreen[(i * 3) % onScreen.length]!
-          const rect = box.getBoundingClientRect()
-          select.push(
-            time(() => {
-              box.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 21, button: 0, clientX: rect.x + 4, clientY: rect.y + 4 }))
-              box.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 21, button: 0, clientX: rect.x + 4, clientY: rect.y + 4 }))
-              box.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-            }),
-          )
-          if (root.classList.contains('flg-has-focus')) focused++
-          quieted = Math.max(quieted, document.querySelectorAll('.flg-quiet').length)
-          clear.push(time(() => view.setSelection(null)))
-        }
         // A search is the other whole-canvas state change, and it hung off the same kind of root
         // class (`.flg-graph.flg-has-highlight .flg-node.flg-node-dim`).
         const ids: Set<string> = new Set(
           [...document.querySelectorAll('.flg-node')].slice(0, 12).map((n) => n.getAttribute('data-node-id') ?? ''),
         )
-        const highlight = time(() => view.setHighlight(ids))
-        const unhighlight = time(() => view.setHighlight(null))
-        // And the PRESS that starts a pan, which is the third whole-canvas state change and was
-        // the first of the three to be found: `flg-panning` on the root set an INHERITED `cursor`
-        // and recomputed every card to change the shape of the pointer.
-        const press = time(() => {
-          root.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 23, button: 1, buttons: 4, clientX: 800, clientY: 500 }))
-          root.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 23, buttons: 4, clientX: 812, clientY: 508 }))
-        })
-        root.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 23, button: 1, buttons: 0, clientX: 812, clientY: 508 }))
-        const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0
-        return {
-          cards: onScreen.length,
-          rounds,
-          focused,
-          quieted,
-          drawn: document.querySelectorAll('.flg-node:not(.flg-node-culled)').length,
-          exists: document.querySelectorAll('.flg-node').length,
-          selectMedian: median(select),
-          selectMax: Math.max(...select),
-          clearMedian: median(clear),
-          worst: Math.max(...select, ...clear, highlight, unhighlight, press),
-          highlight,
-          unhighlight,
-          press,
+        const acts: Record<string, (i: number) => void> = {
+          select: (i) => {
+            const box = onScreen[(i * 3) % onScreen.length]!
+            const rect = box.getBoundingClientRect()
+            box.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 21, button: 0, clientX: rect.x + 4, clientY: rect.y + 4 }))
+            box.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 21, button: 0, clientX: rect.x + 4, clientY: rect.y + 4 }))
+            box.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+          },
+          clear: () => view.setSelection(null),
+          highlight: () => view.setHighlight(ids),
+          unhighlight: () => view.setHighlight(null),
+          // And the PRESS that starts a pan, which is the third whole-canvas state change and was
+          // the first of the three to be found: `flg-panning` on the root set an INHERITED
+          // `cursor` and recomputed every card to change the shape of the pointer.
+          press: () => {
+            root.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 23, button: 1, buttons: 4, clientX: 800, clientY: 500 }))
+            root.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 23, buttons: 4, clientX: 812, clientY: 508 }))
+          },
         }
+        const state = {
+          // Returns the wall clock too, for the table; it is not what is asserted.
+          // Then waits out the frame that paints the change, so that frame's main-thread work is
+          // ALWAYS inside the CPU reading rather than inside it only when it happened to run
+          // before the counter was read -- which, for anything longer than a frame interval, it
+          // usually did. See cpuOf.
+          time: async (kind: string, i: number): Promise<number> => {
+            const t = performance.now()
+            acts[kind]!(i)
+            force()
+            const wall = performance.now() - t
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+            return wall
+          },
+          focused: 0,
+          quieted: 0,
+          tally: (): void => {
+            if (root.classList.contains('flg-has-focus')) state.focused++
+            state.quieted = Math.max(state.quieted, document.querySelectorAll('.flg-quiet').length)
+          },
+          release: (): void => {
+            root.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 23, button: 1, buttons: 0, clientX: 812, clientY: 508 }))
+          },
+        }
+        ;(window as unknown as { __stateChange: typeof state }).__stateChange = state
+        return { cards: onScreen.length, rounds: Math.min(6, onScreen.length) }
       }, forceStyleFlush.toString())
 
-      record('select a card (style flushed inside the window)', result.selectMedian)
+      // THE MAIN THREAD'S CPU for one action, from CDP in thread ticks -- the same reading
+      // postGraph and mainThreadCost take, for the same reason. This budget used to time each
+      // action with performance.now() inside one long evaluate, and its worst-of-six went to
+      // 312 ms against a ceiling of 250 in a full run with nothing changed: a click that is 35 ms
+      // of work, and a thread that was off its core for the rest. Each action is a separate
+      // evaluate so the counter can be read either side of it; the flush is still forced inside
+      // it, so the recalculation cannot land outside the reading (see forceStyleFlush).
+      //
+      // The reading includes the frame that paints the change, deliberately and every time (see
+      // `time` above), because a CDP read cannot be placed between the action and that frame and
+      // leaving it to chance made the number bimodal. That makes these numbers larger than the
+      // ones quoted below, which timed the action alone: a selection read ~72-79 ms of CPU with
+      // this file alone on a busy desktop, against 35 ms of action. So the budget is STRICTER
+      // than it was, not looser -- and the 250 ms ceiling, being "the perceptual ceiling a click
+      // has", is now measured up to the point the click can be seen.
+      const client = await page.context().newCDPSession(page)
+      await client.send('Performance.enable', { timeDomain: 'threadTicks' })
+      const busy = async (): Promise<number> => {
+        const { metrics } = await client.send('Performance.getMetrics')
+        return (metrics.find((m) => m.name === 'TaskDuration')?.value ?? 0) * 1000
+      }
+      const walls: Record<string, number[]> = {}
+      const cpuOf = async (kind: string, i = 0): Promise<number> => {
+        const before = await busy()
+        const wall = await page.evaluate(
+          ([k, n]) => (window as unknown as { __stateChange: { time(k: string, n: number): Promise<number> } }).__stateChange.time(k, n),
+          [kind, i] as const,
+        )
+        const cpu = (await busy()) - before
+        ;(walls[kind] ??= []).push(wall)
+        return cpu
+      }
+      const tally = (): Promise<void> => page.evaluate(() => (window as unknown as { __stateChange: { tally(): void } }).__stateChange.tally())
+      const select: number[] = []
+      const clear: number[] = []
+      let highlight: number
+      let unhighlight: number
+      let press: number
+      try {
+        for (let i = 0; i < setup.rounds; i++) {
+          select.push(await cpuOf('select', i))
+          await tally()
+          clear.push(await cpuOf('clear', i))
+        }
+        highlight = await cpuOf('highlight')
+        unhighlight = await cpuOf('unhighlight')
+        press = await cpuOf('press')
+      } finally {
+        await client.detach()
+      }
+      const counts = await page.evaluate(() => {
+        const state = (window as unknown as { __stateChange: { focused: number; quieted: number; release(): void } }).__stateChange
+        state.release()
+        return {
+          focused: state.focused,
+          quieted: state.quieted,
+          drawn: document.querySelectorAll('.flg-node:not(.flg-node-culled)').length,
+          exists: document.querySelectorAll('.flg-node').length,
+        }
+      })
+      const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0
+      const result = {
+        ...setup,
+        ...counts,
+        selectMedian: median(select),
+        selectMax: Math.max(...select),
+        clearMedian: median(clear),
+        worst: Math.max(...select, ...clear, highlight, unhighlight, press),
+        highlight,
+        unhighlight,
+        press,
+      }
+      record('select a card, wall clock (not asserted)', median(walls['select'] ?? []))
+      record('  ...worst of six, wall clock (not asserted)', Math.max(...(walls['select'] ?? [])))
+
+      record('select a card, main-thread CPU (style flushed inside the window)', result.selectMedian)
       record('  ...worst of six', result.selectMax)
       record('clear the selection', result.clearMedian)
       record('start a search highlight', result.highlight)
