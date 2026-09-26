@@ -91,14 +91,46 @@ function record(label: string, value: number, unit = 'ms'): number {
   return value
 }
 
-/** Median of `runs` timings, not the best or the mean: the best hides a cost that is paid most
- * of the time, and the mean is dragged around by whichever run collided with a GC. */
+/** Milliseconds of CPU THIS THREAD has spent, where Node can say (process.threadCpuUsage, Node
+ * 22.19 and later), and of wall clock where it cannot.
+ *
+ * WHY CPU AND NOT THE CLOCK. Every Node-side budget below is a claim about how much work a piece
+ * of host code does -- "autoLayout costs 55 ms" -- and a wall clock does not measure work, it
+ * measures work plus however long the operating system kept this thread off a core. On a quiet
+ * desktop those are the same number. With the rest of this suite beside it (eleven Chromiums, at
+ * the time) they were not: autoLayout of the whole pack read 414 ms and 345 ms in two full runs
+ * against ~55 ms alone, failing a 250 ms budget with the code unchanged, and the pipe test read
+ * 2.5 s and 4.1 s against ~200 ms. CPU time is what the budgets were always describing; it moves
+ * with the code and far less with the machine's other tenants. Less, not not at all: two threads
+ * sharing a core each run slower, so on a busy SMT machine CPU time reads above the idle figures
+ * quoted beside each budget -- autoLayout of the whole pack read 94-109 ms of CPU on a 12-thread
+ * desktop at full load, against the ~55 ms quoted for an idle one. The budgets' 3-5x covers that;
+ * it never covered the 7x the wall clock showed.
+ *
+ * Per THREAD rather than per process, because this file runs in a worker thread (see
+ * vitest.config.ts) and process.cpuUsage() would add in every other test file sharing the
+ * process. On Windows the counter ticks in ~15.6 ms steps, which is why nothing here is timed
+ * below about a hundred milliseconds per sample (packBoxes is timed in batches, see there).
+ *
+ * What it does NOT see: V8's concurrent GC threads, and a child process's own work. Neither is
+ * what these budgets are about -- the one child here is a stand-in engine, and the cost being
+ * measured is this side reassembling its reply. */
+const threadCpu = (process as unknown as { threadCpuUsage?: () => NodeJS.CpuUsage }).threadCpuUsage
+function cpuNow(): number {
+  if (threadCpu === undefined) return performance.now()
+  const used = threadCpu.call(process)
+  return (used.user + used.system) / 1000
+}
+
+/** Median of `runs` CPU timings (see cpuNow), not the best or the mean: the best hides a cost
+ * that is paid most of the time, and the mean is dragged around by whichever run collided with a
+ * GC. */
 function timeIt(runs: number, fn: () => void): number {
   const samples: number[] = []
   for (let i = 0; i < runs; i++) {
-    const t = performance.now()
+    const t = cpuNow()
     fn()
-    samples.push(performance.now() - t)
+    samples.push(cpuNow() - t)
   }
   samples.sort((a, b) => a - b)
   return samples[samples.length >> 1]!
@@ -485,13 +517,22 @@ describe('moving the document around', () => {
       // inside the measurement.
       await proc.request('graph', undefined, 60_000)
       const samples: number[] = []
+      const walls: number[] = []
       for (let i = 0; i < 3; i++) {
-        const t = performance.now()
+        const t = cpuNow()
+        const w = performance.now()
         const reply = (await proc.request('graph', undefined, 60_000)) as { nodes?: unknown[] }
-        samples.push(performance.now() - t)
+        samples.push(cpuNow() - t)
+        walls.push(performance.now() - w)
         expect(reply.nodes).toHaveLength(PACK_SHAPE.nodes)
       }
       samples.sort((a, b) => a - b)
+      walls.sort((a, b) => a - b)
+      // The host's CPU across the round trip is the budget: this thread reads the pipe,
+      // reassembles the line and parses it, and that is the time the extension host is blocked.
+      // The wall clock is printed beside it, not asserted -- it adds the child's own writing and
+      // any time this thread spent waiting for a core.
+      record('engine reply over a real pipe: wall clock (not asserted)', walls[1]!)
       const ms = record('engine reply over a real pipe', samples[1]!)
       // Measured ~200 ms, of which JSON.parse is 15. The rest is EngineProcess.handleStdout
       // reassembling the line, and it is QUADRATIC in the number of chunks the pipe delivers --
@@ -836,7 +877,18 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
 
   /** Posts the graph exactly as graphPanel.ts does and waits until the cards are in the DOM.
    * Returns the split: how long the message took to be delivered and handled, and how long until
-   * the browser had actually painted a frame containing cards.
+   * the browser had actually painted a frame containing cards -- each twice, as the page's
+   * MAIN-THREAD CPU (`handledCpu`, `paintedCpu`, the numbers the budgets assert) and as wall clock
+   * (`handled`, `painted`, printed for comparison).
+   *
+   * WHY CPU. The wall clock here counts the time the renderer's main thread spent waiting for a
+   * core, and in a full run it waited a lot: the first render read 7.4 s and 6.4 s in two runs
+   * against ~1 s alone, the refresh 4.0 s and 5.1 s, with nothing in the code different. The CPU
+   * the main thread spent is the work the code caused, which is the thing a budget can hold the
+   * code to -- and it is what this file's header says every budget here is set on. It comes from
+   * CDP's Performance domain in thread ticks: measured over a 300M-iteration loop it read 235 ms
+   * idle and 246 ms with 24 busy processes beside it, where the wall clock went from 270 to 430.
+   * Rasterisation happens off the main thread and is in neither number (see caveat 1 above).
    *
    * `nodes` is how many cards the view HOLDS and `drawn` is how many are in the document. The two
    * used to be the same number and are now two orders of magnitude apart, which is the point: the
@@ -844,33 +896,50 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
    * on screen" and says nothing about whether the pack arrived. Both are asserted below, because a
    * cull that dropped a card it should have kept and a render that lost one look identical if you
    * only count one of them. */
-  async function postGraph(page: Page): Promise<{ handled: number; painted: number; nodes: number; drawn: number }> {
-    return page.evaluate(async () => {
-      const w = window as unknown as { __graph: unknown; __positions: unknown; __handled: number }
-      w.__handled = 0
-      const start = performance.now()
-      window.postMessage({ type: 'graph', graph: w.__graph, positions: w.__positions }, '*')
-      await new Promise<void>((resolve) => {
-        const poll = (): void => (w.__handled > 0 ? resolve() : void setTimeout(poll, 0))
-        poll()
+  async function postGraph(
+    page: Page,
+  ): Promise<{ handled: number; painted: number; handledCpu: number; paintedCpu: number; nodes: number; drawn: number }> {
+    const client = await page.context().newCDPSession(page)
+    await client.send('Performance.enable', { timeDomain: 'threadTicks' })
+    const busy = async (): Promise<number> => {
+      const { metrics } = await client.send('Performance.getMetrics')
+      return (metrics.find((m) => m.name === 'TaskDuration')?.value ?? 0) * 1000
+    }
+    try {
+      const before = await busy()
+      const handled = await page.evaluate(async () => {
+        const w = window as unknown as { __graph: unknown; __positions: unknown; __handled: number; __posted: number }
+        w.__handled = 0
+        w.__posted = performance.now()
+        window.postMessage({ type: 'graph', graph: w.__graph, positions: w.__positions }, '*')
+        await new Promise<void>((resolve) => {
+          const poll = (): void => (w.__handled > 0 ? resolve() : void setTimeout(poll, 0))
+          poll()
+        })
+        return w.__handled - w.__posted
       })
-      const handled = w.__handled - start
-      // Two frames: the first is scheduled during the handler, the second cannot run until the
-      // browser has produced a frame, so its timestamp is after paint.
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-      const stats = (window as unknown as { __flgView: { getRenderStats(): { nodes: number } } }).__flgView.getRenderStats()
-      // `:not(.flg-node-culled)` is the count that means "on screen". Every card stays in the
-      // document -- `.flg-node[data-node-id]` is a contract the host and these tests rely on, and
-      // absence has to keep meaning deletion -- so a culled card is marked rather than removed,
-      // and the browser skips style, layout and paint for its whole subtree. See render.ts's
-      // cull().
-      return {
-        handled,
-        painted: performance.now() - start,
-        nodes: stats.nodes,
-        drawn: document.querySelectorAll('.flg-node:not(.flg-node-culled)').length,
-      }
-    })
+      const afterHandled = await busy()
+      const rest = await page.evaluate(async () => {
+        // Two frames: the first is scheduled during the handler, the second cannot run until the
+        // browser has produced a frame, so its timestamp is after paint.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+        const stats = (window as unknown as { __flgView: { getRenderStats(): { nodes: number } } }).__flgView.getRenderStats()
+        // `:not(.flg-node-culled)` is the count that means "on screen". Every card stays in the
+        // document -- `.flg-node[data-node-id]` is a contract the host and these tests rely on,
+        // and absence has to keep meaning deletion -- so a culled card is marked rather than
+        // removed, and the browser skips style, layout and paint for its whole subtree. See
+        // render.ts's cull().
+        return {
+          painted: performance.now() - (window as unknown as { __posted: number }).__posted,
+          nodes: stats.nodes,
+          drawn: document.querySelectorAll('.flg-node:not(.flg-node-culled)').length,
+        }
+      })
+      const afterPainted = await busy()
+      return { handled, handledCpu: afterHandled - before, paintedCpu: afterPainted - before, ...rest }
+    } finally {
+      await client.detach()
+    }
   }
 
   /** Script / style / layout time the browser itself attributes to a gesture, from CDP's own
@@ -946,8 +1015,10 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
     try {
       const first = await postGraph(page)
       expect(first.nodes).toBe(PACK_SHAPE.nodes)
-      record('first render: message handled', first.handled)
-      record('first render: painted', first.painted)
+      record('first render: message handled, main-thread CPU', first.handledCpu)
+      record('first render: painted, main-thread CPU', first.paintedCpu)
+      record('first render: message handled, wall clock (not asserted)', first.handled)
+      record('first render: painted, wall clock (not asserted)', first.painted)
       record('cards held', first.nodes, 'cards')
       record('cards actually rendered', first.drawn, 'cards')
       record('elements under the canvas', await page.evaluate(() => document.querySelectorAll('.flg-graph *').length), 'elements')
@@ -971,8 +1042,11 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
       // open a 3531-node editor is a price worth paying once; the same second on every save is
       // not, which is what the refresh test below is really about. The budget is set where the
       // wait stops reading as "it is working" and starts reading as "it has hung".
-      expect(first.handled).toBeLessThan(3000)
-      expect(first.painted).toBeLessThan(4000)
+      //
+      // Asserted on main-thread CPU, not on the wall clock -- see postGraph for why, and for what
+      // that leaves out. The thresholds did not move: on a quiet machine the two agree.
+      expect(first.handledCpu).toBeLessThan(3000)
+      expect(first.paintedCpu).toBeLessThan(4000)
       const problems = (page as unknown as { __problems: string[] }).__problems
       expect(problems).toEqual([])
     } finally {
@@ -985,15 +1059,22 @@ describe('graph editor at 3531 nodes, in Chromium, under the real CSP', () => {
     try {
       await postGraph(page)
       const second = await postGraph(page)
-      record('refresh: message handled', second.handled)
-      record('refresh: painted', second.painted)
+      record('refresh: message handled, main-thread CPU', second.handledCpu)
+      record('refresh: painted, main-thread CPU', second.paintedCpu)
+      record('refresh: message handled, wall clock (not asserted)', second.handled)
+      record('refresh: painted, wall clock (not asserted)', second.painted)
       // Measured ~0.3 s to handle, ~0.9 s to paint -- cheaper than the first render because the
       // camera is already framed, but a full teardown and rebuild of 3531 cards and 4580 edges
       // all the same. This happens on EVERY FILE SAVE, so the budget is tighter than the first
       // render's: 1.5 s handled (~5x measured, wide because the measurement is noisy) and 3 s to
       // paint. See the findings note on render(): nothing here is incremental.
-      expect(second.handled).toBeLessThan(1500)
-      expect(second.painted).toBeLessThan(3000)
+      // Main-thread CPU, as for the first render. AN OPEN FINDING, NOT A REASON TO WIDEN: the
+      // handling now reads ~0.97 s of CPU with this file alone on a busy desktop and ~1.2 s beside
+      // the rest of the suite -- well above the ~0.3 s quoted above, and inside 1.3x of the budget.
+      // Something other than the clock has spent the headroom this budget was written with; find
+      // out what before touching the number.
+      expect(second.handledCpu).toBeLessThan(1500)
+      expect(second.paintedCpu).toBeLessThan(3000)
     } finally {
       await page.close()
     }
