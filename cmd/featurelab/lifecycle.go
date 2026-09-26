@@ -677,7 +677,7 @@ func (s *packFileSet) commit() ([]string, error) {
 	}
 	written := make([]string, 0, len(planned))
 	for _, p := range planned {
-		if err := os.WriteFile(p.f.full, p.out, 0o644); err != nil {
+		if err := writeFileAtomic(p.f.full, p.out, 0o644); err != nil {
 			return nil, fmt.Errorf("writing %s: %v (wrote %v first)", p.f.rel, err, written)
 		}
 		written = append(written, p.f.rel)
