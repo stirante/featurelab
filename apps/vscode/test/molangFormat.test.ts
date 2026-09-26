@@ -51,7 +51,7 @@ const ATOMS = [
   'query.heightmap(v.originx, v.originz)',
   "query.has_biome_tag('minecraft:forest')",
   // A tag with a space in it, which is the whole reason string literals are copied verbatim.
-  "query.any_tag('warm ocean', 'deep warm ocean')",
+  "query.has_any_biome_tags('warm ocean', 'deep warm ocean')",
   'math.random_integer(0, 3)',
   'math.clamp(v.originy, 0, 64)',
   'math.mod(v.originx, 32) == 0',
@@ -166,7 +166,7 @@ describe('the properties that make a corrupted expression unreachable', () => {
     // still compile and still evaluate, to the wrong answer.
     const tags = ["'minecraft:forest'", "'warm ocean'", "'  leading and trailing  '", "'a,b,c'", "'x = y'", "'1 + 1'"]
     for (const tag of tags) {
-      for (const source of [`query.any_tag(${tag})`, `v.x = ${tag} == ${tag};`, `query.has_biome_tag(${tag}, 1, 2, 3)`]) {
+      for (const source of [`query.has_any_biome_tags(${tag})`, `v.x = ${tag} == ${tag};`, `query.has_biome_tag(${tag}, 1, 2, 3)`]) {
         expect(formatMolang(source)).toContain(tag)
         expect(minifyMolang(source)).toContain(tag)
       }
@@ -272,8 +272,8 @@ describe('the scanner', () => {
   })
 
   it('reads a string as one token, quotes included, however it is spelled inside', () => {
-    expect(tokenizeMolang("q.any_tag('a b, c')")?.map((t) => t.text)).toEqual([
-      'q.any_tag',
+    expect(tokenizeMolang("q.has_any_biome_tags('a b, c')")?.map((t) => t.text)).toEqual([
+      'q.has_any_biome_tags',
       '(',
       "'a b, c'",
       ')',
@@ -296,7 +296,7 @@ describe('the scanner', () => {
   it('keeps going in lenient mode, which is what the highlighter needs', () => {
     // Everything a field holds between one keystroke and the next has to come back as SOMETHING,
     // or the colour blinks off while the author types.
-    for (const halfTyped of ['v.', "q.any_tag('for", 'math.max(1,', '1e']) {
+    for (const halfTyped of ['v.', "q.has_any_biome_tags('for", 'math.max(1,', '1e']) {
       const tokens = tokenizeMolang(halfTyped, { lenient: true })
       expect(tokens, halfTyped).not.toBeNull()
       expect(tokens!.map((t) => t.text).join('')).toBe(halfTyped.replace(/\s/g, ''))
@@ -304,7 +304,7 @@ describe('the scanner', () => {
   })
 
   it('reports offsets into the ORIGINAL text, so a highlighter can lay spans over it', () => {
-    const source = "  v.x = q.any_tag('a')  "
+    const source = "  v.x = q.has_any_biome_tags('a')  "
     for (const token of tokenizeMolang(source) ?? []) {
       expect(source.slice(token.offset, token.offset + token.text.length)).toBe(token.text)
     }

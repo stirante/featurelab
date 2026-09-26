@@ -233,7 +233,7 @@ describe('highlighting', () => {
   })
 
   it('treats a string as one span, whatever is inside it', () => {
-    const source = "query.any_tag('a + b, c = d')"
+    const source = "query.has_any_biome_tags('a + b, c = d')"
     const span = highlightMolang(source, { field: 'condition' }).find((s) => s.kind === 'string')
     expect(source.slice(span!.offset, span!.offset + span!.length)).toBe("'a + b, c = d'")
   })
@@ -251,7 +251,7 @@ describe('highlighting', () => {
   it('keeps colouring text that is only half typed', () => {
     // Every keystroke leaves the field in a state like these, and a highlighter that blanked on
     // them would flicker the colour off under the author's hands.
-    for (const halfTyped of ['q.', 'query.nois', "q.any_tag('for", 'v.x = ']) {
+    for (const halfTyped of ['q.', 'query.nois', "q.has_any_biome_tags('for", 'v.x = ']) {
       expect(highlightMolang(halfTyped, { field: 'iterations' }).length, halfTyped).toBeGreaterThan(0)
     }
     expect(kindOf('query.nois', 'query.nois')).toBe('query-unknown')
