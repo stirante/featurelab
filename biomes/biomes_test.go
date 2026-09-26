@@ -1,7 +1,7 @@
 // biomes_test.go covers BuildLibrary parsing and adds one integration check
 // for the tags->wgen.MolangBiome join point described in biomes.go's header.
-// query.has_biome_tag/any_tag/all_tags evaluation itself is already covered
-// by featurelab-go's existing wgen/molang-go tests, so it is not re-tested
+// query.has_biome_tag/has_any_biome_tags/has_all_biome_tags evaluation itself
+// is already covered by featurelab-go's existing wgen/molang-go tests, so it is not re-tested
 // wholesale here.
 package biomes
 

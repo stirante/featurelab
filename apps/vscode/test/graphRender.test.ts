@@ -126,7 +126,7 @@ function kitchenSinkGraph(): GraphWire {
     // The distinction the contract preserves by keeping Condition nil: no condition written...
     edge({ from: 'ex:cond', to: 'ex:ore', kind: 'conditional', ordinal: 0 }),
     // ...versus a condition that was.
-    edge({ from: 'ex:cond', to: 'ex:legacy', kind: 'conditional', ordinal: 1, condition: 'query.get_biome_has_any_tag("swamp") && variable.wet > 0.5' }),
+    edge({ from: 'ex:cond', to: 'ex:legacy', kind: 'conditional', ordinal: 1, condition: 'query.has_any_biome_tags("swamp") && variable.wet > 0.5' }),
 
     // Real paths on the two single-slot parents, because the connection gesture matches an
     // existing delegation to the slot it fills by reading the KEY out of the path -- a synthetic
@@ -281,8 +281,8 @@ describe('describeEdge: each edge kind says what it means, and no two say it the
   })
 
   it('a long Molang condition is elided in the MIDDLE, so two conditions sharing a prefix stay distinguishable', () => {
-    const a = edge({ from: 'n', to: 'x', kind: 'conditional', condition: 'query.get_biome_has_any_tag("swamp_and_more") && variable.a > 1' })
-    const b = edge({ from: 'n', to: 'y', kind: 'conditional', ordinal: 1, condition: 'query.get_biome_has_any_tag("swamp_and_more") && variable.b > 9' })
+    const a = edge({ from: 'n', to: 'x', kind: 'conditional', condition: 'query.has_any_biome_tags("swamp_and_more") && variable.a > 1' })
+    const b = edge({ from: 'n', to: 'y', kind: 'conditional', ordinal: 1, condition: 'query.has_any_biome_tags("swamp_and_more") && variable.b > 9' })
     const idx = buildSiblingIndex([a, b])
     const la = describeEdge(a, siblingsFor(idx, a)).label
     const lb = describeEdge(b, siblingsFor(idx, b)).label

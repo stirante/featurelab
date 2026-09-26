@@ -388,7 +388,7 @@ function makeEdge(parent: Built, child: Built, ordinal: number, random: () => nu
   // present would never exercise the defaulted path.
   if (kind === 'weighted' && random() < 0.78) edge.weight = 1 + Math.floor(random() * 9)
   if (kind === 'conditional' && random() < 0.65) {
-    edge.condition = `query.get_biome_has_any_tag('${pick(random, BIOME_TAGS)}') && variable.density > ${(random() * 0.9).toFixed(2)}`
+    edge.condition = `query.has_any_biome_tags('${pick(random, BIOME_TAGS)}') && variable.density > ${(random() * 0.9).toFixed(2)}`
   }
   if (kind === 'scatter') {
     edge.iterations = random() < 0.5 ? String(1 + Math.floor(random() * 96)) : `math.random_integer(1, ${2 + Math.floor(random() * 12)})`

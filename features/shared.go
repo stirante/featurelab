@@ -781,13 +781,13 @@ func resolveMatchSet(descs []block.Descriptor, ctx *BuildContext, field string, 
 	}, func(queryName string) {
 		ctx.Warn(fmt.Sprintf(
 			"%s (%s): this list calls query.%s, which is not a query a block predicate can answer. "+
-				"THE REAL GAME REFUSES THE WHOLE FILE over this: an unknown query name is rejected when "+
-				"the expression is tokenised, with \"Failed to resolve query %s. Either the query does "+
-				"not exist or it is not supported in this context.\" -- it never reaches evaluation at "+
-				"all. This tool is more forgiving: the name reads as 0, so the expression is simply "+
-				"false for every block and this entry matches nothing. Only query.any_tag and "+
-				"query.all_tags are available in a block predicate; check the spelling (q.any_tags is "+
-				"one letter from q.any_tag and parses fine)",
+				"In the real game an unknown query name is rejected when the expression is tokenised, "+
+				"with \"Failed to resolve query %s.  Either the query does not exist or it is not "+
+				"supported in this context.\" in the content log; what the game then does with this "+
+				"entry (drop it, drop the list, or refuse the file) is not known. This tool reads the "+
+				"name as 0, so the expression is simply false for every block and this entry matches "+
+				"nothing. Only query.any_tag and query.all_tags are available in a block predicate; "+
+				"check the spelling (q.any_tags is one letter from q.any_tag)",
 			ctx.Identifier, field, queryName, queryName))
 	}, func(expr string) {
 		// A predicate that draws is legal Molang, and before this it crashed the process: the
@@ -821,7 +821,7 @@ func resolveMatchSet(descs []block.Descriptor, ctx *BuildContext, field string, 
 			"%s (%s): every entry in this list is a Molang expression this tool could not parse or "+
 				"compile, so the list matches NOTHING and this feature will place nothing. Check the "+
 				"expression's syntax and its query names -- a misspelled query (q.any_tags instead of "+
-				"q.any_tag, say) parses fine and then evaluates to 0 forever.",
+				"q.any_tag, say) parses fine in this tool and then evaluates to 0 forever.",
 			ctx.Identifier, field))
 	}
 	// A read of a variable a block predicate has nowhere to read from. The engine

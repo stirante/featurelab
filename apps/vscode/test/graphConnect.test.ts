@@ -578,7 +578,7 @@ describe('a conditional list ASKS for a condition, and keeps "none" different fr
   })
 
   it('writes the expression exactly as given for a real condition', () => {
-    const expression = 'query.get_biome_has_any_tag(\'swamp\')'
+    const expression = 'query.has_any_biome_tags(\'swamp\')'
     const graph = graphOf(
       [list, LEAF, LEAF_TWO],
       [
