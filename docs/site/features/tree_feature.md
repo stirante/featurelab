@@ -136,7 +136,7 @@ Two more pairings that surprise people, for different reasons. A **`cherry_trunk
 | *one canopy key* | yes, except on `fallen_trunk` and `cherry_trunk` | one of the twelve above | — | [The table above](#the-twelve-canopy-keys). Exactly one. A cherry tree grows it at every branch tip, and without one it is logs only. |
 | `base_block` | no | block descriptor, or an array of them | absent — no fixup | The cell under the trunk is converted to this list's first entry if it does not already match. An absent or empty list means no fixup at all. |
 | `may_grow_on` | no | array of block descriptors | absent — no restriction | The ground the trunk will accept. If the cell below does not match, the tree fails outright. |
-| `may_replace` | no | array of block descriptors | absent — no restriction | The cells a log or a leaf may overwrite. This is the gate on every trunk cell at or above the origin, and on every canopy cell. |
+| `may_replace` | no | array of block descriptors | absent — no restriction | The cells a log or a leaf may overwrite. This is the gate on every trunk cell at or above the origin, and on the cells of most canopies. `canopy` and `spruce_canopy` do not read it: they write into air, leaves and vines only, whatever the list says. `roofed_canopy` writes into air only. |
 | `may_grow_through` | no | array of block descriptors | absent — no restriction | The cells the trunk may pass through **below** its own origin. Only the plain [`trunk`](#the-plain-column-trunk) ever has cells below its origin, and only when `can_be_submerged` is set — everywhere else this key is read, accepted and never consulted. See [what the bench does differently](#what-the-bench-does-differently). |
 | `base_cluster` | no | object — the next table | absent — no patch | A ground-level patch of replaced blocks. Read by `mega_trunk` and nothing else. |
 | `mangrove_roots` | no | object — the table below | absent — no roots | The aerial-root pass. It is a **sibling of the trunk key, not part of `mangrove_trunk`**, and it runs for every trunk shape — see [`mangrove_roots` decides where the trunk starts](#mangrove-roots-pass). |
@@ -327,7 +327,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | `variation_chance` | no | a percent, a `{numerator, denominator}`, or an **array with exactly one entry per layer** | absent — no corner removed | The chance to leave out each of a layer's four corners, which is what rounds the square off. An array is ordered from `canopy_offset.min` upward, and one of the wrong length is refused. See [the corner rule](#the-step-pyramid-canopy). |
 | `canopy_decoration` | no | object — the next rows | absent — nothing hangs | Hangs a run of blocks off the crown. |
 | `canopy_decoration.decoration_block` | **yes** | block descriptor | — | What hangs. |
-| `canopy_decoration.decoration_chance` | **yes** | percent, or `{numerator, denominator}` | — | Rolled once per horizontal neighbour of every leaf placed. |
+| `canopy_decoration.decoration_chance` | **yes** | percent, or `{numerator, denominator}` | — | Rolled once per horizontal neighbour of every leaf in the finished crown. |
 | `canopy_decoration.num_steps` | **yes** | range — maximum **inclusive** | — | How many cells a run is. Unlike `trunk_decoration`'s `num_steps`, this one **is** read. The run stops at the first cell that is not air. |
 | `canopy_decoration.step_direction` | **yes** | `down` | — | Which way the run grows. Only `down` is accepted — see [what the bench does differently](#what-the-bench-does-differently). |
 
@@ -491,7 +491,9 @@ Read as a fraction, `canopy_slope` is **run over rise**, not rise over run: `run
 The corner test is **not** guarded against a radius of 0. On a one-cell layer, `|dx|` and `|dz|` are both zero and both equal the radius, so that single cell *is* a corner and gets rolled — and a chance that always succeeds deletes the layer outright. Vanilla's own oaks end their `variation_chance` array with `{ "numerator": 1, "denominator": 1 }` on exactly that layer, so the crown is capped by the square below it rather than by one leaf poking out of the top. The plain-trunk example above does the same: its top layer is gone, which is why its leaves stop one cell below where the geometry would put them.
 :::
 
-`canopy_decoration` hangs a block off the crown. Each leaf the canopy places rolls `decoration_chance` once per horizontal neighbour; a successful roll on a neighbour that is air takes `num_steps` (inclusive of its maximum) and writes that many cells straight **down** from it, stopping at the first cell that is not air. It is how vanilla's swamp oak gets its hanging vines.
+The leaves go into air, into other leaves and into vines, and nowhere else. `may_replace` is not asked at all, so listing water or stone there does not let this crown overwrite them. Vines are the case that shows: `trunk_decoration` hangs its vines on the logs before the crown is built, and the crown then covers the ones beside the logs inside it, so a vine-hung trunk only shows vines below its leaves.
+
+`canopy_decoration` hangs a block off the crown once the whole crown is built. Every leaf block in the canopy's layers, including a matching leaf that was there before the tree, rolls `decoration_chance` once per horizontal neighbour; a successful roll on a neighbour that is air takes `num_steps` (inclusive of its maximum) and writes that many cells straight **down** from it, stopping at the first cell that is not air. It is how vanilla's swamp oak gets its hanging vines.
 
 ### `canopy_offset` is not a range {#canopy-offset-is-not-a-range}
 

@@ -128,16 +128,22 @@
 // `canopy_decoration` gates a second block behind its own chance-value
 // validity check. Its absence is equivalent to a zeroed/invalid chance value
 // (same as the acacia trunk's decoration), so the unconfigured case is
-// unaffected.
+// unaffected. It is a SEPARATE pass that runs after every leaf layer is down:
+// it re-walks the canopy volume (layer dy from min to max, radius
+// slopeAt(max-dy) + min_width, x then z) and decorates every cell that
+// matches leaf_block -- including matching leaves that were there before the
+// tree. So every variation_chance roll comes before the first decoration
+// roll, and a hanging run never takes a cell a later leaf layer would fill.
 //
-// Leaf-placement gate: the simple canopy's gate is
-// `materialType(existing) == 8 && <a second world check> ||
-// materialType(existing) == 0 || materialType(existing) == 7` -- raw
-// material-type codes, NOT a `passesAllowList(may_replace)` call the way the
-// acacia/pine canopies do. This codebase has no material-type-code registry
-// (see isValidTreePosition's field-mapping note), so this port uses the same
-// approximation everywhere: `passesAllowList(may_replace) OR
-// api.Palette().IsAir(existing)`.
+// Leaf-placement gate: the simple canopy's gate is a material test -- the
+// cell is air, OR leaves, OR a plant that can be built over -- NOT a
+// `passesAllowList(may_replace)` call the way the acacia/pine canopies do;
+// may_replace is not consulted at all. This codebase has no material
+// registry, so canopyLeafReplaceable names the blocks: air, any vanilla
+// leaves block, and vine. Vine is the case that matters: the trunk's own
+// trunk_decoration hangs vines on every log before the canopy runs, and the
+// crown overwrites the ones inside it. Water is refused, so a crown does not
+// replace water even when may_replace lists it.
 //
 // ---- The fancy canopy (`fancy_canopy` key) ----
 //
@@ -167,7 +173,7 @@
 // widened). For dx,dz in -r..r (inclusive at both ends, same loop pattern as
 // acacia/pine), place iff (|dx|+0.5)^2 + (|dz|+0.5)^2 <= r*r AND
 // passesAllowList(existing, may_replace) -- the same allow-list check the
-// acacia/pine canopies use (not the simple canopy's OR-air approximation).
+// acacia/pine canopies use (not the simple canopy's material gate).
 // Placement is a plain SetBlock with flag=3, spending zero RNG.
 //
 // r<0 (only reachable if radius==0) is a malformed range (begin exceeds
@@ -261,10 +267,9 @@
 //	    if dy == n { break }
 //	}
 //
-// The leaf gate inside the ring is the SAME raw material-type shape as the
-// simple canopy's (type 8 plus the second world check, or type 0, or type
-// 7), approximated the same way: `passesAllowList(existing, may_replace) OR
-// api.Palette().IsAir(existing)`. The ground search's gate, by contrast, is
+// The leaf gate inside the ring is the SAME material test as the simple
+// canopy's (air, leaves, or a plant that can be built over -- see
+// canopyLeafReplaceable), with no may_replace term. The ground search's gate, by contrast, is
 // a plain allow-list check on (api, pos, may_replace) with no OR-air
 // fallback -- an out-of-bounds/unloaded read that happens to look like air
 // must NOT count as "found ground".
@@ -688,11 +693,10 @@
 //	}
 //
 // Leaf-placement gate (identical at every placement in this canopy): the
-// existing block's material type must be 0 (air), alone -- unlike the simple,
-// spruce and random-spread canopies' 3-code OR-chain (0, 7, 8, plus an extra
-// world check) that this file approximates as `passesAllowList(may_replace)
-// OR api.Palette().IsAir(existing)`. The roofed canopy's gate has no
-// may_replace term and no codes 7/8, so this port applies
+// existing block's material type must be 0 (air), alone -- unlike the simple
+// and spruce canopies' 3-way test (air, leaves, or a plant that can be built
+// over; see canopyLeafReplaceable). The roofed canopy's gate has no
+// may_replace term and no leaves/plant terms, so this port applies
 // `api.Palette().IsAir(existing)` alone. An unresolvable leaf_block is
 // refused at build time via ctx.Palette.Resolve, like every other canopy.
 //
@@ -1370,6 +1374,27 @@ type canopyDecoration struct {
 	stepsMin int
 	stepsMax int
 	pal      *block.Palette
+	// leafMatch is the canopy's leaf_block as a match set: the decoration
+	// pass decorates every cell of the canopy volume it matches.
+	leafMatch block.MatchSet
+}
+
+// canopyLeafReplaceable is the simple and spruce canopies' leaf gate: the
+// cell is air, leaves, or a plant that can be built over. With no material
+// registry to ask, the plant half is vine alone (see the file header).
+// may_replace plays no part.
+func canopyLeafReplaceable(pal wgen.IPaletteView, id block.ID) bool {
+	if pal.IsAir(id) {
+		return true
+	}
+	name := pal.NameOf(id)
+	if !strings.Contains(name, ":") {
+		name = "minecraft:" + name
+	}
+	if name == "minecraft:vine" {
+		return true
+	}
+	return strings.HasPrefix(name, "minecraft:") && strings.Contains(name, "leaves")
 }
 
 func (d *canopyDecoration) place(api wgen.BlockWorld, leaf wgen.BlockPos, rnd random.IRandom) {
@@ -1413,19 +1438,13 @@ func (c *simpleCanopy) slopeAt(dy int) int {
 	return int(float32(int32(c.run)*int32(dy)) * invRise)
 }
 
-func (c *simpleCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd random.IRandom, params treeParamsLists, _ []wgen.BlockPos) {
+func (c *simpleCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd random.IRandom, _ treeParamsLists, _ []wgen.BlockPos) {
 	tryPlace := func(x, y, z int) {
 		p := wgen.BlockPos{X: x, Y: y, Z: z}
-		existing := api.GetBlock(p)
-		// Leaf gate: the simple canopy's material-type check has no
-		// material-code registry in this codebase -- reuses
-		// isValidTreePosition's approximation (may_replace, OR the palette's
-		// own IsAir) rather than inventing a new one. See the file header.
-		if passesAllowList(existing, params.mayReplace) || api.Palette().IsAir(existing) {
+		// Leaf gate: air, leaves or vine -- may_replace is not consulted. See
+		// the file header.
+		if canopyLeafReplaceable(api.Palette(), api.GetBlock(p)) {
 			api.SetBlock(p, c.leafID)
-			if c.decoration != nil {
-				c.decoration.place(api, p, rnd)
-			}
 		}
 	}
 
@@ -1443,6 +1462,25 @@ func (c *simpleCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd rand
 					continue
 				}
 				tryPlace(x, y, z)
+			}
+		}
+	}
+
+	// canopy_decoration: a second pass over the whole canopy volume, after
+	// every leaf is down. See the file header.
+	if c.decoration == nil || !c.decoration.chance.isValid() {
+		return
+	}
+	for dy := c.offsetMin; dy <= c.offsetMax; dy++ {
+		radius := c.slopeAt(c.offsetMax-dy) + c.minWidth
+		y := anchor.Y + dy
+		for x := anchor.X - radius; x <= anchor.X+radius; x++ {
+			TickDeadline("decorating a canopy layer as wide as its radius asks")
+			for z := anchor.Z - radius; z <= anchor.Z+radius; z++ {
+				p := wgen.BlockPos{X: x, Y: y, Z: z}
+				if c.decoration.leafMatch.Contains(api.GetBlock(p)) {
+					c.decoration.place(api, p, rnd)
+				}
 			}
 		}
 	}
@@ -1523,10 +1561,9 @@ type spruceCanopy struct {
 func (c *spruceCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd random.IRandom, params treeParamsLists, _ []wgen.BlockPos) {
 	tryPlace := func(x, y, z int) {
 		p := wgen.BlockPos{X: x, Y: y, Z: z}
-		existing := api.GetBlock(p)
-		// Leaf gate -- the SAME material-type shape as the simple canopy's
-		// gate, approximated the same way. See the file header.
-		if passesAllowList(existing, params.mayReplace) || api.Palette().IsAir(existing) {
+		// Leaf gate -- the SAME material test as the simple canopy's: air,
+		// leaves or vine, never may_replace. See the file header.
+		if canopyLeafReplaceable(api.Palette(), api.GetBlock(p)) {
 			api.SetBlock(p, c.leafID)
 		}
 	}
@@ -1882,8 +1919,7 @@ func (c *randomSpreadCanopy) place(api wgen.BlockWorld, _ wgen.BlockPos, rnd ran
 			// the existing block against the tree parameters' may_replace
 			// list, plus block-level and material-type terms (codes 0,5,7,8
 			// and two further block-level predicates) this codebase has no
-			// registry for -- see the file header. Reuses the same
-			// approximation the simple and spruce canopies use
+			// registry for -- see the file header. Approximated as
 			// (passesAllowList OR IsAir), which also reproduces vanilla's
 			// "empty may_replace -> always place" behaviour via
 			// passesAllowList's "empty ids -> true" contract.
@@ -1921,9 +1957,8 @@ func (c *roofedCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd rand
 	coreWidth := max(1, c.coreWidth)
 	// Leaf gate: the roofed canopy's own gate is JUST a material-type test
 	// against index 0 -- a single type code, not the 3-type OR-chain
-	// (0,7,8 plus a second world-API check) the
-	// simple, spruce and random-spread canopies approximate as
-	// "passesAllowList OR IsAir".
+	// (air, leaves, or a plant that can be built over) the simple and
+	// spruce canopies test.
 	// No may_replace fallback appears at this gate at all -- see the file
 	// header for why this port reads type 0 as Air alone, with no OR.
 	tryPlace := func(x, y, z int) {
@@ -2150,8 +2185,8 @@ type mangroveRoots struct {
 //	                                  isWaterBlock note)
 //
 // This port has no material-type-code registry or per-block-type predicate
-// table (the same gap the simple, spruce and random-spread canopies' leaf
-// gates carry for their type-8/type-7 OR-chains), so this ships the same class
+// table (the same gap the simple and spruce canopies' leaf gates work around
+// by naming blocks), so this ships the same class
 // of disclosed approximation, adapted to this gate's shape (Water, not Air,
 // is the one known material term): passesAllowList OR isWater. This is a
 // STRICT SUBSET of the real accept set (every dropped branch only ever adds
@@ -6649,7 +6684,8 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 				if !ok || stepDirection != "down" {
 					return nil, fmt.Errorf("canopy.canopy_decoration.step_direction must be %q; other native modes are not confirmed", "down")
 				}
-				decoration = &canopyDecoration{blockID: ctx.Palette.Resolve(desc), chance: chance, stepsMin: stepsMin, stepsMax: stepsMax, pal: ctx.Palette}
+				decoration = &canopyDecoration{blockID: ctx.Palette.Resolve(desc), chance: chance, stepsMin: stepsMin, stepsMax: stepsMax, pal: ctx.Palette,
+					leafMatch: ResolveMatchSet([]block.Descriptor{leafDesc}, ctx, "canopy.leaf_block")}
 			}
 			canopy = &simpleCanopy{
 				leafID:          leafID,

@@ -1232,7 +1232,7 @@ This key accepts three spellings and a single control cannot offer all three: a 
 
 **Hangs a block off the sides of the crown -- vines, typically.**
 
-Each leaf the canopy places rolls once per horizontal neighbour; a success on a neighbour that is air writes a run of cells straight down from it, stopping at the first cell that is not air. Note that this object is NOT the same shape as the object of the same name on mangrove_canopy.
+Once every layer is built, each leaf in the crown rolls once per horizontal neighbour; a success on a neighbour that is air writes a run of cells straight down from it, stopping at the first cell that is not air. Note that this object is NOT the same shape as the object of the same name on mangrove_canopy.
 
 #### `canopy.canopy_decoration.decoration_block` {#canopy-canopy_decoration-decoration_block}
 

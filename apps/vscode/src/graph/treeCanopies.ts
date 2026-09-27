@@ -419,7 +419,7 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
   'canopy.canopy_decoration': {
     summary: 'Hangs a block off the sides of the crown -- vines, typically.',
     detail:
-      'Each leaf the canopy places rolls once per horizontal neighbour; a success on a neighbour that is ' +
+      'Once every layer is built, each leaf in the crown rolls once per horizontal neighbour; a success on a neighbour that is ' +
       'air writes a run of cells straight down from it, stopping at the first cell that is not air. Note ' +
       'that this object is NOT the same shape as the object of the same name on mangrove_canopy.',
   },
