@@ -753,8 +753,10 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
     may_replace: {
       summary: 'Blocks the tree may overwrite at and above its origin.',
       detail:
-        'Below the origin it is may_grow_through that decides instead. The canopy and spruce_canopy ' +
-        'crowns do not read it: they write into air, leaves and vines only.',
+        'Below the origin it is may_grow_through that decides instead. A trunk log also goes into ' +
+        'air, leaves, water or a vine whatever this list says, so a trunk grows through its own ' +
+        'trunk_decoration vines. The canopy and spruce_canopy crowns do not read it: they write into ' +
+        'air, leaves and vines only.',
     },
     base_cluster: {
       summary: 'A patch of base blocks laid around the foot of the trunk.',

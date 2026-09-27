@@ -1189,14 +1189,23 @@ func passesAllowList(existing block.ID, ids block.MatchSet) bool {
 }
 
 // isValidTreePosition is the tree position validity test -- gates every
-// trunk-column log placement. See the file header for the air-fallback
-// approximation.
+// trunk-column log placement. A cell is valid when it passes may_replace, or
+// is air, leaves, water, or a plant that can be built over. With no material
+// registry the plant half is vine alone (canopyLeafReplaceable, the same set
+// the simple canopy's leaf gate uses); vine matters because trunk_decoration
+// hangs vines on every log before the next log is placed, and a trunk must
+// grow through its own vines.
 func isValidTreePosition(api wgen.BlockWorld, p wgen.BlockPos, mayReplaceIDs block.MatchSet) bool {
 	existing := api.GetBlock(p)
 	if passesAllowList(existing, mayReplaceIDs) {
 		return true
 	}
-	return api.Palette().IsAir(existing)
+	pal := api.Palette()
+	if canopyLeafReplaceable(pal, existing) {
+		return true
+	}
+	name := pal.NameOf(existing)
+	return name == "minecraft:water" || name == "minecraft:flowing_water"
 }
 
 // placeBaseBlock is the tree's base-block write under a trunk cell: a no-op

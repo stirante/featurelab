@@ -9172,3 +9172,31 @@ func TestScatteringCanopies_HeightAndRadiusIncludeTheirMaximum(t *testing.T) {
 		t.Errorf("treeIntRangeValueInclusive(2,4) produced %v, want exactly {2,3,4}", seen)
 	}
 }
+
+// TestIsValidTreePosition_AcceptsLeavesVineAndWater pins the validity test
+// every trunk log goes through: may_replace, or air, leaves, water, or a
+// plant that can be built over (vine). A trunk therefore grows through its
+// own trunk_decoration vines and through another tree's leaves.
+func TestIsValidTreePosition_AcceptsLeavesVineAndWater(t *testing.T) {
+	v, pal := newTreeTestVolume(t, 2)
+	mayReplace := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:dirt")}, nil, nil, nil)
+	p := wgen.BlockPos{X: 0, Y: 12, Z: 0}
+	for name, want := range map[string]bool{
+		"minecraft:air":           true,
+		"minecraft:dirt":          true, // may_replace
+		"minecraft:vine":          true,
+		"minecraft:oak_leaves":    true,
+		"minecraft:jungle_leaves": true,
+		"minecraft:water":         true,
+		"minecraft:flowing_water": true,
+		"minecraft:stone":         false,
+		"minecraft:oak_log":       false,
+		"minecraft:lava":          false,
+		"minecraft:cobblestone":   false,
+	} {
+		v.SetBlock(p, pal.Get(name, nil))
+		if got := isValidTreePosition(v, p, mayReplace); got != want {
+			t.Errorf("isValidTreePosition over %s = %v, want %v", name, got, want)
+		}
+	}
+}
