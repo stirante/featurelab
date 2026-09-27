@@ -207,12 +207,14 @@ func planGame(t *Test) GamePlan {
 	dump := t.Region.Offset(a)
 	reset := t.ResetBoxRel().Offset(a)
 	g := GamePlan{PlaceAt: place, DumpBox: dump, ResetBox: reset, Reset: []string{}, Setup: []string{}, Checks: []BlockTest{}}
-	// Hover above and a little south of the cell, so every chunk it touches is loaded.
+	// Hover above the middle of the reset box, so every chunk it touches is loaded. The widest
+	// cells (carvers, 73 blocks) reach past the simulation distance from anywhere off-centre, and
+	// /fill then refuses with "Cannot place blocks outside of the world".
 	tpY := SurfaceY + 40
 	if dump.Max[1]+8 > tpY {
 		tpY = dump.Max[1] + 8
 	}
-	g.Teleport = fmt.Sprintf("tp @s %d %d %d", a[0], minInt(tpY, WorldTopY), a[2]-24)
+	g.Teleport = fmt.Sprintf("tp @s %d %d %d", (reset.Min[0]+reset.Max[0])/2, minInt(tpY, WorldTopY), (reset.Min[2]+reset.Max[2])/2)
 
 	// Reset: air above the ground, then the superflat layers, over the whole reset box.
 	airFrom := reset
