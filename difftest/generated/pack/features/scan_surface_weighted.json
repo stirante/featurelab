@@ -1,0 +1,9 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scan_surface": {
+    "description": {
+      "identifier": "difftest:scan_surface_weighted"
+    },
+    "places_feature": "difftest:weighted_three"
+  }
+}

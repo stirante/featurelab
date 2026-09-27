@@ -1,0 +1,29 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:vegetation_patch_feature": {
+    "description": {
+      "identifier": "difftest:vegetation_patch_moss_deep"
+    },
+    "replaceable_blocks": [
+      "minecraft:grass_block",
+      "minecraft:dirt",
+      "minecraft:stone"
+    ],
+    "ground_block": "minecraft:moss_block",
+    "vegetation_feature": "difftest:blk_gold",
+    "depth": {
+      "range_min": 1,
+      "range_max": 3
+    },
+    "extra_deep_block_chance": 0.5,
+    "vertical_range": 5,
+    "vegetation_chance": 0.3,
+    "horizontal_radius": {
+      "range_min": 3,
+      "range_max": 6
+    },
+    "extra_edge_column_chance": 0.5,
+    "waterlogged": false,
+    "surface": "floor"
+  }
+}

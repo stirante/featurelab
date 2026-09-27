@@ -1,0 +1,18 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:structure_template_feature": {
+    "description": {
+      "identifier": "difftest:structure_rotate_center"
+    },
+    "structure_name": "wiki:lamp_post",
+    "facing_direction": "random",
+    "rotate_around_center": true,
+    "constraints": {
+      "block_intersection": {
+        "block_allowlist": [
+          "minecraft:air"
+        ]
+      }
+    }
+  }
+}

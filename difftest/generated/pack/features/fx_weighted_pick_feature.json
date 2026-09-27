@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:weighted_random_feature": {
+    "description": { "identifier": "difftest:fx_weighted_pick_feature" },
+    "features": [
+      ["difftest:fx_pumpkin_patch_block", 1],
+      ["difftest:fx_weighted_pick_alt", 1]
+    ]
+  }
+}

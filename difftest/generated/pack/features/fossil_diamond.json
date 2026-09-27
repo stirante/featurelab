@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:fossil_feature": {
+    "description": {
+      "identifier": "difftest:fossil_diamond"
+    },
+    "ore_block": "minecraft:diamond_ore",
+    "max_empty_corners": 4
+  }
+}

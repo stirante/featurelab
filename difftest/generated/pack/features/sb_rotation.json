@@ -1,0 +1,27 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:sb_rotation"
+    },
+    "places_feature": "difftest:sb_rotation_inner",
+    "distribution": {
+      "iterations": 30,
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -8,
+          8
+        ]
+      },
+      "y": 0,
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -8,
+          8
+        ]
+      }
+    }
+  }
+}

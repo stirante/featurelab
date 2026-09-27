@@ -1,0 +1,65 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "difftest:tree_cherry_branch_canopy_only"
+    },
+    "cherry_trunk": {
+      "trunk_block": "minecraft:cherry_log",
+      "trunk_height": {
+        "base": 7,
+        "intervals": [
+          1,
+          1
+        ]
+      },
+      "branches": {
+        "tree_type_weights": {
+          "one_branch": 1,
+          "two_branches": 1,
+          "two_branches_and_trunk": 1
+        },
+        "branch_horizontal_length": {
+          "range_min": 2,
+          "range_max": 4
+        },
+        "branch_start_offset_from_top": {
+          "range_min": -4,
+          "range_max": -3
+        },
+        "branch_end_offset_from_top": {
+          "range_min": -1,
+          "range_max": 1
+        },
+        "branch_canopy": {
+          "cherry_canopy": {
+            "leaf_block": "minecraft:cherry_leaves",
+            "height": 5,
+            "radius": 4,
+            "wide_bottom_layer_hole_chance": 0.25,
+            "corner_hole_chance": 0.25,
+            "hanging_leaves_chance": 0.1666667,
+            "hanging_leaves_extension_chance": 0.3333333
+          }
+        }
+      }
+    },
+    "base_block": [
+      "minecraft:dirt"
+    ],
+    "may_grow_on": [
+      "minecraft:dirt",
+      "minecraft:grass_block"
+    ],
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:cherry_leaves",
+      "minecraft:azalea_leaves"
+    ],
+    "may_grow_through": [
+      "minecraft:air",
+      "minecraft:grass_block",
+      "minecraft:dirt"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:weighted_random_feature": {
+    "description": {
+      "identifier": "difftest:weighted_three"
+    },
+    "features": [
+      [
+        "difftest:blk_gold",
+        1
+      ],
+      [
+        "difftest:blk_emerald",
+        3
+      ],
+      [
+        "difftest:blk_fail",
+        2
+      ]
+    ]
+  }
+}

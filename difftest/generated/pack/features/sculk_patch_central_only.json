@@ -1,0 +1,16 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:sculk_patch_feature": {
+    "description": {
+      "identifier": "difftest:sculk_patch_central_only"
+    },
+    "can_place_sculk_patch_on": [],
+    "central_block": "minecraft:sculk_shrieker",
+    "central_block_placement_chance": 0.5,
+    "charge_amount": 1,
+    "cursor_count": 0,
+    "spread_attempts": 1,
+    "growth_rounds": 0,
+    "spread_rounds": 0
+  }
+}

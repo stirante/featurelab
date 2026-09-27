@@ -1,0 +1,28 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:geode_feature": {
+    "description": {
+      "identifier": "difftest:geode_small_solid"
+    },
+    "filler": "minecraft:glass",
+    "inner_layer": "minecraft:emerald_block",
+    "alternate_inner_layer": "minecraft:diamond_block",
+    "middle_layer": "minecraft:gold_block",
+    "outer_layer": "minecraft:obsidian",
+    "min_outer_wall_distance": 2,
+    "max_outer_wall_distance": 4,
+    "min_distribution_points": 2,
+    "max_distribution_points": 5,
+    "min_point_offset": 1,
+    "max_point_offset": 3,
+    "max_radius": 12,
+    "crack_point_offset": 1,
+    "generate_crack_chance": 0.0,
+    "base_crack_size": 1.5,
+    "noise_multiplier": 0.1,
+    "use_potential_placements_chance": 0.0,
+    "use_alternate_layer0_chance": 0.3,
+    "placements_require_layer0_alternate": false,
+    "invalid_blocks_threshold": 4
+  }
+}

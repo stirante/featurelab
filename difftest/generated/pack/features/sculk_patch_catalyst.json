@@ -1,0 +1,18 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:sculk_patch_feature": {
+    "description": {
+      "identifier": "difftest:sculk_patch_catalyst"
+    },
+    "can_place_sculk_patch_on": [
+      "minecraft:stone"
+    ],
+    "central_block": "minecraft:sculk_catalyst",
+    "central_block_placement_chance": 1.0,
+    "charge_amount": 32,
+    "cursor_count": 20,
+    "spread_attempts": 4,
+    "growth_rounds": 0,
+    "spread_rounds": 3
+  }
+}

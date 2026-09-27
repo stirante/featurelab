@@ -1,0 +1,29 @@
+{
+  "format_version": "1.26.50",
+  "minecraft:multipart_block_column_feature": {
+    "description": {
+      "identifier": "difftest:multipart_blocked_base"
+    },
+    "direction": "up",
+    "base_block": "minecraft:dripstone_block",
+    "middle_block": "minecraft:dripstone_block",
+    "frustum_block": "minecraft:pointed_dripstone",
+    "tip_block": "minecraft:pointed_dripstone",
+    "weighted_heights": [
+      {
+        "value": 3,
+        "weight": 1
+      },
+      {
+        "value": 6,
+        "weight": 1
+      }
+    ],
+    "may_replace": [
+      "minecraft:air"
+    ],
+    "may_place_on": [
+      "minecraft:stone"
+    ]
+  }
+}

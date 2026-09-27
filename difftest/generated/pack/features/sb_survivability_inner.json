@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:single_block_feature": {
+    "description": {
+      "identifier": "difftest:sb_survivability_inner"
+    },
+    "enforce_placement_rules": true,
+    "enforce_survivability_rules": true,
+    "places_block": "minecraft:poppy",
+    "may_replace": [
+      "minecraft:air"
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:snap_embed"
+    },
+    "places_feature": "difftest:snap_embed_inner",
+    "distribution": {
+      "iterations": 20,
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -7,
+          7
+        ]
+      },
+      "y": 4,
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -7,
+          7
+        ]
+      }
+    }
+  }
+}

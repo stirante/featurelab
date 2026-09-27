@@ -1,0 +1,17 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:multiface_feature": {
+    "description": {
+      "identifier": "difftest:multiface_floor_only"
+    },
+    "places_block": "minecraft:sculk_vein",
+    "search_range": 6,
+    "can_place_on_floor": true,
+    "can_place_on_ceiling": false,
+    "can_place_on_wall": false,
+    "chance_of_spreading": 0.9,
+    "can_place_on": [
+      "minecraft:stone"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "format_version": "1.20.0",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:scatter_legacy_flat"
+    },
+    "places_feature": "difftest:blk_gold",
+    "iterations": 12,
+    "scatter_chance": 50,
+    "x": {
+      "distribution": "uniform",
+      "extent": [
+        -7,
+        7
+      ]
+    },
+    "y": 0,
+    "z": {
+      "distribution": "uniform",
+      "extent": [
+        -7,
+        7
+      ]
+    }
+  }
+}

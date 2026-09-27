@@ -1,0 +1,27 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:scatter_iterations_molang"
+    },
+    "places_feature": "difftest:blk_gold",
+    "distribution": {
+      "iterations": "math.random_integer(1, 16)",
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -8,
+          8
+        ]
+      },
+      "y": 0,
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -8,
+          8
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": {
+      "identifier": "difftest:cave_carver_wrapped"
+    },
+    "features": [
+      "difftest:fx_cave_demo"
+    ]
+  }
+}

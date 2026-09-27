@@ -1,0 +1,29 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:scatter_fixed_grid"
+    },
+    "places_feature": "difftest:blk_gold",
+    "distribution": {
+      "iterations": 49,
+      "x": {
+        "distribution": "fixed_grid",
+        "extent": [
+          -6,
+          6
+        ],
+        "step_size": 2
+      },
+      "y": 0,
+      "z": {
+        "distribution": "fixed_grid",
+        "extent": [
+          -6,
+          6
+        ],
+        "step_size": 2
+      }
+    }
+  }
+}

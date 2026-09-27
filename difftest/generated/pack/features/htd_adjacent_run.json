@@ -1,0 +1,21 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:htd_adjacent_run"
+    },
+    "places_feature": "difftest:htd_adjacent_inner",
+    "distribution": {
+      "iterations": 7,
+      "x": {
+        "distribution": "fixed_grid",
+        "extent": [
+          -3,
+          3
+        ]
+      },
+      "y": 0,
+      "z": 0
+    }
+  }
+}

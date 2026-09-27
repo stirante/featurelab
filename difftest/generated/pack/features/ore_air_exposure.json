@@ -1,0 +1,18 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:ore_feature": {
+    "description": {
+      "identifier": "difftest:ore_air_exposure"
+    },
+    "count": 24,
+    "discard_chance_on_air_exposure": 1.0,
+    "replace_rules": [
+      {
+        "places_block": "minecraft:gold_ore",
+        "may_replace": [
+          "minecraft:stone"
+        ]
+      }
+    ]
+  }
+}

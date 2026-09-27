@@ -1,0 +1,11 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:snap_to_surface_feature": {
+    "description": {
+      "identifier": "difftest:snap_random_horizontal_inner"
+    },
+    "feature_to_snap": "difftest:blk_gold",
+    "surface": "random_horizontal",
+    "vertical_search_range": 12
+  }
+}

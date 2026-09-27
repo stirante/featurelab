@@ -1,0 +1,33 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:threshold_zero_column"
+    },
+    "places_feature": "difftest:threshold_zero_inner",
+    "distribution": {
+      "iterations": 16,
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -10,
+          10
+        ]
+      },
+      "y": {
+        "distribution": "uniform",
+        "extent": [
+          -3,
+          14
+        ]
+      },
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -10,
+          10
+        ]
+      }
+    }
+  }
+}

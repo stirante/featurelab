@@ -1,0 +1,27 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:sb_attach_diagonal"
+    },
+    "places_feature": "difftest:sb_attach_all_inner",
+    "distribution": {
+      "iterations": 60,
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -8,
+          8
+        ]
+      },
+      "y": 0,
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -8,
+          8
+        ]
+      }
+    }
+  }
+}

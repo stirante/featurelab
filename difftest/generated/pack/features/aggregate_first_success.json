@@ -1,0 +1,14 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": {
+      "identifier": "difftest:aggregate_first_success"
+    },
+    "features": [
+      "difftest:blk_fail",
+      "difftest:blk_gold",
+      "difftest:blk_emerald"
+    ],
+    "early_out": "first_success"
+  }
+}

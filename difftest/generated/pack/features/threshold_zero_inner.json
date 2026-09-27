@@ -1,0 +1,10 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:surface_relative_threshold_feature": {
+    "description": {
+      "identifier": "difftest:threshold_zero_inner"
+    },
+    "feature_to_place": "difftest:blk_gold_any",
+    "minimum_distance_below_surface": 0
+  }
+}

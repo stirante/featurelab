@@ -1,0 +1,35 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:scatter_order_zxy"
+    },
+    "places_feature": "difftest:blk_gold",
+    "distribution": {
+      "iterations": 16,
+      "coordinate_eval_order": "zxy",
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -6,
+          6
+        ]
+      },
+      "y": {
+        "distribution": "uniform",
+        "extent": [
+          0,
+          6
+        ]
+      },
+      "z": {
+        "distribution": "fixed_grid",
+        "extent": [
+          -6,
+          6
+        ],
+        "step_size": 3
+      }
+    }
+  }
+}
