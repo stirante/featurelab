@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+// canopyWithoutVariationChance is the ExpectedGameCrash reason for the plain canopies that omit
+// variation_chance.
+const canopyWithoutVariationChance = "a plain canopy without variation_chance crashes the game when it places a layer " +
+	"(it reads one chance per layer); the engine refuses the feature"
+
 // BuildCatalog assembles the whole test pack and its tests. repoRoot is this repository's root;
 // the public fixture pack (docs/wiki/tools/fixtures) and the vanilla tree corpus
 // (pack/testdata/vanilla-trees) are imported from it.
@@ -94,6 +99,8 @@ func (b *builder) trees(fx, vt map[string]string) {
 	}
 
 	// canopy_slope: the run multiplies and the rise divides. Four ratios, one of them 1:1.
+	// These four, tree_trunk_decoration_sequence and tree_submerged grow a plain canopy with no
+	// variation_chance, which crashes the game; they are kept as crash repros and marked.
 	for _, s := range []struct{ rise, run int }{{1, 2}, {2, 1}, {1, 1}, {3, 2}} {
 		name := fmt.Sprintf("tree_slope_rise%d_run%d", s.rise, s.run)
 		b.feature("tree_feature", name, fmt.Sprintf(`{
@@ -104,8 +111,9 @@ func (b *builder) trees(fx, vt map[string]string) {
 		  "may_replace": ["minecraft:air", "minecraft:oak_leaves"],
 		  "may_grow_through": ["minecraft:air", "minecraft:grass_block", "minecraft:dirt"]}`, s.rise, s.run))
 		b.test(Test{ID: name, Type: "minecraft:tree_feature", Group: "tree/canopy_slope", Region: regionTree,
-			Metrics: append([]string{"leafExtent[+0]", "leafExtent[+4]", "leafExtent[+6]"}, treeMetrics...),
-			Note:    fmt.Sprintf("canopy_slope rise=%d run=%d over canopy_offset -3..0, min_width 1", s.rise, s.run)})
+			Metrics:           append([]string{"leafExtent[+0]", "leafExtent[+4]", "leafExtent[+6]"}, treeMetrics...),
+			Note:              fmt.Sprintf("canopy_slope rise=%d run=%d over canopy_offset -3..0, min_width 1", s.rise, s.run),
+			ExpectedGameCrash: canopyWithoutVariationChance})
 	}
 	// canopy with variation_chance and a canopy decoration (vines hanging off it).
 	b.feature("tree_feature", "tree_canopy_decorated", `{
@@ -133,7 +141,8 @@ func (b *builder) trees(fx, vt map[string]string) {
 	  "may_replace": ["minecraft:air", "minecraft:dark_oak_leaves"],
 	  "may_grow_through": ["minecraft:air", "minecraft:grass_block", "minecraft:dirt"]}`)
 	b.test(Test{ID: "tree_trunk_decoration_sequence", Type: "minecraft:tree_feature", Group: "tree/decoration", Region: regionTree,
-		Metrics: append([]string{"block:minecraft:vine", "block:minecraft:glow_lichen"}, treeMetrics...)})
+		Metrics:           append([]string{"block:minecraft:vine", "block:minecraft:glow_lichen"}, treeMetrics...),
+		ExpectedGameCrash: canopyWithoutVariationChance})
 	// can_be_submerged: a trunk standing in a water pool.
 	b.feature("tree_feature", "tree_submerged", `{
 	  "trunk": {"trunk_height": {"range_min": 5, "range_max": 8}, "trunk_block": "minecraft:oak_log", "can_be_submerged": {"max_depth": 2}},
@@ -144,7 +153,8 @@ func (b *builder) trees(fx, vt map[string]string) {
 	b.test(Test{ID: "tree_submerged", Type: "minecraft:tree_feature", Group: "tree/submerged", Region: regionTree,
 		Setup: []Op{fill(box(-5, -2, -5, 5, -1, 5), "minecraft:water"), fill(box(-5, -3, -5, 5, -3, 5), "minecraft:dirt")},
 		Place: [3]int{0, -2, 0}, Metrics: treeMetrics,
-		Note: "origin on the pool floor under two blocks of water"})
+		Note:              "origin on the pool floor under two blocks of water",
+		ExpectedGameCrash: canopyWithoutVariationChance})
 	// base_cluster (the podzol ring mega spruces make).
 	b.feature("tree_feature", "tree_base_cluster", `{
 	  "trunk": {"trunk_height": {"range_min": 6, "range_max": 9}, "trunk_block": "minecraft:spruce_log"},

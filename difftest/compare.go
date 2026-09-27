@@ -235,6 +235,10 @@ func Compare(m *Manifest, engine, game *Results, engineLabel, gameLabel string) 
 			if et == nil || len(et.Placements) == 0 {
 				side = "engine"
 			}
+			if t := byID[id]; t != nil && t.ExpectedGameCrash != "" {
+				rep.Missing = append(rep.Missing, fmt.Sprintf("%s (expected game crash: %s)", id, t.ExpectedGameCrash))
+				continue
+			}
 			rep.Missing = append(rep.Missing, fmt.Sprintf("%s (no %s placements)", id, side))
 			continue
 		}

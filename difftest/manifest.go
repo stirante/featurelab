@@ -124,6 +124,12 @@ type Test struct {
 	// (carvers) -- the comparator reports such tests separately instead of as failures.
 	GameCaveat string `json:"gameCaveat,omitempty"`
 
+	// ExpectedGameCrash is set when placing this test's feature crashes the game. The test is
+	// kept so the crash stays reproducible, but the game runner leaves it out and the engine
+	// refuses the feature, so neither side has placements; the comparator lists it with this
+	// reason instead of as missing data.
+	ExpectedGameCrash string `json:"expectedGameCrash,omitempty"`
+
 	// Filled in by Layout.
 	Cell   int      `json:"cell"`
 	Anchor [3]int   `json:"anchor"`

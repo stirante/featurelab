@@ -66,8 +66,9 @@ func TestSimpleCanopy_RunMultipliesRiseDivides(t *testing.T) {
 		{rise: 3, run: 2, want: []int{3, 2, 1, 1}},
 	} {
 		tf := buildTestSimpleTree(t, pal, map[string]any{
-			"canopy_offset": map[string]any{"min": float64(-3), "max": float64(0)},
-			"canopy_slope":  map[string]any{"rise": float64(tc.rise), "run": float64(tc.run)},
+			"canopy_offset":    map[string]any{"min": float64(-3), "max": float64(0)},
+			"variation_chance": zeroVariationChance(4),
+			"canopy_slope":     map[string]any{"rise": float64(tc.rise), "run": float64(tc.run)},
 		})
 		c := tf.canopy.(*simpleCanopy)
 		top := c.slopeAt(c.offsetMax)
@@ -97,7 +98,7 @@ func TestSimpleCanopy_RunMultipliesRiseDivides(t *testing.T) {
 // TestSimpleCanopy_DefaultsGiveTheOakCrown pins what a canopy with no min_width and no
 // canopy_slope builds, end to end from the JSON: the defaults are min_width 1, rise 2, run 1, so
 // over canopy_offset -3..0 the layers are radii 2, 2, 1, 1 (5 wide at the base, 25+25+9+9 = 68
-// cells with no variation_chance). min_width 2 widens every layer by one: 3, 3, 2, 2 (7 wide,
+// cells with an all-zero variation_chance). min_width 2 widens every layer by one: 3, 3, 2, 2 (7 wide,
 // 49+49+25+25 = 148 cells).
 func TestSimpleCanopy_DefaultsGiveTheOakCrown(t *testing.T) {
 	for _, tc := range []struct {
@@ -109,7 +110,10 @@ func TestSimpleCanopy_DefaultsGiveTheOakCrown(t *testing.T) {
 		{float64(2), []int{3, 3, 2, 2}, 148},
 	} {
 		pal := block.NewPalette()
-		body := simpleTreeBody(map[string]any{"canopy_offset": map[string]any{"min": float64(-3), "max": float64(0)}})
+		body := simpleTreeBody(map[string]any{
+			"canopy_offset":    map[string]any{"min": float64(-3), "max": float64(0)},
+			"variation_chance": zeroVariationChance(4),
+		})
 		canopy := body["canopy"].(map[string]any)
 		delete(canopy, "min_width")
 		if tc.minWidth != nil {
@@ -205,9 +209,10 @@ func TestTreeIntRangeValue_NonDegenerateFormula(t *testing.T) {
 
 func simpleTreeBody(canopyExtra map[string]any) map[string]any {
 	canopy := map[string]any{
-		"leaf_block":    "minecraft:oak_leaves",
-		"canopy_offset": map[string]any{"min": float64(-2), "max": float64(0)},
-		"min_width":     float64(1),
+		"leaf_block":       "minecraft:oak_leaves",
+		"canopy_offset":    map[string]any{"min": float64(-2), "max": float64(0)},
+		"variation_chance": zeroVariationChance(3),
+		"min_width":        float64(1),
 	}
 	for k, v := range canopyExtra {
 		canopy[k] = v
@@ -332,8 +337,8 @@ func TestBuildTreeFeature_CanopyKey_SchemaValidation(t *testing.T) {
 			t.Errorf("want success, got %v", err)
 		}
 	})
-	t.Run("variation_chance refused", func(t *testing.T) {
-		body := simpleTreeBody(map[string]any{"variation_chance": []any{}})
+	t.Run("variation_chance not a chance refused", func(t *testing.T) {
+		body := simpleTreeBody(map[string]any{"variation_chance": "often"})
 		_, err := buildTreeFeature(body, ctx)
 		if err == nil {
 			t.Fatal("want error, got nil")
@@ -3099,9 +3104,10 @@ func submergedTreeBody(trunkExtra map[string]any) map[string]any {
 	return map[string]any{
 		"trunk": trunk,
 		"canopy": map[string]any{
-			"leaf_block":    "minecraft:oak_leaves",
-			"canopy_offset": map[string]any{"min": float64(-2), "max": float64(0)},
-			"min_width":     float64(1),
+			"leaf_block":       "minecraft:oak_leaves",
+			"canopy_offset":    map[string]any{"min": float64(-2), "max": float64(0)},
+			"variation_chance": zeroVariationChance(3),
+			"min_width":        float64(1),
 		},
 		"may_replace":      []any{"minecraft:air"},
 		"may_grow_through": []any{"minecraft:water"},
@@ -5863,8 +5869,9 @@ func mangroveTrunkTestBody(mutate func(mt map[string]any)) map[string]any {
 	return map[string]any{
 		"mangrove_trunk": mt,
 		"canopy": map[string]any{
-			"leaf_block":    "minecraft:mangrove_leaves",
-			"canopy_offset": map[string]any{"min": float64(0), "max": float64(0)},
+			"leaf_block":       "minecraft:mangrove_leaves",
+			"canopy_offset":    map[string]any{"min": float64(0), "max": float64(0)},
+			"variation_chance": zeroVariationChance(1),
 		},
 		"may_replace": []any{"minecraft:air"},
 	}
@@ -7699,9 +7706,10 @@ func TestPlainTrunk_TrunkDecorationIsApplied(t *testing.T) {
 			"trunk_decoration": vanillaVineDecoration(),
 		},
 		"canopy": map[string]any{
-			"leaf_block":    "minecraft:oak_leaves",
-			"canopy_offset": map[string]any{"min": float64(-2), "max": float64(0)},
-			"min_width":     float64(1),
+			"leaf_block":       "minecraft:oak_leaves",
+			"canopy_offset":    map[string]any{"min": float64(-2), "max": float64(0)},
+			"variation_chance": zeroVariationChance(3),
+			"min_width":        float64(1),
 		},
 		"may_grow_on": []any{"minecraft:dirt", "minecraft:grass_block"},
 		"may_replace": []any{"minecraft:air"},
@@ -8630,8 +8638,9 @@ func vinedOakBody(height int) map[string]any {
 			"trunk_decoration": map[string]any{"decoration_chance": float64(100), "decoration_block": "minecraft:vine"},
 		},
 		"canopy": map[string]any{
-			"canopy_offset": map[string]any{"min": float64(-3), "max": float64(0)},
-			"leaf_block":    "minecraft:oak_leaves",
+			"canopy_offset":    map[string]any{"min": float64(-3), "max": float64(0)},
+			"variation_chance": zeroVariationChance(4),
+			"leaf_block":       "minecraft:oak_leaves",
 		},
 		"may_grow_on": []any{"minecraft:dirt"},
 		"may_replace": []any{"minecraft:air", "minecraft:oak_leaves"},
@@ -8753,9 +8762,10 @@ func TestSimpleCanopy_DecorationIsASecondPass(t *testing.T) {
 		t.Errorf("%d vines, want 64", got)
 	}
 
+	half := map[string]any{"numerator": float64(1), "denominator": float64(2)}
 	c, v, _ = build(t, map[string]any{
 		"canopy_offset":    offset,
-		"variation_chance": map[string]any{"numerator": float64(1), "denominator": float64(2)},
+		"variation_chance": []any{half, half, half, half},
 		"canopy_decoration": map[string]any{
 			"decoration_block": "minecraft:vine", "decoration_chance": float64(50),
 			"num_steps": map[string]any{"range_min": float64(1), "range_max": float64(1)}, "step_direction": "down",
@@ -8904,8 +8914,9 @@ func TestAcaciaTrunk_BaseBlockUnderWholeFootprint(t *testing.T) {
 			},
 		},
 		"canopy": map[string]any{
-			"canopy_offset": map[string]any{"min": float64(0), "max": float64(0)},
-			"leaf_block":    "minecraft:dark_oak_leaves",
+			"canopy_offset":    map[string]any{"min": float64(0), "max": float64(0)},
+			"variation_chance": zeroVariationChance(1),
+			"leaf_block":       "minecraft:dark_oak_leaves",
 		},
 		"base_block":  []any{"minecraft:dirt", "minecraft:podzol"},
 		"may_grow_on": []any{"minecraft:grass_block", "minecraft:dirt"},
@@ -8942,8 +8953,9 @@ func TestMegaTrunk_BaseBlockAndClustersWriteBaseBlock(t *testing.T) {
 			"trunk_block":  "minecraft:spruce_log",
 		},
 		"canopy": map[string]any{
-			"canopy_offset": map[string]any{"min": float64(0), "max": float64(0)},
-			"leaf_block":    "minecraft:spruce_leaves",
+			"canopy_offset":    map[string]any{"min": float64(0), "max": float64(0)},
+			"variation_chance": zeroVariationChance(1),
+			"leaf_block":       "minecraft:spruce_leaves",
 		},
 		"base_block": "minecraft:podzol",
 		"base_cluster": map[string]any{
@@ -8993,8 +9005,9 @@ func TestMegaTrunk_BaseBlockAndClustersWriteBaseBlock(t *testing.T) {
 			"trunk_block":  "minecraft:spruce_log",
 		},
 		"canopy": map[string]any{
-			"canopy_offset": map[string]any{"min": float64(0), "max": float64(0)},
-			"leaf_block":    "minecraft:spruce_leaves",
+			"canopy_offset":    map[string]any{"min": float64(0), "max": float64(0)},
+			"variation_chance": zeroVariationChance(1),
+			"leaf_block":       "minecraft:spruce_leaves",
 		},
 		"base_block": "minecraft:podzol",
 		"base_cluster": map[string]any{
@@ -9028,5 +9041,90 @@ func TestMegaTrunk_BaseBlockAndClustersWriteBaseBlock(t *testing.T) {
 	}
 	if got, n := count(), len(want); got != n {
 		t.Errorf("%d podzol in the volume, want %d (all at y=9)", got, n)
+	}
+}
+
+// zeroVariationChance is a variation_chance of n zero-percent entries: one per layer, as the game
+// requires of every plain canopy, and none of them draws or cuts a corner.
+func zeroVariationChance(n int) []any {
+	out := make([]any, n)
+	for i := range out {
+		out[i] = float64(0)
+	}
+	return out
+}
+
+// TestSimpleCanopy_VariationChanceMissingIsAnError pins the diagnostic for the game's crash: every
+// layer the plain canopy places rolls variation_chance[layer - canopy_offset.min] at its corners
+// without a bounds check, so a canopy that omits the key crashes the game the first time it places.
+// The file is refused -- this tool places nothing for it rather than a crown the game never grows --
+// and the message says how many entries to write. A canopy with no layers never reads the key, so
+// it is not refused for it.
+func TestSimpleCanopy_VariationChanceMissingIsAnError(t *testing.T) {
+	ctx := &BuildContext{Palette: block.NewPalette(), Identifier: "test:tree", FileID: "test:tree", Warn: func(string) {}}
+	body := simpleTreeBody(nil)
+	delete(body["canopy"].(map[string]any), "variation_chance")
+	_, err := buildTreeFeature(body, ctx)
+	if err == nil {
+		t.Fatal("a canopy without variation_chance built")
+	}
+	for _, want := range []string{
+		"canopy has no variation_chance: the game crashes when it places this canopy (it reads one chance per layer)",
+		"canopy_offset -2..0, 3 entries",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err.Error(), want)
+		}
+	}
+
+	inverted := simpleTreeBody(map[string]any{"canopy_offset": map[string]any{"min": float64(2), "max": float64(0)}})
+	delete(inverted["canopy"].(map[string]any), "variation_chance")
+	if _, err := buildTreeFeature(inverted, ctx); err != nil {
+		t.Errorf("a canopy with no layers was refused for a key it never reads: %v", err)
+	}
+}
+
+// TestSimpleCanopy_VariationChanceShortIsAWarning pins the out-of-range read: a variation_chance
+// with fewer entries than layers loads in the game, which then reads past the end for the rest. The
+// single-object form is stored as ONE entry (it is not copied to every layer), so it is short for
+// any canopy of two layers or more. Both warn and still build; the layers past the end reuse the
+// last entry (an empty list rolls nothing). One entry per layer, or more, is silent.
+func TestSimpleCanopy_VariationChanceShortIsAWarning(t *testing.T) {
+	half := map[string]any{"numerator": float64(1), "denominator": float64(2)}
+	for _, tc := range []struct {
+		name      string
+		variation any
+		want      string // "" = no warning
+		rolls     int    // corner rolls when placed
+	}{
+		{"empty array", []any{}, "canopy.variation_chance has 0 entries but the canopy has 3 layers; the game reads past the end for the rest (random results or a crash)", 0},
+		{"two of three", []any{half, half}, "canopy.variation_chance has 2 entries but the canopy has 3 layers", 12},
+		{"single object", half, "canopy.variation_chance is a single chance, which the game stores as 1 entry, but the canopy has 3 layers", 12},
+		{"single number", float64(50), "is a single chance, which the game stores as 1 entry", 12},
+		{"one per layer", []any{half, half, half}, "", 12},
+		{"more than layers", []any{half, half, half, half}, "", 12},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v, pal := newTreeTestVolume(t, 6)
+			var warnings []string
+			ctx := &BuildContext{Palette: pal, Identifier: "test:tree", FileID: "test:tree",
+				Warn: func(m string) { warnings = append(warnings, m) }}
+			f, err := buildTreeFeature(simpleTreeBody(map[string]any{"variation_chance": tc.variation}), ctx)
+			if err != nil {
+				t.Fatalf("buildTreeFeature: %v", err)
+			}
+			joined := strings.Join(warnings, " | ")
+			if tc.want == "" && strings.Contains(joined, "variation_chance") {
+				t.Errorf("unexpected warning: %s", joined)
+			}
+			if tc.want != "" && !strings.Contains(joined, tc.want) {
+				t.Errorf("warnings %q do not contain %q", joined, tc.want)
+			}
+			tracer := random.NewTracer(random.New(3))
+			f.(*TreeFeature).canopy.(*simpleCanopy).place(v, wgen.BlockPos{X: 0, Y: 15, Z: 0}, tracer, treeParamsLists{}, nil)
+			if rolls := len(tracer.Draws); rolls != tc.rolls {
+				t.Errorf("%d corner rolls, want %d", rolls, tc.rolls)
+			}
+		})
 	}
 }

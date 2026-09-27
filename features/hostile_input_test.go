@@ -68,12 +68,13 @@ var hostileCases = []hostileCase{
 		typeID: "minecraft:tree_feature",
 		// The opposite corner of the same field. int(2.0-0.5)+1 == 2 sized the array, but the
 		// placer walks int(0.5)..int(2.0) == three layers, so `variationChance[dy-offsetMin]`
-		// ran off the end with "index out of range" at PLACE time, having built cleanly.
+		// ran off the end with "index out of range" at PLACE time, having built cleanly. A short
+		// list loads in the game (which then reads past its end), so it is a warning and the
+		// placer bounds its own index.
 		body: `"trunk":{"trunk_block":"minecraft:oak_log","trunk_height":5},
 			"canopy":{"leaf_block":"minecraft:oak_leaves",
 			"canopy_offset":{"min":0.5,"max":2.0},"variation_chance":[0.2,0.2]}`,
-		wantBuildRefused: true,
-		wantDiagnostic:   "variation_chance has 2 entries, want 3",
+		wantDiagnostic: "variation_chance has 2 entries but the canopy has 3 layers",
 	},
 	{
 		name:   "search_volume span too wide to represent",

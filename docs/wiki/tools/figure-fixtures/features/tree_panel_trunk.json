@@ -13,6 +13,7 @@
     },
     "canopy": {
       "leaf_block": "minecraft:oak_leaves",
+      "variation_chance": [0, 0],
       "canopy_offset": {
         "min": -1,
         "max": 0
