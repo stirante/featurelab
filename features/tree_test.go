@@ -5443,13 +5443,12 @@ func TestPlaceBaseClusterGroundwork_GateOnNumClustersLessEqualZero(t *testing.T)
 		t.Run(fmt.Sprintf("numClusters=%d", numClusters), func(t *testing.T) {
 			v, pal := baseClusterTestVolume(t, 10)
 			bc := &baseCluster{
-				mayReplace:         pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:dirt"}, {Name: "minecraft:air"}}, nil, nil, nil),
-				mayReplaceFallback: pal.Get("minecraft:dirt", nil),
-				numClusters:        numClusters,
-				clusterRadius:      2,
+				mayReplace:    pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:dirt"}, {Name: "minecraft:air"}}, nil, nil, nil),
+				numClusters:   numClusters,
+				clusterRadius: 2,
 			}
 			origin := wgen.BlockPos{X: 0, Y: 20, Z: 0}
-			placeBaseClusterGroundwork(v, origin, 2, panicRandom{}, bc)
+			placeBaseClusterGroundwork(v, origin, 2, panicRandom{}, bc, dirtSet(pal), pal.Get("minecraft:dirt", nil))
 			for x := -6; x <= 6; x++ {
 				for z := -6; z <= 6; z++ {
 					for dy := -5; dy <= 3; dy++ {
@@ -5464,21 +5463,47 @@ func TestPlaceBaseClusterGroundwork_GateOnNumClustersLessEqualZero(t *testing.T)
 	}
 }
 
-// TestPlaceBaseClusterGroundwork_GateOnEmptyMayReplace pins the base-cluster placement's OWN
-// internal gate
-// (may_replace must be non-empty): an empty may_replace skips everything too, even with a
-// positive num_clusters. panicRandom proves zero draws.
-func TestPlaceBaseClusterGroundwork_GateOnEmptyMayReplace(t *testing.T) {
+// dirtSet is a one-entry match set for minecraft:dirt, standing in for a tree's base_block.
+func dirtSet(pal *block.Palette) block.MatchSet {
+	return pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:dirt"}}, nil, nil, nil)
+}
+
+// TestPlaceBaseClusterGroundwork_GateOnEmptyBaseBlock pins the base-cluster placement's OWN
+// internal gate: it is on the tree's base_block, not on base_cluster.may_replace. An absent
+// base_block skips everything, even with a positive num_clusters and a non-empty may_replace.
+// panicRandom proves zero draws.
+func TestPlaceBaseClusterGroundwork_GateOnEmptyBaseBlock(t *testing.T) {
 	v, pal := baseClusterTestVolume(t, 10)
-	bc := &baseCluster{numClusters: 5, clusterRadius: 2} // mayReplace zero-value == Empty()
+	bc := &baseCluster{
+		mayReplace:  pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:air"}}, nil, nil, nil),
+		numClusters: 5, clusterRadius: 2,
+	}
 	origin := wgen.BlockPos{X: 0, Y: 20, Z: 0}
-	placeBaseClusterGroundwork(v, origin, 2, panicRandom{}, bc)
+	placeBaseClusterGroundwork(v, origin, 2, panicRandom{}, bc, block.MatchSet{}, 0)
 	for x := -6; x <= 6; x++ {
 		for z := -6; z <= 6; z++ {
-			p := wgen.BlockPos{X: x, Y: 19, Z: z}
-			if got := v.GetBlock(p); !pal.IsAir(got) {
-				t.Fatalf("%v = %v, want air (empty may_replace must place nothing)", p, pal.Entry(got))
+			for y := 14; y <= 24; y++ {
+				p := wgen.BlockPos{X: x, Y: y, Z: z}
+				if got := v.GetBlock(p); !pal.IsAir(got) {
+					t.Fatalf("%v = %v, want air (an absent base_block must place nothing)", p, pal.Entry(got))
+				}
 			}
+		}
+	}
+}
+
+// TestReplaceBaseBlockAt_EmptyMayReplacePassesEverything pins the allow-list contract on the
+// cluster's own may_replace: an empty list passes every block, so the first probe -- two above
+// pos -- takes the target even though it is air.
+func TestReplaceBaseBlockAt_EmptyMayReplacePassesEverything(t *testing.T) {
+	v, pal := baseClusterTestVolume(t, 2)
+	podzol := pal.Get("minecraft:podzol", nil)
+	pos := wgen.BlockPos{X: 0, Y: 10, Z: 0}
+	replaceBaseBlockAt(v, pos, block.MatchSet{}, podzol)
+	for dy := -3; dy <= 2; dy++ {
+		want := dy == 2
+		if got := v.GetBlock(wgen.BlockPos{X: 0, Y: 10 + dy, Z: 0}) == podzol; got != want {
+			t.Errorf("dy=%d podzol=%v, want %v", dy, got, want)
 		}
 	}
 }
@@ -5494,15 +5519,14 @@ func TestPlaceBaseClusterGroundwork_FourCornersGeometry(t *testing.T) {
 	v, pal := baseClusterTestVolume(t, 15)
 	dirt := pal.Get("minecraft:dirt", nil)
 	bc := &baseCluster{
-		mayReplace:         pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:dirt"}, {Name: "minecraft:air"}}, nil, nil, nil),
-		mayReplaceFallback: dirt,
-		numClusters:        1,
-		clusterRadius:      1,
+		mayReplace:    pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:dirt"}, {Name: "minecraft:air"}}, nil, nil, nil),
+		numClusters:   1,
+		clusterRadius: 1,
 	}
 	origin := wgen.BlockPos{X: 0, Y: 20, Z: 0}
 	reach := 2
 	rnd := &intBoundScriptedRandom{vals: []int{27}}
-	placeBaseClusterGroundwork(v, origin, reach, rnd, bc)
+	placeBaseClusterGroundwork(v, origin, reach, rnd, bc, dirtSet(pal), dirt)
 	if rnd.idx != 1 {
 		t.Fatalf("draws consumed = %d, want exactly 1", rnd.idx)
 	}
@@ -5559,10 +5583,9 @@ func TestPlaceBaseClusterGroundwork_RandomLoopBorderSelection(t *testing.T) {
 	v, pal := baseClusterTestVolume(t, 20)
 	dirt := pal.Get("minecraft:dirt", nil)
 	bc := &baseCluster{
-		mayReplace:         pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:dirt"}, {Name: "minecraft:air"}}, nil, nil, nil),
-		mayReplaceFallback: dirt,
-		numClusters:        5,
-		clusterRadius:      1,
+		mayReplace:    pal.NewMatchSet([]block.Descriptor{{Name: "minecraft:dirt"}, {Name: "minecraft:air"}}, nil, nil, nil),
+		numClusters:   5,
+		clusterRadius: 1,
 	}
 	origin := wgen.BlockPos{X: 0, Y: 20, Z: 0}
 	pos := wgen.BlockPos{X: origin.X, Y: origin.Y - 1, Z: origin.Z}
@@ -5574,7 +5597,7 @@ func TestPlaceBaseClusterGroundwork_RandomLoopBorderSelection(t *testing.T) {
 	// r=31: qx=3,rem=7 -> rem==7 branch only.       offset=(4,0)
 	// r=27: qx=3,rem=3 -> interior, no branch.      no placement
 	rnd := &intBoundScriptedRandom{vals: []int{3, 59, 24, 31, 27}}
-	placeBaseClusterGroundwork(v, origin, reach, rnd, bc)
+	placeBaseClusterGroundwork(v, origin, reach, rnd, bc, dirtSet(pal), dirt)
 	if rnd.idx != 5 {
 		t.Fatalf("draws consumed = %d, want exactly 5 (one per num_clusters, ALWAYS drawn)", rnd.idx)
 	}
@@ -5740,6 +5763,9 @@ func TestTreeFeature_MegaTrunk_BaseCluster_EndToEnd(t *testing.T) {
 			"leaf_block":    "minecraft:leaves",
 		},
 		"may_replace": []any{"minecraft:air"},
+		// base_cluster lays base_block and is skipped without a draw when there is none. The
+		// ground is dirt already, so the footprint's own base-block write changes nothing.
+		"base_block": "minecraft:dirt",
 		"base_cluster": map[string]any{
 			"may_replace":    []any{"minecraft:dirt", "minecraft:air"},
 			"num_clusters":   float64(2),
@@ -8823,5 +8849,184 @@ func TestRoofedCanopy_CanopyHeightFromJSON(t *testing.T) {
 		if got != n {
 			t.Errorf("dy=%d: %d leaves, want %d", dy, got, n)
 		}
+	}
+}
+
+// --- base_block under wide trunks, and base_cluster's target ------------------------------------
+
+// wideTrunkGround is a grass floor at y=9 over dirt, wide enough for a mega trunk's clusters.
+func wideTrunkGround(t *testing.T) (*volume.Volume, *block.Palette) {
+	t.Helper()
+	pal := block.NewPalette()
+	air := pal.Get("minecraft:air", nil)
+	grass := pal.Get("minecraft:grass_block", nil)
+	dirt := pal.Get("minecraft:dirt", nil)
+	bounds := volume.Bounds{MinX: -12, MinY: 0, MinZ: -12, SizeX: 25, SizeY: 60, SizeZ: 25}
+	v := volume.New(bounds, pal, air)
+	for x := -12; x <= 12; x++ {
+		for z := -12; z <= 12; z++ {
+			for y := 5; y < 9; y++ {
+				v.SetBlock(wgen.BlockPos{X: x, Y: y, Z: z}, dirt)
+			}
+			v.SetBlock(wgen.BlockPos{X: x, Y: 9, Z: z}, grass)
+		}
+	}
+	return v, pal
+}
+
+func buildWideTree(t *testing.T, pal *block.Palette, body map[string]any) *TreeFeature {
+	t.Helper()
+	ctx := &BuildContext{Palette: pal, Identifier: "test:tree", FileID: "test:tree", Warn: func(string) {}}
+	f, err := buildTreeFeature(body, ctx)
+	if err != nil {
+		t.Fatalf("buildTreeFeature: %v", err)
+	}
+	return f.(*TreeFeature)
+}
+
+// TestAcaciaTrunk_BaseBlockUnderWholeFootprint pins base_block on the acacia trunk: every cell of
+// the trunk_width x trunk_width footprint that does not already match base_block becomes its first
+// entry -- here the 2x2 of grass under a dark-oak-shaped trunk turns to dirt. A footprint that
+// already matches is left alone, and nothing outside the footprint changes.
+func TestAcaciaTrunk_BaseBlockUnderWholeFootprint(t *testing.T) {
+	v, pal := wideTrunkGround(t)
+	grass, dirt := pal.Get("minecraft:grass_block", nil), pal.Get("minecraft:dirt", nil)
+	v.SetBlock(wgen.BlockPos{X: 1, Y: 9, Z: 1}, dirt) // already base_block: stays as it is
+	tf := buildWideTree(t, pal, map[string]any{
+		"acacia_trunk": map[string]any{
+			"trunk_width":  float64(2),
+			"trunk_height": map[string]any{"base": float64(5)},
+			"trunk_block":  "minecraft:dark_oak_log",
+			"trunk_lean": map[string]any{
+				"allow_diagonal_growth": false,
+				"lean_height":           map[string]any{"range_min": float64(0), "range_max": float64(0)},
+				"lean_steps":            map[string]any{"range_min": float64(0), "range_max": float64(0)},
+			},
+		},
+		"canopy": map[string]any{
+			"canopy_offset": map[string]any{"min": float64(0), "max": float64(0)},
+			"leaf_block":    "minecraft:dark_oak_leaves",
+		},
+		"base_block":  []any{"minecraft:dirt", "minecraft:podzol"},
+		"may_grow_on": []any{"minecraft:grass_block", "minecraft:dirt"},
+		"may_replace": []any{"minecraft:air"},
+	})
+	if placeTestTree(tf, v, wgen.BlockPos{X: 0, Y: 10, Z: 0}, random.New(3)) == nil {
+		t.Fatal("tree did not place")
+	}
+	for x := -2; x <= 3; x++ {
+		for z := -2; z <= 3; z++ {
+			want := grass
+			if x >= 0 && x <= 1 && z >= 0 && z <= 1 {
+				want = dirt
+			}
+			if got := v.GetBlock(wgen.BlockPos{X: x, Y: 9, Z: z}); got != want {
+				t.Errorf("(%d,9,%d) = %s, want %s", x, z, pal.NameOf(got), pal.NameOf(want))
+			}
+		}
+	}
+}
+
+// TestMegaTrunk_BaseBlockAndClustersWriteBaseBlock pins the mega trunk's two ground writes: its
+// 2x2 footprint takes base_block's first entry, and base_cluster lays base_block too -- NOT
+// base_cluster.may_replace's first entry, which is only the list of blocks a cluster may replace.
+// On flat grass with base_block podzol: the footprint is podzol, and each of the four corner
+// circles (radius 2: 5x5 less its corners, 21 cells) turns the grass at y-1 to podzol.
+func TestMegaTrunk_BaseBlockAndClustersWriteBaseBlock(t *testing.T) {
+	v, pal := wideTrunkGround(t)
+	podzol := pal.Get("minecraft:podzol", nil)
+	tf := buildWideTree(t, pal, map[string]any{
+		"mega_trunk": map[string]any{
+			"trunk_width":  float64(2),
+			"trunk_height": map[string]any{"base": float64(13)},
+			"trunk_block":  "minecraft:spruce_log",
+		},
+		"canopy": map[string]any{
+			"canopy_offset": map[string]any{"min": float64(0), "max": float64(0)},
+			"leaf_block":    "minecraft:spruce_leaves",
+		},
+		"base_block": "minecraft:podzol",
+		"base_cluster": map[string]any{
+			"may_replace":    []any{"minecraft:grass_block", "minecraft:dirt"},
+			"num_clusters":   float64(0),
+			"cluster_radius": float64(2),
+		},
+		"may_grow_on": []any{"minecraft:grass_block", "minecraft:dirt", "minecraft:podzol"},
+		"may_replace": []any{"minecraft:air", "minecraft:spruce_leaves"},
+	})
+	origin := wgen.BlockPos{X: 0, Y: 10, Z: 0}
+
+	// num_clusters 0: the footprint alone.
+	if placeTestTree(tf, v, origin, random.New(5)) == nil {
+		t.Fatal("tree did not place")
+	}
+	count := func() int {
+		n := 0
+		for x := -12; x <= 12; x++ {
+			for z := -12; z <= 12; z++ {
+				for y := 0; y < 60; y++ {
+					if v.GetBlock(wgen.BlockPos{X: x, Y: y, Z: z}) == podzol {
+						n++
+					}
+				}
+			}
+		}
+		return n
+	}
+	if got := count(); got != 4 {
+		t.Errorf("num_clusters 0: %d podzol, want 4 (the 2x2 footprint)", got)
+	}
+	for _, p := range []wgen.BlockPos{{X: 0, Y: 9, Z: 0}, {X: 1, Y: 9, Z: 0}, {X: 0, Y: 9, Z: 1}, {X: 1, Y: 9, Z: 1}} {
+		if v.GetBlock(p) != podzol {
+			t.Errorf("footprint cell %v is %s, want podzol", p, pal.NameOf(v.GetBlock(p)))
+		}
+	}
+
+	// A cluster pass: the four corner circles are unconditional once num_clusters > 0. Script
+	// the one random draw to an interior cell (27: qx 3, rem 3) so only the corners land.
+	v, pal = wideTrunkGround(t)
+	podzol = pal.Get("minecraft:podzol", nil)
+	tf = buildWideTree(t, pal, map[string]any{
+		"mega_trunk": map[string]any{
+			"trunk_width":  float64(2),
+			"trunk_height": map[string]any{"base": float64(13)},
+			"trunk_block":  "minecraft:spruce_log",
+		},
+		"canopy": map[string]any{
+			"canopy_offset": map[string]any{"min": float64(0), "max": float64(0)},
+			"leaf_block":    "minecraft:spruce_leaves",
+		},
+		"base_block": "minecraft:podzol",
+		"base_cluster": map[string]any{
+			"may_replace":    []any{"minecraft:grass_block", "minecraft:dirt"},
+			"num_clusters":   float64(1),
+			"cluster_radius": float64(2),
+		},
+		"may_grow_on": []any{"minecraft:grass_block", "minecraft:dirt", "minecraft:podzol"},
+		"may_replace": []any{"minecraft:air", "minecraft:spruce_leaves"},
+	})
+	placeBaseClusterGroundwork(v, origin, 2, &intBoundScriptedRandom{vals: []int{27}}, tf.baseCluster, tf.baseBlock, tf.baseBlockFallback)
+	// Corner centres (-1,-1), (2,-1), (-1,2), (2,2), each a 5x5 less corners at y=9; their union.
+	want := map[[2]int]bool{}
+	for _, c := range [][2]int{{-1, -1}, {2, -1}, {-1, 2}, {2, 2}} {
+		for dx := -2; dx <= 2; dx++ {
+			for dz := -2; dz <= 2; dz++ {
+				if abs(dx) == 2 && abs(dz) == 2 {
+					continue
+				}
+				want[[2]int{c[0] + dx, c[1] + dz}] = true
+			}
+		}
+	}
+	for x := -12; x <= 12; x++ {
+		for z := -12; z <= 12; z++ {
+			got := v.GetBlock(wgen.BlockPos{X: x, Y: 9, Z: z}) == podzol
+			if got != want[[2]int{x, z}] {
+				t.Errorf("(%d,9,%d) podzol=%v, want %v", x, z, got, want[[2]int{x, z}])
+			}
+		}
+	}
+	if got, n := count(), len(want); got != n {
+		t.Errorf("%d podzol in the volume, want %d (all at y=9)", got, n)
 	}
 }
