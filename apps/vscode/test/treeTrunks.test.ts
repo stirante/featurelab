@@ -392,7 +392,7 @@ describe('the surprising defaults', () => {
 })
 
 describe('keys the engine accepts and then ignores', () => {
-  // Refusing a key the game itself ignores breaks packs for nothing, so all three are modelled as
+  // Refusing a key the game itself ignores breaks packs for nothing, so both are modelled as
   // real optional fields whose documentation says they do nothing.
   const INERT = ['mangrove_trunk.trunk_width', 'mangrove_trunk.branches.branch_chance']
 
@@ -401,10 +401,15 @@ describe('keys the engine accepts and then ignores', () => {
       expect(BY_PATH.has(path), `${path} should be accepted, not dropped`).toBe(true)
       expect(fieldAt(path).required, path).toBe(false)
     }
+  })
+
+  it('documents trunk_decoration.num_steps as the run length less one, not as inert', () => {
     for (const key of TREE_TRUNK_VARIANTS) {
       const steps = BY_PATH.get(`${key}.trunk_decoration.num_steps`)
       if (steps === undefined) continue
       expect(steps.required, key).toBe(false)
+      const entry = TREE_TRUNK_DOCS[`${key}.trunk_decoration.num_steps`]
+      expect(`${entry?.summary}`, key).toMatch(/one less than the run length/)
     }
   })
 

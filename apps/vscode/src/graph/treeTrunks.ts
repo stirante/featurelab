@@ -551,11 +551,11 @@ function decorationDocs(variant: string, attachesTo: string): Record<string, Doc
         'is the spelling most trees use. Ignored when decoration_blocks_sequence is also present.',
     },
     [`${p}.num_steps`]: {
-      summary: 'Accepted here, but it changes nothing on a trunk decoration.',
+      summary: 'With decoration_block, one less than the run length.',
       detail:
-        'The number of blocks placed comes from each sequence entry\'s own count, and nothing ' +
-        'reads this key while placing them. It is accepted rather than refused so that a pack ' +
-        'that already writes it still loads.',
+        'A single decoration_block becomes a run of num_steps + 1 blocks, so 4 hangs five vines and ' +
+        'the default 0 hangs one. A decoration_blocks_sequence ignores it: there, each entry\'s own ' +
+        'count sets its run.',
     },
     [`${p}.step_direction`]: {
       summary: 'Which way a run of decoration blocks stacks from the log.',
