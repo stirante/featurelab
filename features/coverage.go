@@ -556,12 +556,10 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"written into the solid surface the column scan lands on, so a patch listing only " +
 			"`minecraft:air` there can never replace anything and drops every column unless the surface " +
 			"already holds `ground_block`. List the terrain materials the patch should eat into. Second, " +
-			"`waterlogged: true` places NOTHING here. The game still builds the ground patch and then " +
-			"hands the columns to a separate water-surface routine; this tool does not implement that " +
-			"routine, so it reports failure with zero blocks changed rather than showing you a dry patch " +
-			"the game would never have placed -- which means it also skips the ground writes the game " +
-			"does make. If you need a patch under water, leave `waterlogged` off and let the delegated " +
-			"vegetation feature's own `may_replace` include water.",
+			"`waterlogged: true` floods the patch: after the ground patch is built, a column whose " +
+			"ground cell is exposed (an open side, or an open cell below) is dropped, every other " +
+			"column's ground cell becomes water, and the vegetation grows in that water cell -- so the " +
+			"delegated vegetation feature's own `may_replace` has to include water.",
 		evidence: "surface: \"floor\" steps +1 in Y and \"ceiling\" steps -1; any other value is rejected " +
 			"(\"Bad value for surface\"). The int-range draw is min + nextIntBound(max-min) when min < " +
 			"max-1, else min (max exclusive). Placement: each horizontal_radius draw is used PLUS ONE, " +
@@ -573,9 +571,10 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"recorded cell, and the first cell the depth fill writes, is one step FURTHER than the air " +
 			"cell the walk stops in, so ground_block replaces the surface material and vegetation goes " +
 			"in the air cell. depth 0 goes straight to recording the column; only the fill loop's " +
-			"non-replaceable break checks whether the column wrote anything. waterlogged: the discard " +
-			"comes after every draw and ground write, and the water-surface pass is not modelled, so " +
-			"this port reports failure there (both horizontal_radius draws are still taken). " +
+			"non-replaceable break checks whether the column wrote anything. waterlogged: after every " +
+			"draw and ground write, pass 1 keeps the cells not exposed (neighbours z-1, x+1, z+1, x-1, " +
+			"y-1, each asked for support on the face pointing back), pass 2 sets water on each kept " +
+			"cell, and vegetation runs over the kept cells at y-1 plus the surface step. " +
 			"Unconfirmed strictness kept as-is: replaceable_blocks must be non-empty and vertical_range " +
 			">= 1.",
 	},

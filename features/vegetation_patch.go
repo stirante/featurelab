@@ -14,6 +14,12 @@
 //     would drop every column of a `depth: 0` patch.
 //  4. The column walk has a SECOND phase that climbs back out of solid
 //     ground, and its surface test is the block's support test, not "not air".
+//  5. waterlogged: true keeps the whole ground patch (every draw and every
+//     ground write), then filters its cells through placeWaterOnSurface: a
+//     cell survives only if it is not exposed, and every survivor is turned
+//     into water. The vegetation loop runs over the survivors only, one
+//     block lower than usual -- a floor patch grows its vegetation IN the
+//     water cell.
 //
 // surface: "floor" and "ceiling" are both implemented:
 //   - The surface value maps to an int: "floor" -> 1, "ceiling" -> 0 (i.e.
@@ -104,6 +110,7 @@ type VegetationPatchFeature struct {
 	horizontalRadius      vegIntRange
 	extraEdgeColumnChance float64
 	waterlogged           bool
+	waterID               block.ID // minecraft:water, for waterlogged patches
 	// surfaceDir mirrors the engine's per-face Y step for this feature's
 	// "surface" selector -- see module header. +1 for "floor" (ground is found by
 	// scanning downward, vegetation grows upward), -1 for "ceiling"
@@ -294,22 +301,13 @@ func (f *VegetationPatchFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPo
 	radiusX := vegIntRangeValue(f.horizontalRadius, ctx.Random)
 	radiusZ := vegIntRangeValue(f.horizontalRadius, ctx.Random)
 
-	// waterlogged: true -- DIVERGENCE, deliberate. The discard is at the BOTTOM of the ground-patch
-	// placement, not the top: the engine walks the whole patch first,
-	// spending every extra-edge/extra-deep/depth draw and writing every
-	// ground block, and only then hands the collected positions to its
-	// water-on-surface pass and frees them.
-	// What it returns after that is genuinely INDETERMINATE -- that branch
-	// has no defined result, unlike the non-waterlogged one. This port keeps
-	// its "no cells" reading because there is no defined answer to match, but the two draws above now happen
-	// either way, and the ground writes and per-column draws it still skips
-	// are recorded in the coverage note rather than modelled.
-	if f.waterlogged {
-		LogFailure(ctx, vegetationPatchTypeID, "Vegetation could not be placed")
-		return nil
-	}
-
 	cells := f.placeGroundPatch(ctx, radiusX+1, radiusZ+1)
+	// waterlogged: the ground patch is built exactly as above, then its
+	// cells are filtered and flooded. Before the empty check, so a patch
+	// whose every cell is exposed fails like an empty one.
+	if f.waterlogged {
+		cells = f.placeWaterOnSurface(ctx.API, cells)
+	}
 	if len(cells) == 0 {
 		LogFailure(ctx, vegetationPatchTypeID, "Vegetation could not be placed")
 		return nil
@@ -328,10 +326,14 @@ func (f *VegetationPatchFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPo
 			// Y step added to the ground row: +1 (floor, grows upward away
 			// from the ground) or -1 (ceiling, grows downward away from the
 			// ceiling). cell.pos is the GROUND cell, so this lands on the air
-			// cell the column walk stopped in. (The engine's waterlogged
-			// variant subtracts one more first; unreachable here -- see the
-			// waterlogged note above.)
-			vegPos := wgen.BlockPos{X: cell.pos.X, Y: cell.pos.Y + f.surfaceDir, Z: cell.pos.Z}
+			// cell the column walk stopped in. A waterlogged patch subtracts
+			// one first: a floor patch grows in the water cell (cell.pos
+			// itself), a ceiling patch two below the ground cell.
+			vegY := cell.pos.Y
+			if f.waterlogged {
+				vegY--
+			}
+			vegPos := wgen.BlockPos{X: cell.pos.X, Y: vegY + f.surfaceDir, Z: cell.pos.Z}
 			subCtx := ctx.WithOrigin(vegPos)
 			// Result intentionally ignored -- every kept cell always
 			// attempts placement, matching this codebase's "run everything"
@@ -343,6 +345,50 @@ func (f *VegetationPatchFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPo
 	last := cells[len(cells)-1].pos
 	result := last
 	return &result
+}
+
+// placeWaterOnSurface is the waterlogged filter over the ground cells. Pass 1
+// keeps, in list order, every cell that is not exposed, and writes nothing --
+// so the exposure test sees the world after every ground write and before
+// any water. Pass 2 sets water on every kept cell (the ground cell itself,
+// so the top ground block becomes water). The kept cells are returned, in
+// order. No RNG.
+func (f *VegetationPatchFeature) placeWaterOnSurface(api wgen.BlockWorld, cells []vegGroundCell) []vegGroundCell {
+	kept := make([]vegGroundCell, 0, len(cells))
+	for _, c := range cells {
+		if !vegIsExposed(api, c.pos) {
+			kept = append(kept, c)
+		}
+	}
+	for _, c := range kept {
+		api.SetBlock(c.pos, f.waterID)
+	}
+	return kept
+}
+
+// vegIsExposed reports whether a ground cell would leak once turned to water:
+// true at the first of five neighbours that cannot support it on the face
+// pointing back at it. The order is z-1, x+1, z+1, x-1, y-1; nothing above
+// the cell is checked, and the surface selector plays no part.
+func vegIsExposed(api wgen.BlockWorld, p wgen.BlockPos) bool {
+	pal := api.Palette()
+	checks := [...]struct {
+		dx, dy, dz int
+		face       block.Face
+	}{
+		{0, 0, -1, block.FaceSouth},
+		{1, 0, 0, block.FaceWest},
+		{0, 0, 1, block.FaceNorth},
+		{-1, 0, 0, block.FaceEast},
+		{0, -1, 0, block.FaceUp},
+	}
+	for _, c := range checks {
+		id := api.GetBlock(wgen.BlockPos{X: p.X + c.dx, Y: p.Y + c.dy, Z: p.Z + c.dz})
+		if !block.CanProvideSupport(pal.NameOf(id), pal.StatesOf(id), c.face) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildVegetationPatchFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, error) {
@@ -437,6 +483,7 @@ func buildVegetationPatchFeature(body map[string]any, ctx *BuildContext) (wgen.I
 		horizontalRadius:      horizontalRadius,
 		extraEdgeColumnChance: extraEdgeColumnChance,
 		waterlogged:           waterlogged,
+		waterID:               ctx.Palette.Resolve(block.NameDescriptor("minecraft:water")),
 		surfaceDir:            surfaceDir,
 		resolver:              ctx.Resolver,
 	}, nil
