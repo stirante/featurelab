@@ -112,12 +112,12 @@ func TestHeightDifferenceFilter_FlatTerrainNoConstraints_Delegates(t *testing.T)
 
 // TestHeightDifferenceFilter_SearchRadiusZero pins the search_radius<1
 // special case: result = (min_required_upward absent) AND
-// (max_allowed_upward absent), independent of terrain.
+// (min_required_downward absent), independent of terrain.
 func TestHeightDifferenceFilter_SearchRadiusZero(t *testing.T) {
 	origin := wgen.BlockPos{X: 0, Y: 70, Z: 0}
 	v, pal := newHDFTestVolume(t, 69, origin.Y)
 
-	t.Run("neither upward field set -> passes", func(t *testing.T) {
+	t.Run("neither min field set -> passes", func(t *testing.T) {
 		delegate := &stubDelegate{}
 		resolver := stubResolver{delegate: delegate}
 		f := buildTestHDF(t, pal, resolver, map[string]any{
@@ -126,7 +126,7 @@ func TestHeightDifferenceFilter_SearchRadiusZero(t *testing.T) {
 		})
 		got, _ := placeTestHDF(f, v, origin, random.New(1))
 		if got == nil || !delegate.called {
-			t.Error("want gate to pass and delegate to fire when neither upward field is set")
+			t.Error("want gate to pass and delegate to fire when neither min field is set")
 		}
 	})
 
@@ -236,5 +236,110 @@ func TestHeightDifferenceFilter_RequiresSearchRadius(t *testing.T) {
 	_, err := buildHeightDifferenceFilterFeature(map[string]any{"places_feature": "test:delegate"}, ctx)
 	if err == nil {
 		t.Error("want an error when search_radius is missing")
+	}
+}
+
+// TestHeightDifferenceFilter_SearchRadiusZero_OnlyTheMinKeysDecide: with
+// nothing sampled the two limits have nothing to refuse, and the two
+// requirements can never be met.
+func TestHeightDifferenceFilter_SearchRadiusZero_OnlyTheMinKeysDecide(t *testing.T) {
+	origin := wgen.BlockPos{X: 0, Y: 70, Z: 0}
+	v, pal := newHDFTestVolume(t, 69, origin.Y)
+	cases := []struct {
+		key  string
+		want bool
+	}{
+		{"max_allowed_upward_height_diff", true},
+		{"max_allowed_downward_height_diff", true},
+		{"min_required_upward_height_diff", false},
+		{"min_required_downward_height_diff", false},
+	}
+	for _, c := range cases {
+		delegate := &stubDelegate{}
+		f := buildTestHDF(t, pal, stubResolver{delegate: delegate}, map[string]any{
+			"places_feature": "test:delegate",
+			"search_radius":  float64(0),
+			c.key:            float64(1),
+		})
+		got, _ := placeTestHDF(f, v, origin, random.New(1))
+		if (got != nil) != c.want {
+			t.Errorf("search_radius 0 with only %s: placed=%v, want %v", c.key, got != nil, c.want)
+		}
+	}
+}
+
+// TestHeightDifferenceFilter_MaxAllowedUpward_IsALimit: a column within the
+// radius that rises MORE than max_allowed_upward_height_diff refuses the
+// point; one that rises exactly that much does not.
+func TestHeightDifferenceFilter_MaxAllowedUpward_IsALimit(t *testing.T) {
+	origin := wgen.BlockPos{X: 0, Y: 70, Z: 0} // floor 69, so flat h == 70 == origin.Y
+	for _, c := range []struct {
+		rise int
+		want bool
+	}{{0, true}, {2, true}, {3, false}} {
+		v, pal := newHDFTestVolume(t, 69, origin.Y)
+		if c.rise > 0 {
+			raiseColumn(v, pal, 0, 69+c.rise, -2) // h = 70 + rise, two steps north
+		}
+		delegate := &stubDelegate{}
+		f := buildTestHDF(t, pal, stubResolver{delegate: delegate}, map[string]any{
+			"places_feature":                 "test:delegate",
+			"search_radius":                  float64(3),
+			"max_allowed_upward_height_diff": float64(2),
+		})
+		got, _ := placeTestHDF(f, v, origin, random.New(1))
+		if (got != nil) != c.want {
+			t.Errorf("rise %d with max_allowed_upward 2: placed=%v, want %v", c.rise, got != nil, c.want)
+		}
+	}
+}
+
+// TestHeightDifferenceFilter_MinRequiredDownward_IsARequirement: flat ground
+// never meets it; one column that drops at least min_required_downward_height_diff
+// anywhere within the radius does.
+func TestHeightDifferenceFilter_MinRequiredDownward_IsARequirement(t *testing.T) {
+	origin := wgen.BlockPos{X: 0, Y: 70, Z: 0}
+	for _, c := range []struct {
+		drop int
+		want bool
+	}{{0, false}, {1, false}, {2, true}, {5, true}} {
+		v, pal := newHDFTestVolume(t, 69, origin.Y)
+		if c.drop > 0 {
+			digColumn(v, pal, 3, 69-c.drop, 0, 69) // h = 70 - drop, three steps east
+		}
+		delegate := &stubDelegate{}
+		f := buildTestHDF(t, pal, stubResolver{delegate: delegate}, map[string]any{
+			"places_feature":                    "test:delegate",
+			"search_radius":                     float64(3),
+			"min_required_downward_height_diff": float64(2),
+		})
+		got, _ := placeTestHDF(f, v, origin, random.New(1))
+		if (got != nil) != c.want {
+			t.Errorf("drop %d with min_required_downward 2: placed=%v, want %v", c.drop, got != nil, c.want)
+		}
+	}
+}
+
+// TestHeightDifferenceFilter_DownPairOnAPlateauEdge: min_down 2 with
+// max_down 4 -- a drop of 3 passes, a drop of 5 is over the limit.
+func TestHeightDifferenceFilter_DownPairOnAPlateauEdge(t *testing.T) {
+	origin := wgen.BlockPos{X: 0, Y: 70, Z: 0}
+	for _, c := range []struct {
+		drop int
+		want bool
+	}{{3, true}, {5, false}} {
+		v, pal := newHDFTestVolume(t, 69, origin.Y)
+		digColumn(v, pal, 0, 69-c.drop, 1, 69) // one step south
+		delegate := &stubDelegate{}
+		f := buildTestHDF(t, pal, stubResolver{delegate: delegate}, map[string]any{
+			"places_feature":                    "test:delegate",
+			"search_radius":                     float64(2),
+			"min_required_downward_height_diff": float64(2),
+			"max_allowed_downward_height_diff":  float64(4),
+		})
+		got, _ := placeTestHDF(f, v, origin, random.New(1))
+		if (got != nil) != c.want {
+			t.Errorf("drop %d: placed=%v, want %v", c.drop, got != nil, c.want)
+		}
 	}
 }
