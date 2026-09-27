@@ -194,7 +194,7 @@ function attachMapDocs(): Record<string, DocEntry> {
  * only thing that changes; what the exemption IS belongs to `exposed_face` itself. */
 function exposedFaceDoc(face: string): DocEntry {
   return {
-    summary: `Leaves the ${face} neighbour out of the water test.`,
+    summary: `Leaves the ${face} neighbour out of the air-and-water test.`,
   }
 }
 
@@ -705,7 +705,7 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
   'minecraft:partially_exposed_blob_feature': {
     places_block: {
       summary: 'The block the blob is made of.',
-      detail: 'Every position that passes the water test is written with it; there is no second block.',
+      detail: 'Every position that passes the air-and-water test is written with it; there is no second block.',
     },
     placement_radius_around_floor: {
       summary: 'How wide the blob spreads, measured from one below the origin.',
@@ -718,13 +718,13 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
       detail: 'Rolled independently per position, which is what makes the blob ragged instead of a solid ball.',
     },
     exposed_face: {
-      summary: 'The one direction the blob is allowed to touch water in.',
+      summary: 'The one direction the blob is allowed to touch air or water in.',
       detail:
-        'The position itself and its other five neighbours must each NOT be water, or nothing is ' +
-        'placed there. The named face is simply skipped -- neither required to be water nor ' +
-        'required not to be -- which is what "exposed" means here. So this is not a facing or an ' +
-        'orientation: it is the single exemption from an otherwise all-round water test, and the ' +
-        'six values below differ only in which neighbour gets it.',
+        'The position itself and its other five neighbours must each be neither air nor water, or ' +
+        'nothing is placed there. The named face is simply skipped -- it may be air, water or ' +
+        'anything else -- which is what "exposed" means here. So this is not a facing or an ' +
+        'orientation: it is the single exemption from an otherwise all-round test, and the six ' +
+        'values below differ only in which neighbour gets it.',
     },
   },
 
