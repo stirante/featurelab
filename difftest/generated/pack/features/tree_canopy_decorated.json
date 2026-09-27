@@ -53,10 +53,7 @@
           "numerator": 1,
           "denominator": 4
         },
-        "num_steps": {
-          "range_min": 1,
-          "range_max": 4
-        },
+        "num_steps": 3,
         "step_direction": "down"
       }
     },

@@ -30,6 +30,7 @@ func BuildCatalog(repoRoot string) (*Catalog, error) {
 	b.carvers(fx)
 	b.structuresAndFossils(fx)
 	b.newTypes(fx)
+	b.anchorRules()
 
 	if len(b.errs) > 0 {
 		return nil, fmt.Errorf("catalog errors:\n  %s", strings.Join(b.errs, "\n  "))
@@ -114,7 +115,7 @@ func (b *builder) trees(fx, vt map[string]string) {
 	             "variation_chance": [{"numerator": 1, "denominator": 2}, {"numerator": 1, "denominator": 3},
 	                                  {"numerator": 1, "denominator": 4}, {"numerator": 1, "denominator": 1}, {"numerator": 1, "denominator": 1}],
 	             "canopy_decoration": {"decoration_block": "minecraft:vine", "decoration_chance": {"numerator": 1, "denominator": 4},
-	                                   "num_steps": {"range_min": 1, "range_max": 4}, "step_direction": "down"}},
+	                                   "num_steps": 3, "step_direction": "down"}},
 	  "base_block": ["minecraft:dirt"], "may_grow_on": ["minecraft:dirt", "minecraft:grass_block"],
 	  "may_replace": ["minecraft:air", "minecraft:jungle_leaves", "minecraft:vine"],
 	  "may_grow_through": ["minecraft:air", "minecraft:grass_block", "minecraft:dirt"]}`)
@@ -313,7 +314,7 @@ func (b *builder) snaps(fx map[string]string) {
 		id := fx[old]
 		b.test(Test{ID: strings.TrimPrefix(id, Namespace+":"), FeatureID: id, Type: "minecraft:snap_to_surface_feature",
 			Group: "snap/fixture", Source: "docs/wiki/tools/fixtures", Place: [3]int{0, 6, 0},
-			Metrics: []string{"success", "block:minecraft:pumpkin", "block:minecraft:jack_o_lantern", "bbox.minY"}})
+			Metrics: []string{"success", "block:minecraft:pumpkin", "block:minecraft:lit_pumpkin", "bbox.minY"}})
 	}
 	scatterOf := func(name, target string, y int, spread int) string {
 		return b.feature("scatter_feature", name, fmt.Sprintf(`{"places_feature": %q,
@@ -387,7 +388,7 @@ func (b *builder) composites(fx map[string]string) {
 		b.test(Test{ID: strings.TrimPrefix(id, Namespace+":"), FeatureID: id, Type: typ, Group: group,
 			Source: "docs/wiki/tools/fixtures", Region: region, Metrics: metrics})
 	}
-	pumpkins := []string{"success", "placed", "block:minecraft:pumpkin", "block:minecraft:jack_o_lantern", "block:minecraft:gold_block", "clusters"}
+	pumpkins := []string{"success", "placed", "block:minecraft:pumpkin", "block:minecraft:lit_pumpkin", "block:minecraft:gold_block", "clusters"}
 	fixture("wiki:aggregate_pumpkin_pair", "minecraft:aggregate_feature", "aggregate/fixture", regionScatter, pumpkins)
 	fixture("wiki:matchmode_bare_vs_stated", "minecraft:aggregate_feature", "aggregate/fixture", regionSmall, pumpkins)
 	b.feature("aggregate_feature", "aggregate_first_success", `{"features": ["difftest:blk_fail", "difftest:blk_gold", "difftest:blk_emerald"], "early_out": "first_success"}`)
@@ -524,7 +525,7 @@ func (b *builder) singleBlocks(fx map[string]string) {
 	sbMetrics := []string{"success", "placed", "clusters"}
 	b.test(Test{ID: "fx_pumpkin_patch_block", FeatureID: fx["wiki:pumpkin_patch_block"], Type: "minecraft:single_block_feature",
 		Group: "single_block/fixture", Source: "docs/wiki/tools/fixtures",
-		Metrics: []string{"success", "block:minecraft:pumpkin", "block:minecraft:jack_o_lantern"}, Note: "weighted places_block 3:1"})
+		Metrics: []string{"success", "block:minecraft:pumpkin", "block:minecraft:lit_pumpkin"}, Note: "weighted places_block 3:1"})
 	b.test(Test{ID: "fx_blocked_gold_block", FeatureID: fx["wiki:blocked_gold_block"], Type: "minecraft:single_block_feature",
 		Group: "single_block/fixture", Source: "docs/wiki/tools/fixtures", Metrics: []string{"success"}, Note: "may_replace stone over air: refused"})
 	b.test(Test{ID: "fx_hanging_roots", FeatureID: fx["wiki:hanging_roots_ceiling_block"], Type: "minecraft:single_block_feature",
@@ -760,7 +761,7 @@ func (b *builder) newTypes(fx map[string]string) {
 
 	b.raw("blocks/totem.json", `{"format_version": "1.26.50", "minecraft:block": {"description": {"identifier": "difftest:totem",
 	  "traits": {"minecraft:multi_block": {"enabled_states": ["minecraft:multi_block_part"], "parts": 3, "direction": "up"}}},
-	  "components": {}}}`)
+	  "components": {"minecraft:movable": {"movement_type": "immovable"}}}}`)
 	b.featureFV("1.26.50", "multi_block_feature", "multi_block_totem", `{"places_block": "difftest:totem", "may_replace": ["minecraft:air"]}`)
 	b.test(Test{ID: "multi_block_totem", Type: "minecraft:multi_block_feature", Group: "multi_block",
 		Metrics: []string{"success", "placed", "block:difftest:totem", "bbox.dy"}, Note: "a three-part custom block, stacked up"})
