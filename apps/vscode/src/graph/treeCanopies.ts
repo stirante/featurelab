@@ -762,8 +762,12 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
     detail: 'One block for the whole crown; the alternating bands are a change of width, not of block, so they read as one material throughout.',
   },
   'spruce_canopy.lower_offset': {
-    summary: 'How far below the trunk top the crown reaches, drawn per tree.',
-    detail: 'A range, so it wants range_min and range_max. Together with the upper offset it sets how many bands there is room for.',
+    summary: 'How far above the ground the crown stops, drawn per tree.',
+    detail:
+      'A range, so it wants range_min and range_max. The canopy looks straight down from the trunk top for ' +
+      'the first block in may_grow_on -- the ground the trunk stands on -- and its lowest layer sits this ' +
+      'many cells above that, so that many logs at the foot of the trunk stay bare. Together with the upper ' +
+      'offset it sets how many bands there is room for.',
   },
   'spruce_canopy.upper_offset': {
     summary: 'How far above the trunk top the crown starts, drawn per tree.',

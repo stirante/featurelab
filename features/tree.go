@@ -224,7 +224,7 @@
 // The leaf gate inside the ring is the SAME material test as the simple
 // canopy's (air, leaves, or a plant that can be built over -- see
 // canopyLeafReplaceable), with no may_replace term. The ground search's gate, by contrast, is
-// a plain allow-list check on (api, pos, may_replace) with no OR-air
+// a plain allow-list check on may_grow_on with no OR-air
 // fallback -- an out-of-bounds/unloaded read that happens to look like air
 // must NOT count as "found ground".
 //
@@ -1450,14 +1450,14 @@ func (c *spruceCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd rand
 	}
 
 	// Ground search. Walks straight down from the anchor testing the
-	// placement allow-list check (NOT the OR-air fallback above -- see the
-	// file header) until a candidate passes, or aborts (drawing NOTHING) if
-	// MinY is reached first.
+	// allow-list check against may_grow_on (not may_replace, and not the
+	// leaf gate above -- see the file header) until a candidate passes, or
+	// aborts (drawing NOTHING) if MinY is reached first.
 	y := anchor.Y
 	for {
 		TickDeadline("searching downward for a canopy anchor")
 		candidate := wgen.BlockPos{X: anchor.X, Y: y - 1, Z: anchor.Z}
-		if passesAllowList(api.GetBlock(candidate), params.mayReplace) {
+		if passesAllowList(api.GetBlock(candidate), params.mayGrowOn) {
 			break
 		}
 		if y <= api.MinY() {
