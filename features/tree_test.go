@@ -94,6 +94,59 @@ func TestSimpleCanopy_RunMultipliesRiseDivides(t *testing.T) {
 	}
 }
 
+// TestSimpleCanopy_DefaultsGiveTheOakCrown pins what a canopy with no min_width and no
+// canopy_slope builds, end to end from the JSON: the defaults are min_width 1, rise 2, run 1, so
+// over canopy_offset -3..0 the layers are radii 2, 2, 1, 1 (5 wide at the base, 25+25+9+9 = 68
+// cells with no variation_chance). min_width 2 widens every layer by one: 3, 3, 2, 2 (7 wide,
+// 49+49+25+25 = 148 cells).
+func TestSimpleCanopy_DefaultsGiveTheOakCrown(t *testing.T) {
+	for _, tc := range []struct {
+		minWidth  any // nil: key absent
+		wantRadii []int
+		wantCount int
+	}{
+		{nil, []int{2, 2, 1, 1}, 68},
+		{float64(2), []int{3, 3, 2, 2}, 148},
+	} {
+		pal := block.NewPalette()
+		body := simpleTreeBody(map[string]any{"canopy_offset": map[string]any{"min": float64(-3), "max": float64(0)}})
+		canopy := body["canopy"].(map[string]any)
+		delete(canopy, "min_width")
+		if tc.minWidth != nil {
+			canopy["min_width"] = tc.minWidth
+		}
+		ctx := &BuildContext{Palette: pal, Identifier: "test:tree", FileID: "test:tree", Warn: func(string) {}}
+		f, err := buildTreeFeature(body, ctx)
+		if err != nil {
+			t.Fatalf("buildTreeFeature: %v", err)
+		}
+		c := f.(*TreeFeature).canopy.(*simpleCanopy)
+
+		v, vpal := newTreeTestVolume(t, 10)
+		c.leafID = vpal.Get("minecraft:oak_leaves", nil)
+		anchor := wgen.BlockPos{X: 0, Y: 15, Z: 0}
+		c.place(v, anchor, random.New(1), treeParamsLists{}, nil)
+		count := 0
+		for i, dy := 0, -3; dy <= 0; i, dy = i+1, dy+1 {
+			r := tc.wantRadii[i]
+			for dx := -6; dx <= 6; dx++ {
+				for dz := -6; dz <= 6; dz++ {
+					got := v.GetBlock(wgen.BlockPos{X: dx, Y: anchor.Y + dy, Z: dz}) == c.leafID
+					if got {
+						count++
+					}
+					if want := abs(dx) <= r && abs(dz) <= r; got != want {
+						t.Errorf("min_width %v: dy=%d (%d,%d) leaf=%v, want %v (radius %d)", tc.minWidth, dy, dx, dz, got, want, r)
+					}
+				}
+			}
+		}
+		if count != tc.wantCount {
+			t.Errorf("min_width %v: %d leaves, want %d", tc.minWidth, count, tc.wantCount)
+		}
+	}
+}
+
 // --- treeIntRangeValue: the game's int-range draw formula ---------------------------------------
 
 // TestTreeIntRangeValue_DegenerateDrawsNothing pins the int-range draw's degenerate
@@ -212,7 +265,7 @@ func TestBuildTreeFeature_CanopyKey_SchemaValidation(t *testing.T) {
 			t.Error("want error, got nil")
 		}
 	})
-	t.Run("min_width optional, defaults to 0", func(t *testing.T) {
+	t.Run("min_width optional, defaults to 1", func(t *testing.T) {
 		body := simpleTreeBody(nil)
 		delete(body["canopy"].(map[string]any), "min_width")
 		f, err := buildTreeFeature(body, ctx)
@@ -220,20 +273,40 @@ func TestBuildTreeFeature_CanopyKey_SchemaValidation(t *testing.T) {
 			t.Fatalf("want success, got %v", err)
 		}
 		sc := f.(*TreeFeature).canopy.(*simpleCanopy)
-		if sc.minWidth != 0 {
-			t.Errorf("minWidth = %d, want 0", sc.minWidth)
+		if sc.minWidth != 1 {
+			t.Errorf("minWidth = %d, want 1", sc.minWidth)
 		}
 	})
-	t.Run("canopy_slope optional, defaults to rise=run=1", func(t *testing.T) {
+	t.Run("canopy_slope optional, defaults to rise=2 run=1", func(t *testing.T) {
 		f, err := buildTreeFeature(simpleTreeBody(nil), ctx)
 		if err != nil {
 			t.Fatalf("want success, got %v", err)
 		}
 		sc := f.(*TreeFeature).canopy.(*simpleCanopy)
-		if sc.rise != 1 || sc.run != 1 {
-			t.Errorf("rise=%d run=%d, want 1,1", sc.rise, sc.run)
+		if sc.rise != 2 || sc.run != 1 {
+			t.Errorf("rise=%d run=%d, want 2,1", sc.rise, sc.run)
 		}
 	})
+	for _, tc := range []struct {
+		name              string
+		slope             map[string]any
+		wantRise, wantRun int
+	}{
+		{"canopy_slope with run only keeps rise 2", map[string]any{"run": float64(3)}, 2, 3},
+		{"canopy_slope with rise only keeps run 1", map[string]any{"rise": float64(4)}, 4, 1},
+		{"empty canopy_slope keeps both defaults", map[string]any{}, 2, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := buildTreeFeature(simpleTreeBody(map[string]any{"canopy_slope": tc.slope}), ctx)
+			if err != nil {
+				t.Fatalf("want success, got %v", err)
+			}
+			sc := f.(*TreeFeature).canopy.(*simpleCanopy)
+			if sc.rise != tc.wantRise || sc.run != tc.wantRun {
+				t.Errorf("rise=%d run=%d, want %d,%d", sc.rise, sc.run, tc.wantRise, tc.wantRun)
+			}
+		})
+	}
 	for _, tc := range []struct {
 		name  string
 		extra map[string]any

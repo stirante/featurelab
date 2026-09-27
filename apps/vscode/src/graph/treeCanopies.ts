@@ -140,14 +140,14 @@ const VARIANT_ENTRIES: Readonly<Record<string, readonly FieldSpec[]>> = {
       ],
       source: 'builder',
     },
-    { key: 'min_width', kind: 'integer', required: false, default: '0', source: 'builder' },
+    { key: 'min_width', kind: 'integer', required: false, default: '1', source: 'builder' },
     {
       key: 'canopy_slope',
       kind: 'group',
       required: false,
-      default: 'a 1-to-1 slope -- one step of radius per layer',
+      default: 'rise 2, run 1 -- one step of radius every other layer',
       entry: [
-        { key: 'rise', kind: 'integer', required: false, default: '1', source: 'builder' },
+        { key: 'rise', kind: 'integer', required: false, default: '2', source: 'builder' },
         { key: 'run', kind: 'integer', required: false, default: '1', source: 'builder' },
       ],
       source: 'builder',
@@ -368,8 +368,8 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
     detail:
       'The bare word is a real shape with its own key set, not a default that turns into one of the ' +
       'others. Each layer\'s half-width is min_width plus the drop from the top layer\'s slope to this ' +
-      'one\'s, so with the default 1-to-1 slope and canopy_offset {min: -3, max: 0} the radii run 3, 2, ' +
-      '1, 0 from the bottom up -- the familiar oak crown.',
+      'one\'s, so with the defaults (min_width 1, rise 2, run 1) and canopy_offset {min: -3, max: 0} the ' +
+      'radii run 2, 2, 1, 1 from the bottom up -- the familiar 5-wide oak crown.',
   },
   'canopy.leaf_block': {
     summary: 'The block every layer of the crown is built from.',
@@ -394,7 +394,7 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
   },
   'canopy.min_width': {
     summary: 'A half-width added to every layer, including the topmost.',
-    detail: 'It widens the crown uniformly rather than changing its taper; canopy_slope is what changes the taper. Must be 0 or more.',
+    detail: 'It widens the crown uniformly rather than changing its taper; canopy_slope is what changes the taper. Absent means 1, so write 0 for a crown that narrows to a single block. Must be 0 or more.',
   },
   'canopy.canopy_slope': {
     summary: 'How fast the layers widen going down: run steps of width for every rise layers.',
@@ -402,7 +402,8 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
       'The names read backwards: run is the one multiplied by the layer\'s distance and rise is the one ' +
       'divided by, so each layer below the top is run / rise wider (rounded toward zero). {rise: 1, run: 2} ' +
       'adds two blocks of half-width per layer -- a wide, flat stepped pyramid -- while {rise: 2, run: 1} ' +
-      'adds one every other layer. Both must be at least 1; the game refuses the file otherwise.',
+      'adds one every other layer. {rise: 2, run: 1} is also what you get with the key absent, and each ' +
+      'member left out keeps its own default. Both must be at least 1; the game refuses the file otherwise.',
   },
   'canopy.canopy_slope.rise': { summary: 'The divisor of the taper: how many layers one step of width is spread over.', detail: 'Raising it makes a narrower, more column-like crown. Must be at least 1.' },
   'canopy.canopy_slope.run': { summary: 'The multiplier of the taper: how much half-width each step adds.', detail: 'Raising it makes a wider, flatter crown. Must be at least 1.' },
