@@ -58,9 +58,10 @@
 //
 //	int   canopy_offset.min   (required)
 //	int   canopy_offset.max   (required)
-//	int   min_width           (optional, default 0, schema minimum 0)
-//	float canopy_slope's "rise" operand, PRE-CONVERTED to 1.0/rise (0.0 when rise is 0)
-//	int   canopy_slope's "run" operand, kept as a raw int
+//	int   min_width           (optional, default 1, schema minimum 0)
+//	float canopy_slope's "rise" operand, PRE-CONVERTED to 1.0/rise (0.0 when rise is 0);
+//	      optional, default 2
+//	int   canopy_slope's "run" operand, kept as a raw int; optional, default 1
 //	block descriptor: leaf_block (required)
 //	chance value: canopy_decoration's own gate (validity check)
 //	chance value array: variation_chance, indexed
@@ -74,6 +75,12 @@
 // well, and it is what this port reproduces; the key names are just
 // misleading. rise, run and min_width all carry a schema minimum (1, 1 and 0
 // respectively), so a value below it is refused at load time.
+//
+// Each of the three defaults on its own when its key is absent: a canopy with
+// no canopy_slope and no min_width is {min_width 1, rise 2, run 1}, and
+// `canopy_slope: {"run": 2}` keeps rise at 2. Over the usual canopy_offset
+// -3..0 those defaults give layer radii 2, 2, 1, 1 -- the familiar 5-wide
+// oak crown -- and min_width 2 widens every layer by one (3, 3, 2, 2).
 //
 // Per-tree algorithm (ZERO RNG unless variation_chance is configured):
 //
@@ -6504,7 +6511,9 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 			if !ok {
 				return nil, fmt.Errorf("canopy.canopy_offset.max is required and must be a number")
 			}
-			minWidth := 0
+			// Defaults when the key is absent: min_width 1, rise 2, run 1 -- each
+			// independently. See the file header.
+			minWidth := 1
 			if raw, present := c["min_width"]; present {
 				minWidthF, ok := raw.(float64)
 				if !ok {
@@ -6512,7 +6521,7 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 				}
 				minWidth = int(minWidthF)
 			}
-			rise, run := 1, 1
+			rise, run := 2, 1
 			if raw, present := c["canopy_slope"]; present {
 				slopeRaw, ok := raw.(map[string]any)
 				if !ok {
@@ -6542,9 +6551,9 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 				min      int
 				fallback string
 			}{
-				{"canopy.min_width", minWidth, 0, "omit the key for 0"},
-				{"canopy.canopy_slope.rise", rise, 1, "omit the key for 1"},
-				{"canopy.canopy_slope.run", run, 1, "omit the key for 1"},
+				{"canopy.min_width", minWidth, 0, "omit the key for the default of 1"},
+				{"canopy.canopy_slope.rise", rise, 1, "omit the key for the default of 2"},
+				{"canopy.canopy_slope.run", run, 1, "omit the key for the default of 1"},
 			} {
 				if bound.value < bound.min {
 					return nil, fmt.Errorf("%s is %d, below the engine's schema minimum of %d -- the real "+
