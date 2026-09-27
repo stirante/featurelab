@@ -665,31 +665,6 @@ func TestSimpleCanopy_Place_StepPyramid_CrossSections(t *testing.T) {
 	}
 }
 
-// TestSimpleCanopy_Place_RespectsMayReplace proves the leaf gate is real: with a NON-empty
-// may_replace list (an empty list means "no restriction" in this codebase's passesAllowList
-// convention -- see tree.go's own doc comment), a position pre-filled with a block NOT in
-// may_replace and not air must be left untouched.
-func TestSimpleCanopy_Place_RespectsMayReplace(t *testing.T) {
-	v, pal := newTreeTestVolume(t, 4)
-	leaf := pal.Get("minecraft:oak_leaves", nil)
-	stone := pal.Get("minecraft:stone", nil)
-	c := &simpleCanopy{leafID: leaf, offsetMin: 0, offsetMax: 0, minWidth: 1, rise: 1, run: 1}
-	mayReplace := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:short_grass")}, nil, nil, nil)
-
-	anchor := wgen.BlockPos{X: 0, Y: 15, Z: 0}
-	blocked := wgen.BlockPos{X: 1, Y: 15, Z: 0}
-	v.SetBlock(blocked, stone)
-
-	c.place(v, anchor, random.New(1), treeParamsLists{mayReplace: mayReplace}, nil)
-
-	if got := v.GetBlock(blocked); got != stone {
-		t.Fatalf("expected the pre-placed stone to be left untouched (not in may_replace, not air), got %v", pal.Entry(got))
-	}
-	if got := v.GetBlock(anchor); got != leaf {
-		t.Fatalf("expected the anchor itself to be leafed (starts as air, passes the IsAir fallback), got %v", pal.Entry(got))
-	}
-}
-
 // --- fancyCanopy: schema validation (buildTreeFeature, "fancy_canopy" key) ----------------------
 
 func fancyTreeBody(canopyExtra map[string]any) map[string]any {
@@ -8601,5 +8576,167 @@ func TestMegaTrunkDecorationMask_IsGuardedTheWayAcaciasIs(t *testing.T) {
 	// width 3: an interior column touches no edge at all.
 	if got := acaciaDecorationMask(1, 1, 3); got != [4]bool{false, false, false, false} {
 		t.Errorf("width 3, interior = %v, want no bytes set", got)
+	}
+}
+
+// --- simple/spruce canopy leaf gate and the canopy_decoration pass -------------------------------
+
+// vinedOakBody is vanilla oak_tree_with_vines_feature's shape with the height pinned: a simple
+// trunk whose trunk_decoration hangs a vine on every open side of every log, under the default
+// canopy over offset -3..0 with no variation_chance (so nothing draws).
+func vinedOakBody(height int) map[string]any {
+	return map[string]any{
+		"trunk": map[string]any{
+			"trunk_height":     map[string]any{"range_min": float64(height), "range_max": float64(height + 1)},
+			"trunk_block":      "minecraft:oak_log",
+			"trunk_decoration": map[string]any{"decoration_chance": float64(100), "decoration_block": "minecraft:vine"},
+		},
+		"canopy": map[string]any{
+			"canopy_offset": map[string]any{"min": float64(-3), "max": float64(0)},
+			"leaf_block":    "minecraft:oak_leaves",
+		},
+		"may_grow_on": []any{"minecraft:dirt"},
+		"may_replace": []any{"minecraft:air", "minecraft:oak_leaves"},
+	}
+}
+
+// TestSimpleCanopy_LeavesOverwriteTrunkVines pins the order the game grows a vined oak in: the
+// trunk hangs a vine on all four sides of every log first, then the crown overwrites the vines
+// beside the top three logs, because the canopy's leaf gate accepts a vine cell (air, leaves, or a
+// plant that can be built over -- may_replace is not asked). So a height-h tree keeps 4*(h-3)
+// vines, all below the crown, and the crown is whole: radii 2, 2, 1, 1 is 68 cells, minus the
+// three logs inside it, 65 leaves.
+func TestSimpleCanopy_LeavesOverwriteTrunkVines(t *testing.T) {
+	for _, height := range []int{4, 5, 6} {
+		v, pal := newTreeTestVolume(t, 6)
+		ctx := &BuildContext{Palette: pal, Identifier: "test:tree", FileID: "test:tree", Warn: func(string) {}}
+		f, err := buildTreeFeature(vinedOakBody(height), ctx)
+		if err != nil {
+			t.Fatalf("buildTreeFeature: %v", err)
+		}
+		origin := wgen.BlockPos{X: 0, Y: 10, Z: 0}
+		if placeTestTree(f.(*TreeFeature), v, origin, random.New(1)) == nil {
+			t.Fatalf("height %d: tree did not place", height)
+		}
+		vine, leaves := 0, 0
+		for x := -6; x <= 6; x++ {
+			for z := -6; z <= 6; z++ {
+				for y := 0; y < 30; y++ {
+					switch pal.NameOf(v.GetBlock(wgen.BlockPos{X: x, Y: y, Z: z})) {
+					case "minecraft:vine":
+						vine++
+						if y >= origin.Y+height-3 {
+							t.Errorf("height %d: vine at y=%d, inside the crown (starts at %d)", height, y, origin.Y+height-3)
+						}
+					case "minecraft:oak_leaves":
+						leaves++
+					}
+				}
+			}
+		}
+		if want := 4 * (height - 3); vine != want {
+			t.Errorf("height %d: %d vines, want %d", height, vine, want)
+		}
+		if leaves != 65 {
+			t.Errorf("height %d: %d leaves, want 65", height, leaves)
+		}
+	}
+}
+
+// TestSimpleCanopy_LeafGateIgnoresMayReplace pins the rest of the gate: leaves go into air, into
+// other leaves and into vine, and nowhere else -- not into water or stone, even when may_replace
+// names them.
+func TestSimpleCanopy_LeafGateIgnoresMayReplace(t *testing.T) {
+	v, pal := newTreeTestVolume(t, 4)
+	leaf := pal.Get("minecraft:oak_leaves", nil)
+	water := pal.Get("minecraft:water", nil)
+	stone := pal.Get("minecraft:stone", nil)
+	birch := pal.Get("minecraft:birch_leaves", nil)
+	vine := pal.Get("minecraft:vine", nil)
+	anchor := wgen.BlockPos{X: 0, Y: 15, Z: 0}
+	cells := map[wgen.BlockPos]block.ID{
+		{X: 1, Y: 15, Z: 0}:  water,
+		{X: -1, Y: 15, Z: 0}: stone,
+		{X: 0, Y: 15, Z: 1}:  birch,
+		{X: 0, Y: 15, Z: -1}: vine,
+	}
+	for p, id := range cells {
+		v.SetBlock(p, id)
+	}
+	c := &simpleCanopy{leafID: leaf, offsetMin: 0, offsetMax: 0, minWidth: 1, rise: 2, run: 1}
+	mayReplace := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:water"), block.NameDescriptor("minecraft:stone")}, nil, nil, nil)
+	c.place(v, anchor, random.New(1), treeParamsLists{mayReplace: mayReplace}, nil)
+	want := map[wgen.BlockPos]block.ID{
+		{X: 1, Y: 15, Z: 0}:  water,
+		{X: -1, Y: 15, Z: 0}: stone,
+		{X: 0, Y: 15, Z: 1}:  leaf,
+		{X: 0, Y: 15, Z: -1}: leaf,
+		{X: 0, Y: 15, Z: 0}:  leaf,
+		{X: 1, Y: 15, Z: 1}:  leaf,
+	}
+	for p, id := range want {
+		if got := v.GetBlock(p); got != id {
+			t.Errorf("%v = %s, want %s", p, pal.NameOf(got), pal.NameOf(id))
+		}
+	}
+}
+
+// TestSimpleCanopy_DecorationIsASecondPass pins canopy_decoration as its own pass after every leaf
+// layer: with a certain decoration, every open side of the finished crown gets exactly one vine
+// (4*(2r+1) per layer: 20+20+12+12 = 64 for radii 2, 2, 1, 1) and the crown keeps all 68 leaves --
+// a vine never takes a cell a later leaf would have filled. With variation_chance and a chancy
+// decoration together, every corner roll comes before the first decoration roll.
+func TestSimpleCanopy_DecorationIsASecondPass(t *testing.T) {
+	build := func(t *testing.T, extra map[string]any) (*simpleCanopy, *volume.Volume, *block.Palette) {
+		v, pal := newTreeTestVolume(t, 6)
+		body := simpleTreeBody(extra)
+		delete(body["canopy"].(map[string]any), "min_width")
+		ctx := &BuildContext{Palette: pal, Identifier: "test:tree", FileID: "test:tree", Warn: func(string) {}}
+		f, err := buildTreeFeature(body, ctx)
+		if err != nil {
+			t.Fatalf("buildTreeFeature: %v", err)
+		}
+		return f.(*TreeFeature).canopy.(*simpleCanopy), v, pal
+	}
+	offset := map[string]any{"min": float64(-3), "max": float64(0)}
+
+	c, v, pal := build(t, map[string]any{
+		"canopy_offset": offset,
+		"canopy_decoration": map[string]any{
+			"decoration_block": "minecraft:vine", "decoration_chance": float64(100),
+			"num_steps": map[string]any{"range_min": float64(1), "range_max": float64(1)}, "step_direction": "down",
+		},
+	})
+	c.place(v, wgen.BlockPos{X: 0, Y: 15, Z: 0}, random.New(1), treeParamsLists{}, nil)
+	if got := countBlocksOfID(v, 6, pal.Get("minecraft:oak_leaves", nil)); got != 68 {
+		t.Errorf("%d leaves, want 68", got)
+	}
+	if got := countBlocksOfID(v, 6, pal.Get("minecraft:vine", nil)); got != 64 {
+		t.Errorf("%d vines, want 64", got)
+	}
+
+	c, v, _ = build(t, map[string]any{
+		"canopy_offset":    offset,
+		"variation_chance": map[string]any{"numerator": float64(1), "denominator": float64(2)},
+		"canopy_decoration": map[string]any{
+			"decoration_block": "minecraft:vine", "decoration_chance": float64(50),
+			"num_steps": map[string]any{"range_min": float64(1), "range_max": float64(1)}, "step_direction": "down",
+		},
+	})
+	tracer := random.NewTracer(random.New(7))
+	c.place(v, wgen.BlockPos{X: 0, Y: 15, Z: 0}, tracer, treeParamsLists{}, nil)
+	seenDecoration, corners := false, 0
+	for i, d := range tracer.Draws {
+		if d.Method == random.MethodNextFloat {
+			seenDecoration = true
+			continue
+		}
+		corners++
+		if seenDecoration {
+			t.Fatalf("draw %d (%v) is a corner roll after a decoration roll", i, d.Method)
+		}
+	}
+	if corners != 16 || !seenDecoration {
+		t.Errorf("%d corner rolls (want 16), decoration rolled: %v", corners, seenDecoration)
 	}
 }

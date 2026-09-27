@@ -419,6 +419,7 @@ const NOT_A_JSON_KEY: Readonly<Record<string, KeyNotes>> = {
   'minecraft:tree_feature': {
     x: 'tree.go:7854-7855 -- a pillar_axis block-state VALUE for the cherry trunk\'s branch blocks.',
     z: 'tree.go:7854-7855 -- a pillar_axis block-state value.',
+    leaves: 'tree.go canopyLeafReplaceable -- a substring of vanilla block NAMES (oak_leaves, leaves2), not a pack key.',
   },
   'minecraft:sculk_patch_feature': {
     can_summon: 'sculk_patch.go:379 -- a block state on minecraft:sculk_shrieker, not a pack key.',
