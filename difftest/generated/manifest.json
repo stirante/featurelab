@@ -2772,6 +2772,7 @@
     "bbox.dx",
     "bbox.dz"
    ],
+   "expectedGameCrash": "a plain canopy without variation_chance crashes the game when it places a layer (it reads one chance per layer); the engine refuses the feature",
    "cell": 28,
    "anchor": [
     776,
@@ -2873,6 +2874,7 @@
     "bbox.dx",
     "bbox.dz"
    ],
+   "expectedGameCrash": "a plain canopy without variation_chance crashes the game when it places a layer (it reads one chance per layer); the engine refuses the feature",
    "cell": 29,
    "anchor": [
     904,
@@ -2974,6 +2976,7 @@
     "bbox.dx",
     "bbox.dz"
    ],
+   "expectedGameCrash": "a plain canopy without variation_chance crashes the game when it places a layer (it reads one chance per layer); the engine refuses the feature",
    "cell": 30,
    "anchor": [
     1032,
@@ -3075,6 +3078,7 @@
     "bbox.dx",
     "bbox.dz"
    ],
+   "expectedGameCrash": "a plain canopy without variation_chance crashes the game when it places a layer (it reads one chance per layer); the engine refuses the feature",
    "cell": 31,
    "anchor": [
     1160,
@@ -3272,6 +3276,7 @@
     "bbox.dx",
     "bbox.dz"
    ],
+   "expectedGameCrash": "a plain canopy without variation_chance crashes the game when it places a layer (it reads one chance per layer); the engine refuses the feature",
    "cell": 33,
    "anchor": [
     1416,
@@ -3403,6 +3408,7 @@
     "bbox.dx",
     "bbox.dz"
    ],
+   "expectedGameCrash": "a plain canopy without variation_chance crashes the game when it places a layer (it reads one chance per layer); the engine refuses the feature",
    "cell": 34,
    "anchor": [
     1544,

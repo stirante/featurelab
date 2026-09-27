@@ -156,11 +156,12 @@ const VARIANT_ENTRIES: Readonly<Record<string, readonly FieldSpec[]>> = {
       key: 'variation_chance',
       kind: 'json',
       required: false,
-      default: 'no corner is ever removed, and no random number is drawn for one',
+      default: 'none -- and the game crashes when it places a canopy without it, so always write it',
       unsourced:
         'This key accepts three spellings and a single control cannot offer all three: a percent number, a ' +
-        '{numerator, denominator} object, or an array of either with exactly one entry per canopy layer, ordered ' +
-        'from canopy_offset.min upward. An array of the wrong length is refused. Write it as JSON.',
+        '{numerator, denominator} object, or an array of either with one entry per canopy layer, ordered ' +
+        'from canopy_offset.min upward. A single chance counts as ONE entry, not one for every layer. ' +
+        'Write it as JSON.',
       source: 'builder',
     },
     {
@@ -414,7 +415,12 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
       'layer\'s half-width -- are each rolled once. This is the only part of this canopy that draws random ' +
       'numbers at all. There is no guard for a one-cell layer: on a layer of half-width 0 that single centre ' +
       'cell IS all four corners, so a chance that always succeeds deletes the layer outright -- which is how ' +
-      'a crown gets capped flat instead of ending in one leaf poking out of the top.',
+      'a crown gets capped flat instead of ending in one leaf poking out of the top. ' +
+      'Always write it, with one entry per layer (canopy_offset.max - canopy_offset.min + 1): the key is ' +
+      'optional in the schema, but the game reads one entry for every layer it places and never checks ' +
+      'the length. Without the key the game crashes when it places the canopy; with fewer entries than ' +
+      'layers (a single chance is one entry) it reads past the end for the rest -- random results or a ' +
+      'crash. A chance of 0 keeps that layer\'s corners and draws nothing.',
   },
   'canopy.canopy_decoration': {
     summary: 'Hangs a block off the sides of the crown -- vines, typically.',

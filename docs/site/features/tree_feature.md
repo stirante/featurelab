@@ -324,7 +324,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | `canopy_slope` | no | object with `rise` and `run` | `{ "rise": 2, "run": 1 }` | How fast the layers taper. **The names read backwards** — see [the formula](#the-step-pyramid-canopy). A member left out keeps its own default. |
 | `canopy_slope.rise` | no | integer | `2` | The divisor. At least 1. |
 | `canopy_slope.run` | no | integer | `1` | The multiplier. At least 1. |
-| `variation_chance` | no | a percent, a `{numerator, denominator}`, or an **array with exactly one entry per layer** | absent — no corner removed | The chance to leave out each of a layer's four corners, which is what rounds the square off. An array is ordered from `canopy_offset.min` upward, and one of the wrong length is refused. See [the corner rule](#the-step-pyramid-canopy). |
+| `variation_chance` | **always write it** | an **array with one entry per layer**; a single percent or `{numerator, denominator}` counts as one entry | — | The chance to leave out each of a layer's four corners, which is what rounds the square off. Ordered from `canopy_offset.min` upward. Optional in the schema, but **the game crashes without it** and misbehaves with too few entries — see [the warning](#variation-chance-is-not-optional). |
 | `canopy_decoration` | no | object — the next rows | absent — nothing hangs | Hangs a run of blocks off the crown. |
 | `canopy_decoration.decoration_block` | **yes** | block descriptor | — | What hangs. |
 | `canopy_decoration.decoration_chance` | **yes** | percent, or `{numerator, denominator}` | — | Rolled once per horizontal neighbour of every leaf in the finished crown. |
@@ -421,7 +421,8 @@ Two object keys look like ranges and are not: `canopy_offset` and `mega_trunk`'s
 | `"branches": { "branch_chance": 50 }` on an `acacia_trunk` | A load error: once `branches` is present, `branch_length`, `branch_position` and `branch_chance` are **all** required. | Write all three, or leave `branches` out entirely. |
 | `"min_height_for_canopy": 6` on a trunk that can sample a height of 5 | Some trees come out as bare trunks: no log qualifies as an anchor, so the canopy is handed an unset one and does not appear. | Keep it below the smallest height `trunk_height` can sample. |
 | `"radius": [{ "value": 3 }]` on a `poplar_canopy` expecting radius-3 layers | The working radius is `value` minus one, so that is a radius-2 crown — and below a `value` of 5 the buried log cross disappears and `branch_block` goes unused. | Write `{ "value": 4 }` for radius 3. |
-| `"variation_chance": [a, b, c]` on a four-layer `canopy` | Refused: an array needs exactly one entry per layer. | Count the layers — `canopy_offset.max - canopy_offset.min + 1` — or write a single chance for all of them. |
+| A plain `canopy` with no `variation_chance` | The file loads, and **the game crashes** the first time it places the tree. `featurelab check` reports it as an error and places nothing. | One entry per layer; `0` keeps a layer's corners. |
+| `"variation_chance": [a, b, c]` on a four-layer `canopy`, or a single chance on a canopy of two layers or more | Loads, and the game reads past the end of the list for the missing layers: random corners or a crash. A warning. | Count the layers — `canopy_offset.max - canopy_offset.min + 1` — and write that many entries. |
 | `mangrove_roots` written inside `mangrove_trunk` | Not a key there. It is a sibling of the trunk key. | Write it on the feature body — and know that it then runs for whatever trunk you chose. |
 | `"num_steps": 3` inside a `trunk_decoration` | Accepted and never read. The run length comes from each sequence entry's `count`. | Write `decoration_blocks_sequence` with a `count`. |
 | `may_grow_through` on any trunk but the plain one, expecting a trunk to push through undergrowth | Above the origin, every trunk is gated on `may_replace` alone; `may_grow_through` only ever applies below the origin, which only the plain `trunk` with `can_be_submerged` has. | Add the blocks to `may_replace` instead. |
@@ -485,7 +486,9 @@ slope(d) = truncate(canopy_slope.run * d / canopy_slope.rise)
 Read as a fraction, `canopy_slope` is **run over rise**, not rise over run: `run` is multiplied by the layer's distance and `rise` divides it. So `{ "rise": 1, "run": 2 }` does not make a gentler slope — it adds **two** blocks of half-width per layer. Over `canopy_offset` `{ "min": -3, "max": 0 }` with `min_width` 1 that is radii 7, 5, 3 and 1 from the bottom up, a flat stepped pyramid 15 blocks across at its base. `{ "rise": 2, "run": 1 }` is the gentle one: radii 2, 2, 1 and 1, the size of a vanilla oak crown. Both values must be at least 1, and `min_width` at least 0; the game refuses a file that goes below.
 :::
 
-`variation_chance` is the only part of this canopy that is random at all, and it applies to **corners only** — a cell where `|dx|` and `|dz|` both equal that layer's radius. There are four such cells per layer, each rolled once, and a successful roll leaves that corner out, which is what rounds the square off. The value is either one chance shared by every layer, or an array with one entry per layer, ordered from `canopy_offset.min` upward.
+`variation_chance` is the only part of this canopy that is random at all, and it applies to **corners only** — a cell where `|dx|` and `|dz|` both equal that layer's radius. There are four such cells per layer, each rolled once, and a successful roll leaves that corner out, which is what rounds the square off. Write it as an array with one entry per layer, ordered from `canopy_offset.min` upward; a `0` entry keeps all of that layer's corners.
+
+See [the warning below](#variation-chance-is-not-optional) before leaving it out or writing fewer entries than layers.
 
 ::: note A one-cell layer is four corners at once
 The corner test is **not** guarded against a radius of 0. On a one-cell layer, `|dx|` and `|dz|` are both zero and both equal the radius, so that single cell *is* a corner and gets rolled — and a chance that always succeeds deletes the layer outright. Vanilla's own oaks end their `variation_chance` array with `{ "numerator": 1, "denominator": 1 }` on the top layer; at the default radius of 1 there, that takes all four corners every time and caps the crown with a plus shape. The plain-trunk example above does the same.
@@ -494,6 +497,17 @@ The corner test is **not** guarded against a radius of 0. On a one-cell layer, `
 The leaves go into air, into other leaves and into vines, and nowhere else. `may_replace` is not asked at all, so listing water or stone there does not let this crown overwrite them. Vines are the case that shows: `trunk_decoration` hangs its vines on the logs before the crown is built, and the crown then covers the ones beside the logs inside it, so a vine-hung trunk only shows vines below its leaves.
 
 `canopy_decoration` hangs a block off the crown once the whole crown is built. Every leaf block in the canopy's layers, including a matching leaf that was there before the tree, rolls `decoration_chance` once per horizontal neighbour; a successful roll on a neighbour that is air takes `num_steps` (inclusive of its maximum) and writes that many cells straight **down** from it, stopping at the first cell that is not air. It is how vanilla's swamp oak gets its hanging vines.
+
+### `variation_chance` is not optional {#variation-chance-is-not-optional}
+
+::: warning The game crashes on a canopy without it
+The schema lets you leave `variation_chance` out, but the game reads one entry for **every layer it places**, and it never checks how many entries there are:
+
+- **No `variation_chance` at all: the game crashes** the first time it places the canopy — on world generation and on `/place feature` alike. `featurelab check` reports this as an error (`canopy has no variation_chance: the game crashes when it places this canopy`), and the bench places nothing for the feature rather than a crown the game would never grow.
+- **Fewer entries than layers:** the game reads past the end of the list for the rest, which gives random corners or a crash. A single chance — a bare number or one `{numerator, denominator}` object — is stored as **one** entry, not copied to every layer, so it is short on any canopy of two layers or more. `featurelab check` warns; the bench reuses the last entry for the missing layers, which is its guess, not the game's answer.
+
+The layer count is `canopy_offset.max - canopy_offset.min + 1`. Entries past it are never read. Vanilla's own `jungle_bush_feature` writes a single chance over three layers, so the game's own bush relies on reading past the end — do not copy that.
+:::
 
 ### `canopy_offset` is not a range {#canopy-offset-is-not-a-range}
 

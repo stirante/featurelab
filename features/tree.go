@@ -82,7 +82,7 @@
 // -3..0 those defaults give layer radii 2, 2, 1, 1 -- the familiar 5-wide
 // oak crown -- and min_width 2 widens every layer by one (3, 3, 2, 2).
 //
-// Per-tree algorithm (ZERO RNG unless variation_chance is configured):
+// Per-tree algorithm (ZERO RNG unless a variation_chance entry can roll):
 //
 //	topSlope := slopeAt(canopy_offset.max)   // computed once, using max
 //	for dy := canopy_offset.min; dy <= canopy_offset.max; dy++ {
@@ -107,13 +107,21 @@
 // `percent>=100` returns true without drawing, else it draws exactly one
 // `NextFloat()*100 < percent`; in fraction mode, `numerator==denominator`
 // returns true without drawing, else it takes one raw 32-bit value from the
-// RNG and tests `raw % denominator < numerator`. The parser accepts, per
-// element, a bare number (percent), a {numerator, denominator} chance
-// object, or an array of either (the shared `chanceInformation` type), and
-// requires an array's length to equal the layer count exactly. Absence is
-// equivalent to every entry being a zeroed chance value (percent=0: returns
-// false without drawing), i.e. "always keep the corner, draw nothing", so
-// the plain square is what every JSON file omitting the key gets.
+// RNG and tests `raw % denominator < numerator`. The parser accepts a bare
+// number (percent), a {numerator, denominator} chance object, or an array of
+// either (the shared `chanceInformation` type). A single number or object is
+// stored as ONE entry -- the game does not copy it to every layer.
+//
+// The game indexes the list with no bounds check, and the key is optional in
+// its schema. So a canopy that omits it crashes the game the first time it
+// places a layer (every layer with a radius of 0 or more reads its entry):
+// this port refuses such a file with an error and places nothing. A list
+// shorter than the layer count loads, and the game reads past its end for the
+// rest (random chances or a crash): this port warns, and the layers past the
+// end reuse the last entry -- not the game's answer, which has none, but what
+// the vanilla jungle bush (one chance over three layers) looks like in game.
+// Entries past the layer count are never read. A zero-percent entry is
+// the way to write "always keep this layer's corners, draw nothing".
 //
 // The corner test has NO radius guard: nothing short-circuits on a radius of
 // zero. So a radius-0 layer's single centre cell satisfies both halves of
@@ -1372,8 +1380,8 @@ func (c *pineCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd random
 }
 
 // simpleCanopy is the simple canopy's placement -- the bare "canopy" key
-// (see the file header). Its only RNG-drawing part is variation_chance; a
-// body that omits the key is ZERO RNG. Note the corner test is deliberately
+// (see the file header). Its only RNG-drawing part is variation_chance; an
+// all-zero list is ZERO RNG. Note the corner test is deliberately
 // UNGUARDED at radius 0 -- see the file header and
 // TestCanopies_RadiusZeroCornerTests.
 type simpleCanopy struct {
@@ -1455,6 +1463,34 @@ func (c *simpleCanopy) slopeAt(dy int) int {
 	return int(float32(int32(c.run)*int32(dy)) * invRise)
 }
 
+// cornerCut is the corner roll for layer k (layer - canopy_offset.min). Past the end of a short
+// variation_chance the game reads whatever memory follows the list; this port reuses the last
+// entry there, which is what the vanilla jungle bush (a single chance over three layers) looks
+// like in game. An empty list rolls nothing and keeps the corner.
+func (c *simpleCanopy) cornerCut(k int, rnd random.IRandom) bool {
+	if len(c.variationChance) == 0 {
+		return false
+	}
+	if k >= len(c.variationChance) {
+		k = len(c.variationChance) - 1
+	}
+	return c.variationChance[k].roll(rnd)
+}
+
+// cornerRollLayers lists the layer indices (layer - canopy_offset.min) whose corners the game
+// rolls variation_chance for: every layer with a radius of 0 or more. A canopy with none (an
+// inverted canopy_offset, or every radius negative) never reads the field.
+func (c *simpleCanopy) cornerRollLayers() []int {
+	var layers []int
+	topSlope := c.slopeAt(c.offsetMax)
+	for dy := c.offsetMin; dy <= c.offsetMax; dy++ {
+		if topSlope+c.minWidth-c.slopeAt(dy) >= 0 {
+			layers = append(layers, dy-c.offsetMin)
+		}
+	}
+	return layers
+}
+
 func (c *simpleCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd random.IRandom, _ treeParamsLists, _ []wgen.BlockPos) {
 	tryPlace := func(x, y, z int) {
 		p := wgen.BlockPos{X: x, Y: y, Z: z}
@@ -1475,7 +1511,7 @@ func (c *simpleCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd rand
 		for x := anchor.X - radius; x <= anchor.X+radius; x++ {
 			TickDeadline("building a canopy layer as wide as its radius asks")
 			for z := anchor.Z - radius; z <= anchor.Z+radius; z++ {
-				if len(c.variationChance) > 0 && abs(x-anchor.X) == radius && abs(z-anchor.Z) == radius && c.variationChance[dy-c.offsetMin].roll(rnd) {
+				if abs(x-anchor.X) == radius && abs(z-anchor.Z) == radius && c.cornerCut(dy-c.offsetMin, rnd) {
 					continue
 				}
 				tryPlace(x, y, z)
@@ -6645,8 +6681,20 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 					"here, so do not read this tool's answer as the game's",
 					ctx.Identifier, int(offsetMinF), int(offsetMaxF)))
 			}
+			// variation_chance is optional in the schema, and the game indexes it anyway: every
+			// layer that places anything rolls variation_chance[layer - canopy_offset.min] at its
+			// corners, with no bounds check. So a canopy without it crashes the game the first
+			// time it places a layer, and one with fewer entries than layers reads past the end
+			// for the rest -- random chances or a crash. The single-object form is stored as ONE
+			// entry, not copied to every layer, so it is short for any canopy of two layers or
+			// more. What this tool does about it: the missing case is an error and the feature
+			// does not build (it places nothing -- a plausible crown would hide a crash); a short
+			// list is a warning, and the layers past its end reuse its last entry (see cornerCut),
+			// since no answer this tool could give is the game's. Entries beyond the layer count
+			// are never read, in the game or here.
 			var variation []chanceInformation
-			if raw, present := c["variation_chance"]; present {
+			raw, variationPresent := c["variation_chance"]
+			if variationPresent {
 				switch values := raw.(type) {
 				case []any:
 					variation = make([]chanceInformation, len(values))
@@ -6662,15 +6710,28 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 					if err != nil {
 						return nil, err
 					}
-					variation = make([]chanceInformation, layerCount)
-					for i := range variation {
-						variation[i] = parsed
-					}
+					variation = []chanceInformation{parsed}
 				default:
 					return nil, fmt.Errorf("canopy.variation_chance must be a chance object, number, or array")
 				}
-				if len(variation) != layerCount {
-					return nil, fmt.Errorf("canopy.variation_chance has %d entries, want %d (one per canopy layer)", len(variation), layerCount)
+			}
+			probe := &simpleCanopy{offsetMin: int(offsetMinF), offsetMax: int(offsetMaxF), minWidth: minWidth, rise: rise, run: run}
+			if reading := probe.cornerRollLayers(); len(reading) > 0 {
+				if !variationPresent {
+					return nil, fmt.Errorf("canopy has no variation_chance: the game crashes when it places this "+
+						"canopy (it reads one chance per layer). Give one entry per layer (canopy_offset "+
+						"%d..%d, %d entries); a chance of 0 keeps a layer's corners. This tool places nothing "+
+						"for this feature", int(offsetMinF), int(offsetMaxF), layerCount)
+				}
+				if last := reading[len(reading)-1]; last >= len(variation) && ctx.Warn != nil {
+					form := fmt.Sprintf("has %d entries", len(variation))
+					if _, isArray := raw.([]any); !isArray {
+						form = "is a single chance, which the game stores as 1 entry,"
+					}
+					ctx.Warn(fmt.Sprintf("%s: canopy.variation_chance %s but the canopy has %d layers; the "+
+						"game reads past the end for the rest (random results or a crash). Give one entry "+
+						"per layer (canopy_offset %d..%d). This tool reuses the last entry for them",
+						ctx.Identifier, form, layerCount, int(offsetMinF), int(offsetMaxF)))
 				}
 			}
 			var decoration *canopyDecoration

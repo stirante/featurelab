@@ -26,6 +26,7 @@ func treeCanopyFeatureJSON(identifier string) string {
 	    "canopy": {
 	      "leaf_block": "minecraft:oak_leaves",
 	      "canopy_offset": { "min": -2, "max": 0 },
+	      "variation_chance": [0, 0, 0],
 	      "min_width": 1
 	    },
 	    "may_replace": ["minecraft:air"]
@@ -1266,6 +1267,7 @@ func treeCanBeSubmergedFeatureJSON(identifier string) string {
 	    "canopy": {
 	      "leaf_block": "minecraft:oak_leaves",
 	      "canopy_offset": { "min": -2, "max": 0 },
+	      "variation_chance": [0, 0, 0],
 	      "min_width": 1
 	    },
 	    "may_replace": ["minecraft:air"],
