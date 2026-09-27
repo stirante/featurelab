@@ -42,7 +42,7 @@ What each choice buys you:
 - **The weighted `places_block` array** makes the pick a per-placement probability, not a quota: weight 3 against weight 1 of a total of 4 means three chances in four, every time, with no memory of the last one. A single block descriptor — a bare name — is the shorthand for "always this block".
 - **`may_replace: ["minecraft:air"]`** keeps the pumpkin from overwriting terrain. Leave the key out and the feature happily writes over whatever is already there.
 - **`may_attach_to: { "bottom": "minecraft:grass_block" }`** is the hard gate that pins each pumpkin to the surface. `bottom` uses the single-descriptor shorthand — a bare name where a list is accepted — which is specific to the attach keys; `may_replace` above it must be an array.
-- **Both `enforce_` keys** are there because the schema demands them, not because they do anything: during world generation both are inert whatever you set. See [the two `enforce_` keys](#enforce-keys).
+- **Both `enforce_` keys** are required by the schema. Off, as here, the block goes wherever the other checks allow; on, the block's own rules decide too — a flower, for one, then places only on dirt-like ground. See [the two `enforce_` keys](#enforce-keys).
 
 ![A single pumpkin sitting on a patch of grass, rendered by featurelab's voxel viewer](../../wiki/images/single-block-feature-pumpkin.png)
 
@@ -67,8 +67,8 @@ Seven keys sit on the feature body, and two of them open objects of their own. "
 | Key | Required | Value | Default | What it does |
 |---|---|---|---|---|
 | `places_block` | yes | a block descriptor, or an array of `{block, weight}` | — | The block written at the origin. A bare name, `{name, states}` or `{tags}` all work at every version; the weighted array arrived in the **1.21.40** band — see [what your `format_version` decides](#format-version). |
-| `enforce_placement_rules` | **yes** | boolean | — | Required by the schema and inert during world generation, whatever you set. See [the two `enforce_` keys](#enforce-keys). |
-| `enforce_survivability_rules` | **yes** | boolean | — | The same: required, and inert during world generation. |
+| `enforce_placement_rules` | **yes** | boolean | — | `true` refuses the position when the block could not be placed there by its own rules — for a flower, a cell of water or lava, a cell that cannot be built over, or ground it does not grow on. See [the two `enforce_` keys](#enforce-keys). |
+| `enforce_survivability_rules` | **yes** | boolean | — | `true` refuses the position when the block would not survive there — for a flower, sapling or bush, when the block below is not one of the vegetation-supporting blocks. |
 | `randomize_rotation` | no | boolean | `false` | Turns the block toward a random horizontal direction, after the `may_replace` check, and switches `auto_rotate` off. From **1.21.40**; below it the block is always placed unrotated. |
 | `may_replace` | no | array of block descriptors | no constraint — the feature overwrites whatever is there | Which blocks the feature is allowed to overwrite; `["minecraft:air"]` is the usual answer. **Only an array**: the single-descriptor shorthand the attach keys have does not exist here, and a bare string is an error. |
 | `may_attach_to` | no | object — [the faces below](#attach-conditions) | the attach test does not run | Neighbours that make this a valid position. Writing the key at all — even as a bare `{}` — switches the whole attach test on, and with it `auto_rotate`. |
@@ -126,11 +126,13 @@ Given an origin, the feature runs these steps in this order, and stops at the fi
 1. **Check the neighbours against `may_not_attach_to`**, if it is configured. Any configured list that matches its neighbour ends the call here.
 2. **Pick one candidate from `places_block`** by weight.
 3. **Check the neighbours against `may_attach_to`**, if it is configured: the hard gates individually, the four cardinal sides against `min_sides_must_attach`. With `auto_rotate` on, this is also where the block's orientation is taken from the matching side.
-4. **Check the target cell against `may_replace`**, if it is configured.
-5. **With `randomize_rotation`**, roll a random horizontal direction and turn the block toward it.
-6. **Write the block at the origin.**
+4. **With `enforce_placement_rules`**, ask the picked block whether it may be placed at the origin.
+5. **With `enforce_survivability_rules`**, ask the picked block whether it would survive at the origin.
+6. **Check the target cell against `may_replace`**, if it is configured.
+7. **With `randomize_rotation`**, roll a random horizontal direction and turn the block toward it.
+8. **Write the block at the origin.**
 
-Nothing here reads or writes any position other than the origin itself and, for steps 1 and 3, the origin's immediate neighbours. This feature never touches a second block, and it returns the origin it was handed.
+Nothing here reads or writes any position other than the origin itself and, for steps 1, 3, 4 and 5, the origin's immediate neighbours. This feature never touches a second block, and it returns the origin it was handed.
 
 ## Attach conditions: hard gates and counted sides {#min-sides}
 
@@ -192,9 +194,14 @@ The last row is the one that surprises people. A bare `minecraft:oak_log` in `al
 
 ## `enforce_placement_rules` and `enforce_survivability_rules` {#enforce-keys}
 
-Both keys are **required** by the schema — a `single_block_feature` file without them does not load. And yet, during world generation, they do nothing: each one gates a "may this block be placed here" / "can this block survive here" check, and during chunk generation both of those checks always pass. Outside chunk generation the same two checks are real, so the fields presumably matter somewhere beyond world generation — but for feature placement in generated chunks, both are inert regardless of their value.
+Both keys are **required** by the schema — a `single_block_feature` file without them does not load. Each switches on one question the game asks the picked block itself, after the attach test and before `may_replace`:
 
-Write them, write either value, and do not spend time on them.
+- **`enforce_placement_rules`**: may this block be placed here? Refused with `Block could not be placed given the enforced placement rules`.
+- **`enforce_survivability_rules`**: would this block survive here? Refused with `Block could not be placed given the enforced survivability rules`.
+
+Both are real wherever feature rules place features, and under `/place feature`. The answer is the block's own: a flower, a sapling or the bush survives only on dirt, grass, podzol, coarse dirt, mycelium, rooted dirt, moss, pale moss, mud, muddy mangrove roots or farmland, and may not be placed into water or lava either. A block without a rule of its own, such as stone, survives anywhere. Both checks ask about the block as picked, before any rotation, and neither uses a random value, so turning them on or off never shifts anything placed later in a chain.
+
+`true` is the cheap way to keep a scattered flower off sand and stone without writing the same list into `may_attach_to`. `false` places the block wherever the other checks allow, whether or not it could stay there.
 
 ## Field reference
 
@@ -225,6 +232,8 @@ Rotation is where the bench and the game can still differ, and the gap is narrow
 - **Naming, for ten of the sixteen families.** The direction the game picks is exact; the word or number that direction is written under is taken from vanilla block definitions rather than from anything the game publishes. `featurelab check` warns when a file leans on one of those ten and says exactly that: the direction is right, the spelling may not be. The families real packs use in practice are not among them.
 
 This is not a rare corner. Real packs commonly write `may_attach_to` — often as a bare `{}` — so the default-true `auto_rotate` is active, and every such block is rotated toward the last freely-matching side.
+
+The two `enforce_` checks are the other gap. The game asks every block type its own rules; the bench knows the rules of the flowers, the saplings and the bush, and nothing else yet. Any other block — grass and ferns, mushrooms, crops, the dead bush, a custom block with a placement filter — passes both checks here, and `featurelab check` warns once for each such file that turns a check on. For the two nether roots the bench knows the dirt-like ground they share with flowers, and lets them through on anything else. Deciding whether a flower may go into a cell that is already occupied rests on a short list of plants and snow that can be built over; a cell holding anything else refuses it.
 
 Two more differences worth knowing when you read a preview of this type:
 
