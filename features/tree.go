@@ -330,9 +330,9 @@
 // RNG draw sequence:
 //
 //  1. heightVal := the inclusive two-argument integer draw over
-//     (canopy_height.min, canopy_height.max) -- 0 draws when max<=min, else
-//     min+NextIntBound(max-min); geodeIntRange is reused for it. This is
-//     DIFFERENT from the int-range draw (see spruce_canopy above).
+//     (canopy_height.min, canopy_height.max) -- uniform over [min, max],
+//     max INCLUDED (treeIntRangeValueInclusive). This is DIFFERENT from the
+//     int-range draw (see spruce_canopy above), whose max is exclusive.
 //  2. radiusVal := the same two-argument draw over
 //     (canopy_radius.min, canopy_radius.max).
 //
@@ -754,9 +754,9 @@
 // RNG draw sequence:
 //
 //  1. heightVal := inclusive two-argument integer draw over
-//     (canopy_height.min, canopy_height.max) -- geode.go's geodeIntRange
-//     (0 draws when max<=min, else min+NextIntBound(max-min)), reused
-//     directly, same draw as random_spread_canopy's.
+//     (canopy_height.min, canopy_height.max) -- uniform over [min, max],
+//     max INCLUDED (treeIntRangeValueInclusive), the same draw as
+//     random_spread_canopy's.
 //  2. radiusVal := the same draw over (canopy_radius.min, canopy_radius.max).
 //
 // Then, for each candidate (one per successfully-placed trunk log position,
@@ -1937,13 +1937,12 @@ func (c *randomSpreadCanopy) place(api wgen.BlockWorld, _ wgen.BlockPos, rnd ran
 		return // vanilla returns early on an empty list -- ZERO draws
 	}
 
-	// *** RNG CALL 1 (0 or 1 draw) *** -- canopy_height, via the SAME
-	// two-argument integer draw as geode.go's geodeIntRange (0 draws when
-	// max<=min, else min+NextIntBound(max-min)) -- not the int-range draw
+	// *** RNG CALL 1 (0 or 1 draw) *** -- canopy_height, via the inclusive
+	// two-argument integer draw (max INCLUDED) -- not the int-range draw
 	// (see the file header).
-	heightVal := geodeIntRange(c.heightMin, c.heightMax, rnd)
+	heightVal := treeIntRangeValueInclusive(c.heightMin, c.heightMax, rnd)
 	// *** RNG CALL 2 (0 or 1 draw) *** -- canopy_radius, same shape.
-	radiusVal := geodeIntRange(c.radiusMin, c.radiusMax, rnd)
+	radiusVal := treeIntRangeValueInclusive(c.radiusMin, c.radiusMax, rnd)
 
 	for _, cand := range candidates {
 		for i := 0; i < c.attempts; i++ {
@@ -2530,11 +2529,10 @@ func (c *mangroveCanopy) place(api wgen.BlockWorld, _ wgen.BlockPos, rnd random.
 	}
 
 	// *** RNG CALLS 1-2 *** -- canopy_height then canopy_radius, both via
-	// the inclusive two-argument integer draw -- reuses geode.go's
-	// geodeIntRange directly (0 draws when max<=min, else
-	// min+NextIntBound(max-min)) -- see file header.
-	heightVal := geodeIntRange(c.heightMin, c.heightMax, rnd)
-	radiusVal := geodeIntRange(c.radiusMin, c.radiusMax, rnd)
+	// the inclusive two-argument integer draw, max INCLUDED -- see file
+	// header.
+	heightVal := treeIntRangeValueInclusive(c.heightMin, c.heightMax, rnd)
+	radiusVal := treeIntRangeValueInclusive(c.radiusMin, c.radiusMax, rnd)
 
 	var propagules []wgen.BlockPos
 	for _, cand := range candidates {

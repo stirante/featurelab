@@ -9128,3 +9128,47 @@ func TestSimpleCanopy_VariationChanceShortIsAWarning(t *testing.T) {
 		})
 	}
 }
+
+// TestScatteringCanopies_HeightAndRadiusIncludeTheirMaximum pins the draw both
+// scattering canopies make for canopy_height and canopy_radius: uniform over
+// [min, max] with max INCLUDED -- one nextIntBound(max-min+1) each, before any
+// per-candidate draw. With height 2..4 and radius 3..5 that is two draws of
+// bound 3 (the exclusive draw would have been bound 2).
+func TestScatteringCanopies_HeightAndRadiusIncludeTheirMaximum(t *testing.T) {
+	v, pal := newTreeTestVolume(t, 6)
+	leaf := pal.Get("minecraft:oak_leaves", nil)
+	cands := []wgen.BlockPos{{X: 0, Y: 10, Z: 0}}
+
+	check := func(name string, place func(rnd random.IRandom)) {
+		tr := random.NewTracer(random.New(3))
+		place(tr)
+		if len(tr.Draws) < 2 {
+			t.Fatalf("%s: %d draws, want at least 2", name, len(tr.Draws))
+		}
+		for i, want := range []int32{3, 3} {
+			d := tr.Draws[i]
+			if d.Method != random.MethodNextIntBound || d.Bound != want {
+				t.Errorf("%s: draw %d = %v bound %d, want NextIntBound(%d)", name, i, d.Method, d.Bound, want)
+			}
+		}
+	}
+	check("random_spread_canopy", func(rnd random.IRandom) {
+		c := &randomSpreadCanopy{heightMin: 2, heightMax: 4, radiusMin: 3, radiusMax: 5, attempts: 1,
+			blocks: []randomSpreadWeightedBlock{{id: leaf, weight: 1}}}
+		c.place(v, wgen.BlockPos{}, rnd, treeParamsLists{}, cands)
+	})
+	check("mangrove_canopy", func(rnd random.IRandom) {
+		c := &mangroveCanopy{heightMin: 2, heightMax: 4, radiusMin: 3, radiusMax: 5, attempts: 1,
+			leafBlocks: []randomSpreadWeightedBlock{{id: leaf, weight: 1}}}
+		c.place(v, wgen.BlockPos{}, rnd, treeParamsLists{}, cands)
+	})
+
+	// And the value reaches the maximum: over many seeds both 2 and 4 come up.
+	seen := map[int]bool{}
+	for seed := uint32(0); seed < 200; seed++ {
+		seen[treeIntRangeValueInclusive(2, 4, random.New(seed))] = true
+	}
+	if !seen[2] || !seen[3] || !seen[4] || len(seen) != 3 {
+		t.Errorf("treeIntRangeValueInclusive(2,4) produced %v, want exactly {2,3,4}", seen)
+	}
+}

@@ -394,12 +394,13 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 
 ### How a range is written {#how-a-range-is-written}
 
-Wherever a key above says **range** — the kind the editor's own catalogue calls `range`, and which older notes call an `IntRange` — four spellings are accepted: `{ "range_min": a, "range_max": b }`, `{ "min": a, "max": b }`, `[a, b]`, or a bare number. The sampled value is uniform over **`[min, max)`** — the maximum is **exclusive** — on most keys. **Thirteen keys are the exception and sample inclusive of their maximum**, and they are not all new ones:
+Wherever a key above says **range** — the kind the editor's own catalogue calls `range`, and which older notes call an `IntRange` — four spellings are accepted: `{ "range_min": a, "range_max": b }`, `{ "min": a, "max": b }`, `[a, b]`, or a bare number. The sampled value is uniform over **`[min, max)`** — the maximum is **exclusive** — on most keys. **Seventeen keys are the exception and sample inclusive of their maximum**, and they are not all new ones:
 
 - `trunk_decoration.decoration_blocks_sequence[].count`, and `canopy_decoration.num_steps`, wherever either appears.
 - Every range a **cherry tree** has: `cherry_trunk.trunk_height.intervals` (each entry adds 0 to *that entry*, not 0 to one below it, which is where it parts company with `acacia_trunk`'s identically-spelled key), `branches.branch_start_offset_from_top`, `branches.branch_end_offset_from_top`, `branches.branch_horizontal_length`, and both of `cherry_canopy`'s, `height` and `radius`.
 - `mangrove_trunk.branches.branch_length` and `branches.branch_steps`.
 - `poplar_trunk`'s `remaining_trunk_height_above_branches` and `amount_of_foliage_support_branches`, and `poplar_canopy`'s `height`.
+- `canopy_height` and `canopy_radius` on the two scattering canopies, `mangrove_canopy` and `random_spread_canopy`.
 
 Everything else is exclusive: `trunk_height` on the other seven trunks, `height_modifier`, `log_length`, `stump_height`, the three `trunk_lean` ranges, `acacia_trunk`'s and `mega_trunk`'s branch ranges, `mangrove_roots.y_offset`, and every other canopy's own ranges. Mixing the two conventions in one file is easy to get wrong: `{ "range_min": 4, "range_max": 6 }` is 4 or 5 on an exclusive key and 4, 5 or 6 on an inclusive one.
 
@@ -692,7 +693,7 @@ You do not need this section to grow a tree. It is for reading a preview draw fo
 
 The ordinary range sample is uniform over `[min, max)` — the maximum is exclusive — and a range whose `min` is at or above `max - 1` returns `min` **without consuming a random number at all**. That is the single most useful fact in this section: making a range degenerate does not merely fix its value, it shortens the stream, and everything drawn after it in the same feature moves. `{ "base": 5, "intervals": [3, 3] }` is `5 + nextIntBound(3) + nextIntBound(3)`; `trunk_height.variance` on a fancy trunk is `base + nextIntBound(variance)`.
 
-The [thirteen inclusive-maximum keys](#how-a-range-is-written) follow the same rule: a range with `min == max` costs nothing. Two canopies are a third case — `mangrove_canopy` and `random_spread_canopy` draw their `canopy_height` and `canopy_radius` through the [geode](./geode_feature.md)'s own helper instead, whose maximum is exclusive like the ordinary one but which still spends an always-zero draw when `max` is exactly one above `min`.
+The [seventeen inclusive-maximum keys](#how-a-range-is-written) follow the same rule: a range with `min == max` costs nothing here. For `mangrove_canopy` and `random_spread_canopy`'s `canopy_height` and `canopy_radius` the game still spends one draw on a range with `min == max`; the bench does not, so a scattering canopy with a fixed height or radius shifts everything drawn after it by one value.
 
 ### Where the draws sit, by shape
 
