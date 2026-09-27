@@ -344,7 +344,8 @@ export const TREE_CANOPY_FIELDS: readonly FieldSpec[] = TREE_CANOPY_VARIANT_KEYS
  * It appears inside a trunk's `branches` object -- on `acacia_trunk`, `mega_trunk` and
  * `cherry_trunk` -- and its value is an object that must itself carry exactly one of the twelve
  * keys above. So it is a HOST for this group rather than a member of it, and a form rendering it
- * should offer the same twelve-way choice, not a thirteenth shape.
+ * should offer the same twelve-way choice, not a thirteenth shape. On `cherry_trunk` it is
+ * validated and then never grown: the cherry tips grow the tree's own canopy key.
  *
  * One thing differs at a branch tip: the canopy is always built against a trunk one block wide,
  * whatever the trunk's own `trunk_width` says. That matters for the three variants that check
@@ -464,8 +465,8 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
     summary: 'The cherry crown: a rounded block of leaves with a fringe hanging below it.',
     detail:
       'Built as a stack of square layers that widen toward the bottom, then two more layers below the ' +
-      'anchor that also trail leaves downward. The cherry trunk grows one of these at each branch tip ' +
-      'rather than one for the whole tree.',
+      'anchor that also trail leaves downward. Under a cherry trunk, written next to cherry_trunk, it ' +
+      'is grown once at each branch tip rather than once for the whole tree.',
   },
   'cherry_canopy.leaf_block': { summary: 'The block the crown and its hanging fringe are built from.', detail: 'The fringe is the same block as the body; there is no separate hanging block on this shape.' },
   'cherry_canopy.height': {
