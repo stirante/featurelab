@@ -134,20 +134,20 @@ Two more pairings that surprise people, for different reasons. A **`cherry_trunk
 |---|---|---|---|---|
 | *one trunk key* | yes | `trunk` `acacia_trunk` `cherry_trunk` `fallen_trunk` `fancy_trunk` `mangrove_trunk` `mega_trunk` `poplar_trunk` | — | [The table above](#the-eight-trunk-keys). Exactly one. |
 | *one canopy key* | yes, except on `fallen_trunk` and `cherry_trunk` | one of the twelve above | — | [The table above](#the-twelve-canopy-keys). Exactly one. A cherry tree grows it at every branch tip, and without one it is logs only. |
-| `base_block` | no | block descriptor, or an array of them | absent — no fixup | The cell under the trunk is converted to this list's first entry if it does not already match. An absent or empty list means no fixup at all. |
+| `base_block` | no | block descriptor, or an array of them | absent — no fixup | The ground under the trunk is converted to this list's first entry wherever it does not already match: one cell for most trunks, every cell of the `trunk_width` × `trunk_width` footprint for `acacia_trunk` and `mega_trunk`. `fancy_trunk` and `mangrove_trunk` never do it. It is also the block `base_cluster` lays. An absent or empty list means no fixup at all. |
 | `may_grow_on` | no | array of block descriptors | absent — no restriction | The ground the trunk will accept. If the cell below does not match, the tree fails outright. |
 | `may_replace` | no | array of block descriptors | absent — no restriction | The cells a log or a leaf may overwrite. This is the gate on every trunk cell at or above the origin, and on the cells of most canopies. `canopy` and `spruce_canopy` do not read it: they write into air, leaves and vines only, whatever the list says. `roofed_canopy` writes into air only. |
 | `may_grow_through` | no | array of block descriptors | absent — no restriction | The cells the trunk may pass through **below** its own origin. Only the plain [`trunk`](#the-plain-column-trunk) ever has cells below its origin, and only when `can_be_submerged` is set — everywhere else this key is read, accepted and never consulted. See [what the bench does differently](#what-the-bench-does-differently). |
-| `base_cluster` | no | object — the next table | absent — no patch | A ground-level patch of replaced blocks. Read by `mega_trunk` and nothing else. |
+| `base_cluster` | no | object — the next table | absent — no patch | Ground-level patches of `base_block` around the trunk — the podzol around a giant spruce. Read by `mega_trunk` and nothing else, and it lays nothing without a `base_block`. |
 | `mangrove_roots` | no | object — the table below | absent — no roots | The aerial-root pass. It is a **sibling of the trunk key, not part of `mangrove_trunk`**, and it runs for every trunk shape — see [`mangrove_roots` decides where the trunk starts](#mangrove-roots-pass). |
 
 #### `base_cluster` {#fields-base_cluster}
 
-The whole object is optional; all three keys are required once it is there.
+The whole object is optional; all three keys are required once it is there. What a patch lays is the tree's own [`base_block`](#on-the-feature-body) (its first entry), not anything named here.
 
 | Key | Required | Value | What it does |
 |---|---|---|---|
-| `may_replace` | yes | array of block descriptors | Which ground cells the patch may overwrite. Its own list, not the tree's. |
+| `may_replace` | yes | array of block descriptors | Which ground cells the patch may overwrite. Its own list, not the tree's. Each cell of a patch is searched from two blocks above the ground down to three below, and the first block on this list takes the patch block — so an **empty** list, which passes everything, puts the patch in the air two blocks up. |
 | `num_clusters` | yes | integer ≥ 0 | How many patches to lay. |
 | `cluster_radius` | yes | integer ≥ 0 | How wide each one is. |
 
@@ -506,7 +506,7 @@ It is a plain object with `min` and `max` members, spelled that way and only tha
 This is the most involved trunk shape, and the one behind vanilla's savanna and roofed trees. Given an origin, in order:
 
 1. **The height is sampled**: `trunk_height.base` plus one random value per entry in `trunk_height.intervals`, each from 0 to that entry minus one — so `{ "base": 5, "intervals": [3, 3] }` samples 5 to 9.
-2. **The ground is prepared.** The cell below each footprint column is checked against `may_grow_on` and converted to `base_block`. If the ground does not match, placement fails here.
+2. **The ground is prepared.** The cell below each footprint column is checked against `may_grow_on`; if one does not match, placement fails here, before anything is written. Then every footprint cell below the trunk that does not already match `base_block` is converted to its first entry.
 3. **The lean direction** is picked: one of the four cardinal directions.
 4. **The lean start.** `lean_height` is sampled and **subtracted from the sampled height** — see below.
 5. **The lean steps.** `lean_steps` is sampled: the maximum number of cells the trunk may shift horizontally.

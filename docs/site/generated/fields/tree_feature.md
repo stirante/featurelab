@@ -1911,9 +1911,9 @@ Write each entry as a two-element pair: the block first, then its weight. The li
 
 <p class="fl-facts">optional · blockList · a single descriptor is accepted as a one-element list</p>
 
-**The block laid under the trunk once the tree is built.**
+**The block the ground under the trunk is turned into, where it does not already match.**
 
-A finishing touch applied after the trunk and canopy are in place, so it overwrites whatever the ground turned out to be rather than deciding where the tree may grow -- that is may_grow_on.
+A finishing touch: it overwrites whatever the ground turned out to be rather than deciding where the tree may grow -- that is may_grow_on. The first entry is what gets written. The acacia and mega trunks convert their whole trunk_width footprint, the fancy and mangrove trunks never do it, and base_cluster lays this same block.
 
 A single descriptor or a list; both are accepted.
 
@@ -1923,7 +1923,7 @@ A single descriptor or a list; both are accepted.
 
 **Blocks the tree is willing to root on.**
 
-Tested at the ground under the trunk. If the ground does not pass, the first entry in this list is placed there to make it pass -- so this list also decides what a tree stands on when it lands somewhere unsuitable.
+Tested at the ground under the trunk. If the ground does not pass, the tree is not placed at all; what the ground is turned into afterwards is base_block's business.
 
 #### `may_grow_through` {#may_grow_through}
 
@@ -1939,7 +1939,7 @@ Applies BELOW the tree's own origin. At and above the origin the trunk is govern
 
 **Blocks the tree may overwrite at and above its origin.**
 
-Below the origin it is may_grow_through that decides instead.
+Below the origin it is may_grow_through that decides instead. The canopy and spruce_canopy crowns do not read it: they write into air, leaves and vines only.
 
 :::: details `base_cluster` — 4 keys
 
@@ -1947,9 +1947,9 @@ Below the origin it is may_grow_through that decides instead.
 
 <p class="fl-facts">optional · group · absent: no ground patch is laid</p>
 
-**A patch of ground laid under a wide trunk.**
+**Patches of base_block laid around a wide trunk -- the podzol around a giant spruce.**
 
-Only the wide-trunk shape reads it; on any other trunk it is accepted and does nothing. The whole object is optional, but all three of its keys are required once it is there -- half of it is refused, not defaulted.
+Only the wide-trunk shape reads it; on any other trunk it is accepted and does nothing. What it lays is the tree's own base_block (its first entry), and without a base_block it lays nothing. The whole object is optional, but all three of its keys are required once it is there -- half of it is refused, not defaulted.
 
 #### `base_cluster.may_replace` {#base_cluster-may_replace}
 
@@ -1957,7 +1957,7 @@ Only the wide-trunk shape reads it; on any other trunk it is accepted and does n
 
 **The blocks a patch may overwrite.**
 
-An empty list is not the same as leaving the key out: with nothing listed, no patch is ever laid.
+Each patch cell is searched from two blocks above the ground down to three below, and the first block on this list takes the patch block. An empty list passes every block, so the patch lands in the air two blocks up.
 
 #### `base_cluster.num_clusters` {#base_cluster-num_clusters}
 

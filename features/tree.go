@@ -1191,22 +1191,35 @@ func isValidTreePosition(api wgen.BlockWorld, p wgen.BlockPos, mayReplaceIDs blo
 	return api.Palette().IsAir(existing)
 }
 
-// placeBaseBlock is the tree's base-block write -- the single
-// root-flare/ground-fixup step before the trunk column. Skips
-// (no-op) if the ground already passes may_grow_on; otherwise force-places
-// fallback -- the first may_grow_on descriptor, resolved to one concrete
-// block at build time (a PRODUCING use, unlike the membership test above,
-// which stays a real predicate -- see buildTreeFeature). Never fails the
-// tree.
-func placeBaseBlock(api wgen.BlockWorld, p wgen.BlockPos, mayGrowOn block.MatchSet, fallback block.ID) {
-	if mayGrowOn.Empty() {
+// placeBaseBlock is the tree's base-block write under a trunk cell: a no-op
+// if the ground already matches base_block (or base_block is absent);
+// otherwise it force-places fallback -- base_block's first descriptor,
+// resolved to one concrete block at build time (a PRODUCING use, unlike the
+// membership test, which stays a real predicate -- see buildTreeFeature).
+// Zero RNG, and never fails the tree. The simple, cherry, poplar and fallen
+// trunks write one cell; acacia_trunk and mega_trunk write their whole
+// trunk_width x trunk_width footprint (placeBaseBlockFootprint). The fancy
+// and mangrove trunks write none.
+func placeBaseBlock(api wgen.BlockWorld, p wgen.BlockPos, baseBlock block.MatchSet, fallback block.ID) {
+	if baseBlock.Empty() {
 		return
 	}
 	existing := api.GetBlock(p)
-	if mayGrowOn.Contains(existing) {
+	if baseBlock.Contains(existing) {
 		return
 	}
 	api.SetBlock(p, fallback)
+}
+
+// placeBaseBlockFootprint is placeBaseBlock over a width x width footprint
+// one below origin, dx then dz -- the acacia and mega trunks' form.
+func (f *TreeFeature) placeBaseBlockFootprint(api wgen.BlockWorld, origin wgen.BlockPos, width int) {
+	for dx := 0; dx < width; dx++ {
+		TickDeadline("filling a trunk layer as wide as its trunk_width asks")
+		for dz := 0; dz < width; dz++ {
+			placeBaseBlock(api, wgen.BlockPos{X: origin.X + dx, Y: origin.Y - 1, Z: origin.Z + dz}, f.baseBlock, f.baseBlockFallback)
+		}
+	}
 }
 
 // placeLog is the decorated-block write for the trunk log itself. The
@@ -3180,10 +3193,10 @@ type TreeFeature struct {
 	trunkHeight int
 	canopy      canopyPlacer
 	mayGrowOn   block.MatchSet
-	// mayGrowOnFallback is placeBaseBlock's PRODUCING-position fallback
-	// block (may_grow_on's first descriptor, resolved to one concrete
-	// block) -- only meaningful when !mayGrowOn.Empty(); see buildTreeFeature.
-	mayGrowOnFallback block.ID
+	// baseBlockFallback is placeBaseBlock's PRODUCING-position block
+	// (base_block's first descriptor, resolved to one concrete block) --
+	// only meaningful when !baseBlock.Empty(); see buildTreeFeature. It is
+	// also base_cluster's target block.
 	baseBlock         block.MatchSet
 	baseBlockFallback block.ID
 	mayReplace        block.MatchSet
@@ -4161,9 +4174,6 @@ func (f *TreeFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 		}
 	}
 
-	// Root-flare / ground fixup -- single cell (columnWidth=1), no RNG.
-	placeBaseBlock(api, wgen.BlockPos{X: origin.X, Y: origin.Y - 1, Z: origin.Z}, f.mayGrowOn, f.mayGrowOnFallback)
-
 	// *** RNG CALL #1 *** -- main lean direction.
 	direction := rnd.NextIntBound(4)
 	// *** RNG CALL #2 *** -- lean_height.getValue(), SUBTRACTED FROM THE HEIGHT:
@@ -4230,7 +4240,10 @@ func (f *TreeFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 // prepareShippedTree takes the origin explicitly rather than reading
 // ctx.Origin, because mangrove_roots can have moved it: the root pass runs
 // before the trunk and its return value replaces the origin (see
-// applyRoots), and this gate is on the trunk side of that.
+// applyRoots), and this gate is on the trunk side of that. It only checks:
+// the base-block writes come after it, from the trunk (see
+// placeBaseBlockFootprint), so a failing cell never leaves earlier cells
+// already converted.
 func (f *TreeFeature) prepareShippedTree(ctx *wgen.PlacementContext, origin wgen.BlockPos, height, width int) bool {
 	api := ctx.API
 	if origin.Y <= api.MinY() || origin.Y+height >= api.MaxY() {
@@ -4245,7 +4258,6 @@ func (f *TreeFeature) prepareShippedTree(ctx *wgen.PlacementContext, origin wgen
 				LogFailure(ctx, treeTypeID, "Trunk could not be placed")
 				return false
 			}
-			placeBaseBlock(api, below, f.mayGrowOn, f.mayGrowOnFallback)
 		}
 	}
 	return true
@@ -4279,6 +4291,11 @@ func (f *TreeFeature) placeShapedTrunk(ctx *wgen.PlacementContext, trunk *shaped
 	}
 	if height < 1 || !f.prepareShippedTree(ctx, origin, height, trunk.width) {
 		return nil
+	}
+	// base_block under the whole footprint, before the direction draw. The
+	// fancy trunk writes no base block.
+	if trunk.kind == "acacia_trunk" {
+		f.placeBaseBlockFootprint(api, origin, trunk.width)
 	}
 
 	// leanStart is a HEIGHT INDEX, not the drawn value: the lean_height
@@ -4421,15 +4438,12 @@ func (f *TreeFeature) placeShapedTrunk(ctx *wgen.PlacementContext, trunk *shaped
 // canopy's draws come before base_cluster's either way, so appending
 // base_cluster last preserves the correct relative order.
 type baseCluster struct {
-	mayReplace block.MatchSet
-	// mayReplaceFallback is the single-position replacement's PRODUCING target block --
-	// may_replace's first descriptor, resolved to one concrete block, the
-	// SAME "first descriptor as fallback" convention this file already uses
-	// for may_grow_on/base_block (see buildTreeFeature). Only meaningful
-	// when !mayReplace.Empty(), which every caller already guarantees.
-	mayReplaceFallback block.ID
-	numClusters        int
-	clusterRadius      int
+	// mayReplace is only the allow-list of blocks a cluster may replace.
+	// What it writes is the tree's base_block (its first descriptor), and
+	// no cluster is laid when base_block is absent.
+	mayReplace    block.MatchSet
+	numClusters   int
+	clusterRadius int
 }
 
 // parseBaseCluster parses the top-level "base_cluster" object -- see
@@ -4448,9 +4462,6 @@ func parseBaseCluster(raw any, ctx *BuildContext) (*baseCluster, error) {
 		return nil, err
 	}
 	bc := &baseCluster{mayReplace: ResolveMatchSet(descs, ctx, "base_cluster.may_replace")}
-	if len(descs) > 0 {
-		bc.mayReplaceFallback = ctx.Palette.Resolve(descs[0])
-	}
 	numClustersF, ok := obj["num_clusters"].(float64)
 	if !ok {
 		return nil, fmt.Errorf("base_cluster.num_clusters is required and must be a number")
@@ -4472,7 +4483,9 @@ func parseBaseCluster(raw any, ctx *BuildContext) (*baseCluster, error) {
 // satisfied); otherwise,
 // if the existing block passes may_replace's own allow-list, the target
 // block is placed there and the scan stops; otherwise the scan continues
-// to the next dy. If no probe qualifies, nothing is placed.
+// to the next dy. If no probe qualifies, nothing is placed. An EMPTY
+// may_replace passes every block (the shared allow-list contract), so the
+// very first probe, two above pos, takes the target.
 func replaceBaseBlockAt(api wgen.BlockWorld, pos wgen.BlockPos, mayReplace block.MatchSet, target block.ID) {
 	for _, dy := range [...]int{2, 1, 0, -1, -2, -3} {
 		p := wgen.BlockPos{X: pos.X, Y: pos.Y + dy, Z: pos.Z}
@@ -4480,7 +4493,7 @@ func replaceBaseBlockAt(api wgen.BlockWorld, pos wgen.BlockPos, mayReplace block
 		if existing == target {
 			return
 		}
-		if mayReplace.Contains(existing) {
+		if passesAllowList(existing, mayReplace) {
 			api.SetBlock(p, target)
 			return
 		}
@@ -4514,25 +4527,27 @@ func replaceBaseBlockCircle(api wgen.BlockWorld, center wgen.BlockPos, radius in
 // placement plus the mega trunk's pre-check before it -- see baseCluster's
 // own doc comment for the schema and draw sequence. origin is the trunk's
 // own origin -- this function works one block below it, at
-// `{x, y-1, z}`. reach is the mega trunk's own trunk_width.
-func placeBaseClusterGroundwork(api wgen.BlockWorld, origin wgen.BlockPos, reach int, rnd random.IRandom, bc *baseCluster) {
+// `{x, y-1, z}`. reach is the mega trunk's own trunk_width. The block it
+// writes is the tree's base_block (target, its first descriptor), and an
+// absent base_block lays nothing, without drawing.
+func placeBaseClusterGroundwork(api wgen.BlockWorld, origin wgen.BlockPos, reach int, rnd random.IRandom, bc *baseCluster, baseBlock block.MatchSet, target block.ID) {
 	if bc == nil || bc.numClusters <= 0 {
 		return
 	}
-	if bc.mayReplace.Empty() {
+	if baseBlock.Empty() {
 		return
 	}
 	pos := wgen.BlockPos{X: origin.X, Y: origin.Y - 1, Z: origin.Z}
-	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X - 1, Y: pos.Y, Z: pos.Z - 1}, bc.clusterRadius, bc.mayReplace, bc.mayReplaceFallback)
-	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X + reach, Y: pos.Y, Z: pos.Z - 1}, bc.clusterRadius, bc.mayReplace, bc.mayReplaceFallback)
-	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X - 1, Y: pos.Y, Z: pos.Z + reach}, bc.clusterRadius, bc.mayReplace, bc.mayReplaceFallback)
-	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X + reach, Y: pos.Y, Z: pos.Z + reach}, bc.clusterRadius, bc.mayReplace, bc.mayReplaceFallback)
+	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X - 1, Y: pos.Y, Z: pos.Z - 1}, bc.clusterRadius, bc.mayReplace, target)
+	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X + reach, Y: pos.Y, Z: pos.Z - 1}, bc.clusterRadius, bc.mayReplace, target)
+	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X - 1, Y: pos.Y, Z: pos.Z + reach}, bc.clusterRadius, bc.mayReplace, target)
+	replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X + reach, Y: pos.Y, Z: pos.Z + reach}, bc.clusterRadius, bc.mayReplace, target)
 	for i := 0; i < bc.numClusters; i++ {
 		TickDeadline("placing the base clusters its num_clusters asks for")
 		r := rnd.NextIntBound(64) // *** RNG CALL, ALWAYS drawn ***
 		qx, rem := r/8, r%8
 		if qx == 0 || qx == 7 || rem == 0 || rem == 7 {
-			replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X + rem - 3, Y: pos.Y, Z: pos.Z + qx - 3}, bc.clusterRadius, bc.mayReplace, bc.mayReplaceFallback)
+			replaceBaseBlockCircle(api, wgen.BlockPos{X: pos.X + rem - 3, Y: pos.Y, Z: pos.Z + qx - 3}, bc.clusterRadius, bc.mayReplace, target)
 		}
 	}
 }
@@ -4666,10 +4681,12 @@ func (f *TreeFeature) placeMegaTrunk(ctx *wgen.PlacementContext, trunk *shapedTr
 		placeLog(api, top, f.trunkBlock)
 	}
 
+	// base_block under the whole footprint, after the column, then
 	// base_cluster -- mega-trunk-specific ground clusters, placed LAST;
 	// see placeBaseClusterGroundwork and baseCluster's doc comments for
 	// the schema and draw sequence.
-	placeBaseClusterGroundwork(api, origin, trunk.width, rnd, f.baseCluster)
+	f.placeBaseBlockFootprint(api, origin, trunk.width)
+	placeBaseClusterGroundwork(api, origin, trunk.width, rnd, f.baseCluster, f.baseBlock, f.baseBlockFallback)
 
 	result := origin
 	return &result
@@ -4712,7 +4729,7 @@ func (f *TreeFeature) placeMangroveTrunk(ctx *wgen.PlacementContext, t *mangrove
 			return nil
 		}
 	}
-	placeBaseBlock(api, wgen.BlockPos{X: origin.X, Y: origin.Y - 1, Z: origin.Z}, f.mayGrowOn, f.mayGrowOnFallback)
+	// The mangrove trunk writes no base block.
 
 	var candidates []wgen.BlockPos
 	anchor := origin
@@ -5278,7 +5295,7 @@ func (f *TreeFeature) placeCherryTrunk(ctx *wgen.PlacementContext, ct *cherryTru
 			return nil
 		}
 	}
-	placeBaseBlock(api, wgen.BlockPos{X: origin.X, Y: origin.Y - 1, Z: origin.Z}, f.mayGrowOn, f.mayGrowOnFallback)
+	placeBaseBlock(api, wgen.BlockPos{X: origin.X, Y: origin.Y - 1, Z: origin.Z}, f.baseBlock, f.baseBlockFallback)
 
 	treeType := ct.weightedTreeType(rnd)
 	startA := height - 1 + treeIntRangeValueInclusive(ct.startMin, ct.startMax, rnd)
@@ -5435,7 +5452,6 @@ func (f *TreeFeature) placeSubmergedTrunk(ctx *wgen.PlacementContext, st *simple
 			return nil
 		}
 	}
-	placeBaseBlock(api, wgen.BlockPos{X: relPos.X, Y: relPos.Y - 1, Z: relPos.Z}, f.mayGrowOn, f.mayGrowOnFallback)
 
 	// *** RNG CALL *** (0 or 1 draws) -- height_modifier.getValue(rnd),
 	// added to the base height drawn above.
@@ -6378,14 +6394,10 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 	}
 	mayGrowOn := ResolveMatchSet(mayGrowOnDescs, ctx, "may_grow_on")
 	// placeBaseBlock's fallback needs exactly one concrete block (a
-	// PRODUCING use) -- may_grow_on's first descriptor, resolved the same
-	// way places_block would be. Unlike the membership test above, this
-	// does NOT need to be a real predicate: it is always the same, fixed
-	// entry, never evaluated per-candidate.
-	var mayGrowOnFallback block.ID
-	if len(mayGrowOnDescs) > 0 {
-		mayGrowOnFallback = ctx.Palette.Resolve(mayGrowOnDescs[0])
-	}
+	// PRODUCING use) -- base_block's first descriptor, resolved the same
+	// way places_block would be. Unlike the membership test, this does NOT
+	// need to be a real predicate: it is always the same, fixed entry,
+	// never evaluated per-candidate.
 	var baseBlock block.MatchSet
 	var baseBlockFallback block.ID
 	if raw, present := body["base_block"]; present {
@@ -6404,7 +6416,6 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 		baseBlock = ResolveMatchSet(baseBlocks, ctx, "base_block")
 		if len(baseBlocks) > 0 {
 			baseBlockFallback = ctx.Palette.Resolve(baseBlocks[0])
-			mayGrowOnFallback = baseBlockFallback
 		}
 	}
 
@@ -7486,7 +7497,6 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 		trunkHeight:       int(trunkHeightF), // unused when submerged != nil
 		canopy:            canopy,
 		mayGrowOn:         mayGrowOn,
-		mayGrowOnFallback: mayGrowOnFallback,
 		baseBlock:         baseBlock,
 		baseBlockFallback: baseBlockFallback,
 		mayReplace:        mayReplace,

@@ -730,18 +730,18 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
 
   'minecraft:tree_feature': {
     base_block: {
-      summary: 'The block laid under the trunk once the tree is built.',
+      summary: 'The block the ground under the trunk is turned into, where it does not already match.',
       detail:
-        'A finishing touch applied after the trunk and canopy are in place, so it overwrites ' +
-        'whatever the ground turned out to be rather than deciding where the tree may grow -- that ' +
-        'is may_grow_on.',
+        'A finishing touch: it overwrites whatever the ground turned out to be rather than deciding ' +
+        'where the tree may grow -- that is may_grow_on. The first entry is what gets written. The ' +
+        'acacia and mega trunks convert their whole trunk_width footprint, the fancy and mangrove ' +
+        'trunks never do it, and base_cluster lays this same block.',
     },
     may_grow_on: {
       summary: 'Blocks the tree is willing to root on.',
       detail:
-        'Tested at the ground under the trunk. If the ground does not pass, the first entry in this ' +
-        'list is placed there to make it pass -- so this list also decides what a tree stands on ' +
-        'when it lands somewhere unsuitable.',
+        'Tested at the ground under the trunk. If the ground does not pass, the tree is not placed ' +
+        'at all; what the ground is turned into afterwards is base_block\'s business.',
     },
     may_grow_through: {
       summary: 'Blocks the trunk may push through on its way up.',
@@ -752,14 +752,16 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
     },
     may_replace: {
       summary: 'Blocks the tree may overwrite at and above its origin.',
-      detail: 'Below the origin it is may_grow_through that decides instead.',
+      detail:
+        'Below the origin it is may_grow_through that decides instead. The canopy and spruce_canopy ' +
+        'crowns do not read it: they write into air, leaves and vines only.',
     },
     base_cluster: {
       summary: 'A patch of base blocks laid around the foot of the trunk.',
       detail:
         'Takes `may_replace`, plus `num_clusters` and `cluster_radius` as plain whole numbers (not ' +
-        'ranges). Only the mega trunk builds it -- written alongside any other trunk shape it is ' +
-        'parsed and then never used.',
+        'ranges). What it lays is the tree\'s base_block, so without one it lays nothing. Only the ' +
+        'mega trunk builds it -- written alongside any other trunk shape it is parsed and then never used.',
     },
     mangrove_roots: {
       summary: 'The stilt roots under a mangrove, built before the trunk and able to move its base.',

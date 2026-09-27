@@ -153,15 +153,19 @@ export const TREE_GROUND_FIELDS: readonly FieldSpec[] = [
  * how this was caught rather than shipped. */
 export const TREE_GROUND_DOCS: Readonly<Record<string, DocEntry>> = {
   base_cluster: {
-    summary: 'A patch of ground laid under a wide trunk.',
+    summary: 'Patches of base_block laid around a wide trunk -- the podzol around a giant spruce.',
     detail:
-      'Only the wide-trunk shape reads it; on any other trunk it is accepted and does nothing. The ' +
+      'Only the wide-trunk shape reads it; on any other trunk it is accepted and does nothing. What it ' +
+      'lays is the tree\'s own base_block (its first entry), and without a base_block it lays nothing. The ' +
       'whole object is optional, but all three of its keys are required once it is there -- half of ' +
       'it is refused, not defaulted.',
   },
   'base_cluster.may_replace': {
     summary: 'The blocks a patch may overwrite.',
-    detail: 'An empty list is not the same as leaving the key out: with nothing listed, no patch is ever laid.',
+    detail:
+      'Each patch cell is searched from two blocks above the ground down to three below, and the first ' +
+      'block on this list takes the patch block. An empty list passes every block, so the patch lands in ' +
+      'the air two blocks up.',
   },
   'base_cluster.num_clusters': {
     summary: 'How many patches to lay.',
