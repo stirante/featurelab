@@ -541,7 +541,9 @@ export const IMAGES = [
     //    thing this figure is about: at canopy_offset {-3, 0} the plain `canopy` adds ~80 leaves
     //    that hide the trunk completely, and the first render of this figure had four panels that
     //    were the same green blob. Every panel therefore writes `canopy` with canopy_offset
-    //    {"min": -1, "max": 0}: a 3x3 layer and a single cell above it, 10 cells at most. That is
+    //    {"min": -1, "max": 0}, min_width 0 and canopy_slope {rise 1, run 1} -- written out, because
+    //    the defaults (min_width 1, rise 2) would make both layers 3x3: a 3x3 layer and a single
+    //    cell above it, 10 cells at most. That is
     //    small enough to leave the log skeleton visible and big enough to show WHERE each trunk
     //    hands its canopy over, which is itself one of the differences between them -- poplar_trunk
     //    gets only 4 of its 10 cells, because its four branch stubs and its own continuing column
@@ -612,7 +614,7 @@ export const IMAGES = [
     env: 'plains',
     seed: 3,
     out: 'tree-feature-acacia-branching.png',
-    note: 'An acacia trunk leaning diagonally with branch_chance 100, so its single side branch always grows and carries its own smaller branch_canopy -- the two-canopy silhouette the field reference describes. 47 blocks at this seed.',
+    note: 'An acacia trunk leaning diagonally with branch_chance 100, so its single side branch always grows and carries its own smaller branch_canopy -- the two-canopy silhouette the field reference describes. 48 blocks at this seed, one of them the dirt base_block puts under the trunk.',
   },
   {
     id: 'feature-rule-per-chunk',
@@ -727,7 +729,7 @@ export const IMAGES = [
     env: 'plains',
     seed: 3,
     out: 'tree-feature-plain-trunk.png',
-    note: "The plain `trunk` key at its plainest: a twelve-log straight column -- no lean, no branch, no direction draw anywhere in it -- with vines rolled against all four horizontal sides of every log, and a `canopy` step pyramid whose widest layer sits two cells below the topmost log, so the last two logs spear up through the crown. Its bottom log is at world Y 62, one below the requested origin of 63: can_be_submerged walked the descent one cell down through a may_grow_through-passing grass block and grew from there.",
+    note: "The plain `trunk` key at its plainest: a twelve-log straight column -- no lean, no branch, no direction draw anywhere in it -- with vines rolled against all four horizontal sides of every log and then covered by the crown beside the top three, and a `canopy` step pyramid whose bottom layer sits two cells below the topmost log, so the top three logs run up inside the crown. 78 blocks: 12 logs, 55 leaves, 11 vines. Its bottom log is at world Y 62, one below the requested origin of 63: can_be_submerged walked the descent one cell down through a may_grow_through-passing grass block and grew from there.",
     // Deliberately taller than vanilla's own 5..9 oaks. At a 5..9 height the crown's widest
     // layer overhangs the trunk by three cells and the default camera (viewer.ts's
     // DEFAULT_FRAME_DIR, looking down from the +X/+Y/+Z corner at about 31 degrees) hides

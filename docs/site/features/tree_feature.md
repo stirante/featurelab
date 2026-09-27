@@ -76,7 +76,7 @@ What each choice buys you:
 featurelab generate --pack <pack> --feature wiki:acacia_branching_tree --env plains --seed 3
 ```
 
-Run against `plains` with feature seed `3`, this writes **47 blocks**: 13 acacia logs and 34 acacia leaves. The trunk leans away from its base; the branch steps diagonally out of it and up; the large canopy sits at the trunk's own top and the small one at the branch tip.
+Run against `plains` with feature seed `3`, this writes **48 blocks**: 13 acacia logs, 34 acacia leaves, and the dirt `base_block` puts under the trunk in place of the grass. The trunk leans away from its base; the branch steps diagonally out of it and up; the large canopy sits at the trunk's own top and the small one at the branch tip.
 
 ::: tip The branch is not guaranteed to look like this
 The branch's direction is random, and one of the four directions it can pick is the trunk's own lean direction — in which case the branch is abandoned and the tree comes out with one crown. `branch_chance: 100` only guarantees the branch is *attempted*. At other seeds it comes out on the opposite side, or not at all.
@@ -460,13 +460,13 @@ The dependency does not run the other way. Vanilla's swamp tree sets `can_be_sub
 
 Here is the shape at its plainest, committed as [`fixtures/features/tree_plain_trunk.json`](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/fixtures/features/tree_plain_trunk.json):
 
-![A straight vertical oak trunk hung with vines on several sides, carrying a three-layer step-pyramid canopy, rendered by featurelab's voxel viewer](../../wiki/images/tree-feature-plain-trunk.png)
+![A straight vertical oak trunk hung with vines on several sides below its crown, carrying a four-layer step-pyramid canopy with a plus-shaped cap, rendered by featurelab's voxel viewer](../../wiki/images/tree-feature-plain-trunk.png)
 
 ```
 featurelab generate --pack <pack> --feature wiki:plain_trunk_tree --env plains --seed 3
 ```
 
-Twelve logs, dead straight, and 97 blocks in total: 12 logs, 68 leaves, 17 vines. The crown's widest layer sits two cells below the topmost log, so the last two logs run up through it. The vines are `trunk_decoration` at a 1-in-3 chance rolled against all four sides of every log.
+Twelve logs, dead straight, and 78 blocks in total: 12 logs, 55 leaves, 11 vines. The crown's bottom layer sits two cells below the topmost log, so the top three logs run up inside it. The vines are `trunk_decoration` at a 1-in-3 chance rolled against all four sides of every log, before the crown is built — and the crown then covers the ones beside those top three logs, so every vine left hangs below the leaves.
 
 The definition sets `can_be_submerged` to `{ "max_depth": 1 }` and lists `minecraft:grass_block` under `may_grow_through`, so the descent takes one step: the bottom log is at world Y **62**, one below the requested origin of 63, and it replaced the grass block that was there rather than standing on it. Drop `minecraft:grass_block` from `may_grow_through` and the whole trunk moves back up a cell — the probe fails, the descent never happens, and Y 62 gets a `base_block` conversion instead of a log.
 
@@ -488,7 +488,7 @@ Read as a fraction, `canopy_slope` is **run over rise**, not rise over run: `run
 `variation_chance` is the only part of this canopy that is random at all, and it applies to **corners only** — a cell where `|dx|` and `|dz|` both equal that layer's radius. There are four such cells per layer, each rolled once, and a successful roll leaves that corner out, which is what rounds the square off. The value is either one chance shared by every layer, or an array with one entry per layer, ordered from `canopy_offset.min` upward.
 
 ::: note A one-cell layer is four corners at once
-The corner test is **not** guarded against a radius of 0. On a one-cell layer, `|dx|` and `|dz|` are both zero and both equal the radius, so that single cell *is* a corner and gets rolled — and a chance that always succeeds deletes the layer outright. Vanilla's own oaks end their `variation_chance` array with `{ "numerator": 1, "denominator": 1 }` on exactly that layer, so the crown is capped by the square below it rather than by one leaf poking out of the top. The plain-trunk example above does the same: its top layer is gone, which is why its leaves stop one cell below where the geometry would put them.
+The corner test is **not** guarded against a radius of 0. On a one-cell layer, `|dx|` and `|dz|` are both zero and both equal the radius, so that single cell *is* a corner and gets rolled — and a chance that always succeeds deletes the layer outright. Vanilla's own oaks end their `variation_chance` array with `{ "numerator": 1, "denominator": 1 }` on the top layer; at the default radius of 1 there, that takes all four corners every time and caps the crown with a plus shape. The plain-trunk example above does the same.
 :::
 
 The leaves go into air, into other leaves and into vines, and nowhere else. `may_replace` is not asked at all, so listing water or stone there does not let this crown overwrite them. Vines are the case that shows: `trunk_decoration` hangs its vines on the logs before the crown is built, and the crown then covers the ones beside the logs inside it, so a vine-hung trunk only shows vines below its leaves.
@@ -719,7 +719,7 @@ Every measured claim on this page is reproducible from committed fixtures. `tree
 
 Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. Everything except `poplar_trunk` and `poplar_canopy` also holds for **1.26.40.26**, which is why this page carries no "also holds" badge for that build: those two keys do not exist in that build and a file using them does not load there.
 
-Five findings can be reproduced directly from the committed fixture pack. The worked example's **47 blocks** (13 logs, 34 leaves) and the plain trunk's **97** (12 logs, 68 leaves, 17 vines, bottom log at world Y 62 against a requested origin of 63) were read back out of `featurelab generate`'s own result, as was the fancy oak's **405** (31 logs, 374 leaves). The `may_grow_through` claim on the plain trunk was checked both ways: dropping `minecraft:grass_block` from that list moves the whole column up one cell and turns Y 62 from a log into a `base_block` conversion. The three pairings that grow a bare pole, and the two that grow no crown at all, were each run: a `cherry_trunk` whose only canopy is in `branches.branch_canopy` places its logs and not one leaf, and moving the same canopy body out to the feature body grows it at every branch tip. The `poplar_canopy` cross was read off a run with a working radius of 8: the log arms land three layers below the crown's topmost leaf layer and reach four cells from the centre, and at a working radius of 4 the cross is a single centre cell.
+Five findings can be reproduced directly from the committed fixture pack. The worked example's **48 blocks** (13 logs, 34 leaves, 1 dirt) and the plain trunk's **78** (12 logs, 55 leaves, 11 vines, bottom log at world Y 62 against a requested origin of 63) were read back out of `featurelab generate`'s own result, as was the fancy oak's **405** (31 logs, 374 leaves). The `may_grow_through` claim on the plain trunk was checked both ways: dropping `minecraft:grass_block` from that list moves the whole column up one cell and turns Y 62 from a log into a `base_block` conversion. The three pairings that grow a bare pole, and the two that grow no crown at all, were each run: a `cherry_trunk` whose only canopy is in `branches.branch_canopy` places its logs and not one leaf, and moving the same canopy body out to the feature body grows it at every branch tip. The `poplar_canopy` cross was read off a run with a working radius of 8: the log arms land three layers below the crown's topmost leaf layer and reach four cells from the centre, and at a working radius of 4 the cross is a single centre cell.
 
 The `branch_slope` table is arithmetic from the formula stated beside it rather than a run, because a negative-slope branch is a shape nobody has shipped.
 
