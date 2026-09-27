@@ -1,0 +1,11 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:height_difference_filter_feature": {
+    "description": {
+      "identifier": "difftest:hdf_max_up_inner"
+    },
+    "places_feature": "difftest:blk_gold",
+    "search_radius": 3,
+    "max_allowed_upward_height_diff": 2
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "difftest:tree_trunk_decoration_sequence"
+    },
+    "trunk": {
+      "trunk_height": {
+        "range_min": 6,
+        "range_max": 9
+      },
+      "trunk_block": "minecraft:dark_oak_log",
+      "trunk_decoration": {
+        "decoration_chance": {
+          "numerator": 1,
+          "denominator": 2
+        },
+        "decoration_blocks_sequence": [
+          {
+            "block": "minecraft:glow_lichen",
+            "count": {
+              "range_min": 1,
+              "range_max": 2
+            }
+          },
+          {
+            "block": "minecraft:vine",
+            "count": 1
+          }
+        ],
+        "num_steps": 2,
+        "step_direction": "down"
+      }
+    },
+    "canopy": {
+      "canopy_offset": {
+        "min": -2,
+        "max": 0
+      },
+      "leaf_block": "minecraft:dark_oak_leaves"
+    },
+    "base_block": [
+      "minecraft:dirt"
+    ],
+    "may_grow_on": [
+      "minecraft:dirt",
+      "minecraft:grass_block"
+    ],
+    "may_replace": [
+      "minecraft:air",
+      "minecraft:dark_oak_leaves"
+    ],
+    "may_grow_through": [
+      "minecraft:air",
+      "minecraft:grass_block",
+      "minecraft:dirt"
+    ]
+  }
+}

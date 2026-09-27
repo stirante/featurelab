@@ -1,0 +1,27 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:scatter_y_heightmap"
+    },
+    "places_feature": "difftest:blk_gold",
+    "distribution": {
+      "iterations": 40,
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -10,
+          10
+        ]
+      },
+      "y": "q.heightmap(v.worldx, v.worldz) - v.originy",
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -10,
+          10
+        ]
+      }
+    }
+  }
+}

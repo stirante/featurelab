@@ -1,0 +1,13 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:sequence_feature": {
+    "description": {
+      "identifier": "difftest:sequence_threaded"
+    },
+    "features": [
+      "difftest:fx_pumpkin_patch",
+      "difftest:seq_step_up",
+      "difftest:seq_step_up"
+    ]
+  }
+}

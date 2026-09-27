@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "featurelab difftest",
+    "description": "Feature placement differential tests (development only).",
+    "uuid": "6f1d2c1e-3b8a-4f55-9d2e-8a1f0c7d4b21",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      50
+    ]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "a7c3e9f2-51d4-4b0e-8c6a-2e9f7b1d3c58",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

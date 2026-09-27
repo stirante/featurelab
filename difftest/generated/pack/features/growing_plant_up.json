@@ -1,0 +1,42 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:growing_plant_feature": {
+    "description": {
+      "identifier": "difftest:growing_plant_up"
+    },
+    "height_distribution": [
+      [
+        [
+          2,
+          9
+        ],
+        3
+      ],
+      [
+        [
+          9,
+          14
+        ],
+        1
+      ]
+    ],
+    "growth_direction": "up",
+    "body_blocks": [
+      [
+        "minecraft:twisting_vines",
+        1
+      ]
+    ],
+    "head_blocks": [
+      [
+        "minecraft:twisting_vines",
+        1
+      ]
+    ],
+    "age": {
+      "range_min": 0,
+      "range_max": 25
+    },
+    "allow_water": false
+  }
+}

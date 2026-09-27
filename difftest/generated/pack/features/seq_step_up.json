@@ -1,0 +1,21 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:seq_step_up"
+    },
+    "places_feature": "difftest:blk_emerald",
+    "distribution": {
+      "iterations": 1,
+      "x": 0,
+      "y": {
+        "distribution": "uniform",
+        "extent": [
+          1,
+          4
+        ]
+      },
+      "z": 0
+    }
+  }
+}

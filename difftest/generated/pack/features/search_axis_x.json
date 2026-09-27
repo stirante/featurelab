@@ -1,0 +1,23 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:search_feature": {
+    "description": {
+      "identifier": "difftest:search_axis_x"
+    },
+    "places_feature": "difftest:blk_gold_on_grass",
+    "search_volume": {
+      "min": [
+        -6,
+        -3,
+        -2
+      ],
+      "max": [
+        6,
+        0,
+        2
+      ]
+    },
+    "search_axis": "+x",
+    "required_successes": 2
+  }
+}

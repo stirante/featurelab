@@ -1,0 +1,11 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:conditional_list": {
+    "description": { "identifier": "difftest:fx_conditional_list_early_out" },
+    "conditional_features": [
+      { "places_feature": "difftest:fx_blocked_gold_block", "condition": 1 },
+      { "places_feature": "difftest:fx_pumpkin_patch", "condition": 1 }
+    ],
+    "early_out_scheme": "placement_success"
+  }
+}

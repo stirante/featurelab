@@ -1,0 +1,27 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:multi_block_totem_field"
+    },
+    "places_feature": "difftest:multi_block_totem_blocked_inner",
+    "distribution": {
+      "iterations": 20,
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -6,
+          6
+        ]
+      },
+      "y": 0,
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -6,
+          6
+        ]
+      }
+    }
+  }
+}

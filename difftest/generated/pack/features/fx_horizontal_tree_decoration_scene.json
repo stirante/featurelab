@@ -1,0 +1,7 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:aggregate_feature": {
+    "description": { "identifier": "difftest:fx_fallen_log_with_litter" },
+    "features": [ "difftest:fx_fallen_log_run", "difftest:fx_log_litter_run" ]
+  }
+}

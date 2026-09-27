@@ -1,0 +1,27 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:snap_ceiling"
+    },
+    "places_feature": "difftest:snap_ceiling_inner",
+    "distribution": {
+      "iterations": 20,
+      "x": {
+        "distribution": "uniform",
+        "extent": [
+          -7,
+          7
+        ]
+      },
+      "y": 5,
+      "z": {
+        "distribution": "uniform",
+        "extent": [
+          -7,
+          7
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:scatter_dist_gaussian"
+    },
+    "places_feature": "difftest:blk_gold",
+    "distribution": {
+      "iterations": 24,
+      "x": {
+        "distribution": "gaussian",
+        "extent": [
+          -10,
+          10
+        ]
+      },
+      "y": {
+        "distribution": "gaussian",
+        "extent": [
+          0,
+          8
+        ]
+      },
+      "z": {
+        "distribution": "gaussian",
+        "extent": [
+          -10,
+          10
+        ]
+      }
+    }
+  }
+}

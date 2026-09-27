@@ -1,0 +1,21 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:vegetation_patch_feature": {
+    "description": {
+      "identifier": "difftest:vegetation_patch_waterlogged"
+    },
+    "replaceable_blocks": [
+      "minecraft:grass_block",
+      "minecraft:dirt"
+    ],
+    "ground_block": "minecraft:clay",
+    "vegetation_feature": "difftest:blk_gold_any",
+    "depth": 2,
+    "vertical_range": 3,
+    "vegetation_chance": 0.2,
+    "horizontal_radius": 5,
+    "extra_edge_column_chance": 0.2,
+    "waterlogged": true,
+    "surface": "floor"
+  }
+}

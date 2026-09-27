@@ -1,0 +1,18 @@
+{
+  "format_version": "1.26.50",
+  "minecraft:conditional_list": {
+    "description": {
+      "identifier": "difftest:conditional_condition_success"
+    },
+    "conditional_features": [
+      {
+        "places_feature": "difftest:blk_fail",
+        "condition": "1"
+      },
+      {
+        "places_feature": "difftest:blk_gold"
+      }
+    ],
+    "early_out_scheme": "condition_success"
+  }
+}

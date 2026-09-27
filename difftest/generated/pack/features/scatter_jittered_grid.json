@@ -1,0 +1,30 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:scatter_feature": {
+    "description": {
+      "identifier": "difftest:scatter_jittered_grid"
+    },
+    "places_feature": "difftest:blk_gold",
+    "distribution": {
+      "iterations": 36,
+      "x": {
+        "distribution": "jittered_grid",
+        "extent": [
+          -9,
+          9
+        ],
+        "step_size": 3
+      },
+      "y": 0,
+      "z": {
+        "distribution": "jittered_grid",
+        "extent": [
+          -9,
+          9
+        ],
+        "step_size": 3,
+        "grid_offset": 1
+      }
+    }
+  }
+}

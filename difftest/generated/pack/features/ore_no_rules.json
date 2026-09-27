@@ -1,0 +1,9 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:ore_feature": {
+    "description": {
+      "identifier": "difftest:ore_no_rules"
+    },
+    "count": 12
+  }
+}

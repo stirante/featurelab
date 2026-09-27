@@ -1,0 +1,19 @@
+{
+  "format_version": "1.21.40",
+  "minecraft:single_block_feature": {
+    "description": {
+      "identifier": "difftest:sb_not_attach_inner"
+    },
+    "enforce_placement_rules": false,
+    "enforce_survivability_rules": false,
+    "places_block": "minecraft:gold_block",
+    "may_replace": [
+      "minecraft:air"
+    ],
+    "may_not_attach_to": {
+      "sides": [
+        "minecraft:stone"
+      ]
+    }
+  }
+}

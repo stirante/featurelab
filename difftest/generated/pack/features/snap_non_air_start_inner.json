@@ -1,0 +1,12 @@
+{
+  "format_version": "1.21.110",
+  "minecraft:snap_to_surface_feature": {
+    "description": {
+      "identifier": "difftest:snap_non_air_start_inner"
+    },
+    "feature_to_snap": "difftest:blk_gold",
+    "surface": "floor",
+    "vertical_search_range": 14,
+    "allow_non_air_placement": true
+  }
+}
