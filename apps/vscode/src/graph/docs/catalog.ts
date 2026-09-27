@@ -460,9 +460,9 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
         'because the scan stops at the first position that satisfies the wrapped feature (or at the ' +
         'required_successes-th one), that is what decides WHICH of several workable positions gets ' +
         'used. Two patterns are worth knowing because neither is guessable from the value names: ' +
-        'the innermost loop always counts upward whatever the axis sign says, and for the two z ' +
-        'values the middle loop runs opposite to the outer one. Each value below is just its own ' +
-        '(outer, middle, inner) assignment.',
+        'the middle loop always counts upward (y for the x and z values, z for the y values), and ' +
+        'the innermost loop takes its direction from the value rather than from its own axis. Each ' +
+        'value below is just its own (outer, middle, inner) assignment.',
     },
     required_successes: {
       summary: 'How many positions have to work before the search commits.',
@@ -1376,12 +1376,12 @@ const TYPE_VALUE_DOCS: Readonly<
 
   'minecraft:search_feature': {
     search_axis: {
-      '-x': searchAxisDoc('x descending', 'z descending', 'y ascending'),
-      '+x': searchAxisDoc('x ascending', 'z ascending', 'y ascending'),
-      '-y': searchAxisDoc('y descending', 'x descending', 'z ascending'),
-      '+y': searchAxisDoc('y ascending', 'x ascending', 'z ascending'),
-      '-z': searchAxisDoc('z descending', 'x ascending', 'y ascending'),
-      '+z': searchAxisDoc('z ascending', 'x descending', 'y ascending'),
+      '-x': searchAxisDoc('x descending', 'y ascending', 'z descending'),
+      '+x': searchAxisDoc('x ascending', 'y ascending', 'z ascending'),
+      '-y': searchAxisDoc('y descending', 'z ascending', 'x descending'),
+      '+y': searchAxisDoc('y ascending', 'z ascending', 'x ascending'),
+      '-z': searchAxisDoc('z descending', 'y ascending', 'x ascending'),
+      '+z': searchAxisDoc('z ascending', 'y ascending', 'x descending'),
     },
   },
 

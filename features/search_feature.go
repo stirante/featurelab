@@ -35,32 +35,28 @@ type searchAxisPlan struct {
 // by the axis index (0-5) rather than the JSON string, so
 // the builder parses the enum once.
 //
-// The placement dispatches on the axis and walks an outer, a mid and an
-// inner range; each range is built from the search_volume AABB's own min and
-// max, and whether each range is ascending or descending gives the step's
-// sign. The outer range is the outermost loop and the inner range the
-// innermost. When the three counters are mapped back onto x/y/z, the x family
-// (axes 0,1) takes its x offset from the outer counter, and the y and z
-// families take it from the middle one; that agrees with all six rows below.
+// Each axis walks the search_volume AABB's min and max in three nested
+// loops, each ascending or
+// descending:
+// loop order is outer, mid, inner.
 //
-//	axis        outer   mid   inner
-//	0 (-x)      x-      z-    y+
-//	1 (+x)      x+      z+    y+
-//	2 (-y)      y-      x-    z+
-//	3 (+y)      y+      x+    z+
-//	4 (-z)      z-      x+    y+
-//	5 (+z)      z+      x-    y+
+//	axis        loops (outer, mid, inner)
+//	0 (-x)      x-  y+  z-
+//	1 (+x)      x+  y+  z+
+//	2 (-y)      y-  z+  x-
+//	3 (+y)      y+  z+  x+
+//	4 (-z)      z-  y+  x+
+//	5 (+z)      z+  y+  x-
 //
-// Two patterns worth naming, because neither is guessable: the innermost loop
-// is ALWAYS ascending, and the middle loop follows the outer loop's sign for
-// the x and y families but INVERTS it for the z family (axes 4 and 5).
+// So the middle loop is always ascending.
+// The table below is in loop order.
 var searchAxisPlans = map[int]searchAxisPlan{
-	0: {outer: searchLoopRole{"x", -1}, mid: searchLoopRole{"z", -1}, inner: searchLoopRole{"y", 1}},
-	1: {outer: searchLoopRole{"x", 1}, mid: searchLoopRole{"z", 1}, inner: searchLoopRole{"y", 1}},
-	2: {outer: searchLoopRole{"y", -1}, mid: searchLoopRole{"x", -1}, inner: searchLoopRole{"z", 1}},
-	3: {outer: searchLoopRole{"y", 1}, mid: searchLoopRole{"x", 1}, inner: searchLoopRole{"z", 1}},
-	4: {outer: searchLoopRole{"z", -1}, mid: searchLoopRole{"x", 1}, inner: searchLoopRole{"y", 1}},
-	5: {outer: searchLoopRole{"z", 1}, mid: searchLoopRole{"x", -1}, inner: searchLoopRole{"y", 1}},
+	0: {outer: searchLoopRole{"x", -1}, mid: searchLoopRole{"y", 1}, inner: searchLoopRole{"z", -1}},
+	1: {outer: searchLoopRole{"x", 1}, mid: searchLoopRole{"y", 1}, inner: searchLoopRole{"z", 1}},
+	2: {outer: searchLoopRole{"y", -1}, mid: searchLoopRole{"z", 1}, inner: searchLoopRole{"x", -1}},
+	3: {outer: searchLoopRole{"y", 1}, mid: searchLoopRole{"z", 1}, inner: searchLoopRole{"x", 1}},
+	4: {outer: searchLoopRole{"z", -1}, mid: searchLoopRole{"y", 1}, inner: searchLoopRole{"x", 1}},
+	5: {outer: searchLoopRole{"z", 1}, mid: searchLoopRole{"y", 1}, inner: searchLoopRole{"x", -1}},
 }
 
 type searchAxisRange struct{ min, max int }

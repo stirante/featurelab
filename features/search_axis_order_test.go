@@ -66,13 +66,13 @@ func searchVisitOrder(t *testing.T, axis string) []wgen.BlockPos {
 func TestSearchFeature_VisitOrderPerAxis(t *testing.T) {
 	// Expected order, straight from the table:
 	//
-	//	axis    outer  mid  inner        (inner is always ascending)
-	//	-x      x-     z-   y+
-	//	+x      x+     z+   y+
-	//	-y      y-     x-   z+
-	//	+y      y+     x+   z+
-	//	-z      z-     x+   y+
-	//	+z      z+     x-   y+
+	//	axis    outer  mid  inner        (mid is always ascending)
+	//	-x      x-     y+   z-
+	//	+x      x+     y+   z+
+	//	-y      y-     z+   x-
+	//	+y      y+     z+   x+
+	//	-z      z-     y+   x+
+	//	+z      z+     y+   x-
 	//
 	// Over [0..1]^3 each axis yields all 8 cells; the ORDER is the assertion.
 	type step struct {
@@ -80,12 +80,12 @@ func TestSearchFeature_VisitOrderPerAxis(t *testing.T) {
 		sign int
 	}
 	plans := map[string][3]step{
-		"-x": {{"x", -1}, {"z", -1}, {"y", 1}},
-		"+x": {{"x", 1}, {"z", 1}, {"y", 1}},
-		"-y": {{"y", -1}, {"x", -1}, {"z", 1}},
-		"+y": {{"y", 1}, {"x", 1}, {"z", 1}},
-		"-z": {{"z", -1}, {"x", 1}, {"y", 1}},
-		"+z": {{"z", 1}, {"x", -1}, {"y", 1}},
+		"-x": {{"x", -1}, {"y", 1}, {"z", -1}},
+		"+x": {{"x", 1}, {"y", 1}, {"z", 1}},
+		"-y": {{"y", -1}, {"z", 1}, {"x", -1}},
+		"+y": {{"y", 1}, {"z", 1}, {"x", 1}},
+		"-z": {{"z", -1}, {"y", 1}, {"x", 1}},
+		"+z": {{"z", 1}, {"y", 1}, {"x", -1}},
 	}
 	values := func(sign int) []int {
 		if sign < 0 {
@@ -131,10 +131,12 @@ func TestSearchFeature_VisitOrderPerAxis(t *testing.T) {
 	}
 }
 
-func TestSearchFeature_InnerLoopIsAlwaysAscending(t *testing.T) {
-	// A property the table has to keep: whichever axis ends up innermost, its
-	// two values are visited low-then-high for every one of the six axes.
-	inner := map[string]string{"-x": "y", "+x": "y", "-y": "z", "+y": "z", "-z": "y", "+z": "y"}
+func TestSearchFeature_MiddleLoopIsAlwaysAscending(t *testing.T) {
+	// A property the table has to keep: whichever axis ends up in the middle
+	// loop, its two values are visited low-then-high for every one of the six
+	// axes. Over [0..1]^3 the middle loop's second value is visit 2 (the inner
+	// loop takes visits 0 and 1).
+	mid := map[string]string{"-x": "y", "+x": "y", "-y": "z", "+y": "z", "-z": "y", "+z": "y"}
 	get := func(p wgen.BlockPos, axis string) int {
 		switch axis {
 		case "x":
@@ -145,13 +147,13 @@ func TestSearchFeature_InnerLoopIsAlwaysAscending(t *testing.T) {
 			return p.Z
 		}
 	}
-	for axis, innerAxis := range inner {
+	for axis, midAxis := range mid {
 		got := searchVisitOrder(t, axis)
-		if len(got) < 2 {
+		if len(got) < 3 {
 			t.Fatalf("%s: visited %d cells", axis, len(got))
 		}
-		if a, b := get(got[0], innerAxis), get(got[1], innerAxis); !(a == 0 && b == 1) {
-			t.Errorf("%s: inner axis %s went %d then %d, want 0 then 1", axis, innerAxis, a, b)
+		if a, b := get(got[0], midAxis), get(got[2], midAxis); !(a == 0 && b == 1) {
+			t.Errorf("%s: middle axis %s went %d then %d, want 0 then 1", axis, midAxis, a, b)
 		}
 	}
 }
