@@ -14,7 +14,7 @@ scope: bench
 
 Both halves of that picture are the same feature, the same seed and the same camera. The only difference is the block atlas. It is `wiki:plain_trunk_tree` from this set's own [fixture pack ↗](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures/) — the same tree the [tree feature](../features/tree_feature.md) page illustrates its bare `trunk` key with.
 
-Look at the trunk in the left half. Those chunky green-and-brown cubes are the vines the feature rolled onto all four sides of every log; flat-colour mode draws a vine as a full cube, because flat-colour mode draws *everything* as a full cube. On the right they are the thin blades they are in game, and the trunk behind them is visible for the first time.
+Look at the trunk in the left half. Those chunky green-and-brown cubes are the vines the feature rolled onto the sides of the logs below its crown; flat-colour mode draws a vine as a full cube, because flat-colour mode draws *everything* as a full cube. On the right they are the thin blades they are in game, and the trunk behind them is visible for the first time.
 
 ::: warning
 The textures are **Mojang's**, not this project's. They are not shipped with the tool and are never copied into your pack — they are fetched, once, on request, from Mojang's own public `bedrock-samples` repository, and cached outside both. Nothing is transferred without an explicit yes. That is the whole reason this is a download and not a bundled folder.

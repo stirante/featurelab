@@ -62,7 +62,7 @@ const FULL_WIDTH = HALF_WIDTH * 2 + DIVIDER
 // has seen that picture flat sees the same tree here textured. It is also, by luck of what it
 // places, the densest demonstration in the fixture pack of what the textured renderer actually
 // does -- a log column whose pillar_axis puts end grain on the right faces, cutout biome-tinted
-// leaves, vines rolled onto all four sides of every log (the one `attached` shape), and the
+// leaves, vines rolled onto the sides of the logs below the crown (the one `attached` shape), and the
 // grass blocks underneath it, whose sides are a fringe overlay composited over dirt.
 const ENTRY = {
   feature: 'wiki:plain_trunk_tree',
