@@ -13,6 +13,10 @@
         }
       }
     },
-    "components": {}
+    "components": {
+      "minecraft:movable": {
+        "movement_type": "immovable"
+      }
+    }
   }
 }

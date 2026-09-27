@@ -144,10 +144,49 @@ func (b *builder) importDir(rel, prefix string) map[string]string {
 		for _, o := range olds {
 			text = strings.ReplaceAll(text, `"`+o+`"`, `"`+rename[o]+`"`)
 		}
+		for bad, good := range fixtureBlockFixes {
+			text = strings.ReplaceAll(text, `"`+bad+`"`, `"`+good+`"`)
+		}
 		name := prefix + strings.TrimSuffix(f.file, ".json")
 		b.cat.Files["features/"+name+".json"] = []byte(text)
 	}
 	return rename
+}
+
+// anchorRules writes one feature rule per feature file. The game only registers pack features
+// that some feature rule reaches (an unreferenced one is missing from /place feature, which then
+// reports a syntax error), so every feature gets a rule whose biome filter never matches: it
+// loads the feature and never places anything.
+func (b *builder) anchorRules() {
+	idRe := regexp.MustCompile(`"identifier"\s*:\s*"([^"]+)"`)
+	var paths []string
+	for p := range b.cat.Files {
+		if strings.HasPrefix(p, "features/") && strings.HasSuffix(p, ".json") {
+			paths = append(paths, p)
+		}
+	}
+	sort.Strings(paths)
+	for _, p := range paths {
+		m := idRe.FindSubmatch(b.cat.Files[p])
+		if m == nil {
+			b.errs = append(b.errs, p+": no identifier")
+			continue
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(p, "features/"), ".json")
+		b.raw("feature_rules/anchor_"+name+".json", fmt.Sprintf(`{"format_version":"1.13.0","minecraft:feature_rules":{
+			"description":{"identifier":%q,"places_feature":%q},
+			"conditions":{"placement_pass":"underground_pass",
+				"minecraft:biome_filter":[{"test":"has_biome_tag","value":"difftest_never"}]},
+			"distribution":{"iterations":1,"x":0,"y":0,"z":0}}}`,
+			Namespace+":anchor_"+name, string(m[1])))
+	}
+}
+
+// fixtureBlockFixes renames block ids in imported fixtures that the game does not know. The game
+// refuses a whole feature over one unresolvable places_block entry ("Failed to resolve block"),
+// so a fixture naming one would place nothing in game and could not be compared.
+var fixtureBlockFixes = map[string]string{
+	"minecraft:jack_o_lantern": "minecraft:lit_pumpkin",
 }
 
 // copyFile copies a public repository file into the pack verbatim.
@@ -157,7 +196,40 @@ func (b *builder) copyFile(rel, packPath string) {
 		b.errs = append(b.errs, fmt.Sprintf("copy %s: %v", rel, err))
 		return
 	}
+	if strings.HasSuffix(packPath, ".mcstructure") {
+		data = withStructureFormatVersion(data)
+	}
 	b.cat.Files[packPath] = data
+}
+
+// withStructureFormatVersion adds what the game requires of a .mcstructure and a hand-written
+// fixture may lack; without any one of them the game logs "<field>, a required field, is
+// missing" and the structure does not exist for it. Little-endian NBT, unnamed root compound:
+// the root format_version int, structure.entities (an empty list) and the default palette's
+// block_position_data (an empty compound).
+func withStructureFormatVersion(data []byte) []byte {
+	if len(data) < 3 || data[0] != 0x0a || data[1] != 0 || data[2] != 0 {
+		return data
+	}
+	named := func(typ byte, name string) []byte {
+		return append([]byte{typ, byte(len(name)), 0}, name...)
+	}
+	out := data
+	insertAfter := func(header []byte, field string, tag []byte) {
+		if bytes.Contains(out, []byte(field)) {
+			return
+		}
+		i := bytes.Index(out, header)
+		if i < 0 {
+			return
+		}
+		at := i + len(header)
+		out = append(append(append([]byte{}, out[:at]...), tag...), out[at:]...)
+	}
+	insertAfter(data[:3], "format_version", append(named(0x03, "format_version"), 1, 0, 0, 0))
+	insertAfter(named(0x0a, "structure"), "entities", append(named(0x09, "entities"), 0x0a, 0, 0, 0, 0))
+	insertAfter(named(0x0a, "default"), "block_position_data", append(named(0x0a, "block_position_data"), 0))
+	return out
 }
 
 // raw writes an arbitrary pack file.
