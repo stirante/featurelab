@@ -544,11 +544,11 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
   },
   'mangrove_canopy.canopy_height': {
     summary: 'How far up and down a scattered leaf may land, drawn once for the whole crown.',
-    detail: 'A range, so it wants range_min and range_max. One value is drawn per tree and then reused for every attempt.',
+    detail: 'A range, so it wants range_min and range_max, and its maximum is included. One value is drawn per tree and then reused for every attempt.',
   },
   'mangrove_canopy.canopy_radius': {
     summary: 'How far sideways a scattered leaf may land, drawn once for the whole crown.',
-    detail: 'A range, so it wants range_min and range_max. Like the height, drawn once and shared by every attempt.',
+    detail: 'A range, so it wants range_min and range_max, and its maximum is included. Like the height, drawn once and shared by every attempt.',
   },
   'mangrove_canopy.leaf_placement_attempts': {
     summary: 'How many leaves are attempted around each trunk log.',
@@ -799,11 +799,11 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
   },
   'random_spread_canopy.canopy_height': {
     summary: 'How far up and down a scattered leaf may land, drawn once for the whole crown.',
-    detail: 'A range, so it wants range_min and range_max. Drawn once per tree and then reused for every attempt.',
+    detail: 'A range, so it wants range_min and range_max, and its maximum is included. Drawn once per tree and then reused for every attempt.',
   },
   'random_spread_canopy.canopy_radius': {
     summary: 'How far sideways a scattered leaf may land, drawn once for the whole crown.',
-    detail: 'A range, so it wants range_min and range_max. Drawn once per tree, like the height.',
+    detail: 'A range, so it wants range_min and range_max, and its maximum is included. Drawn once per tree, like the height.',
   },
   'random_spread_canopy.leaf_placement_attempts': {
     summary: 'How many leaves are attempted around each trunk log.',

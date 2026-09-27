@@ -119,7 +119,7 @@ A sweep of the finished pages checked 913 claims and found **25 wrong — twelve
 product catalogue**, not on the pages. Assume the same rate applies to whatever you carry over.
 
 The dominant class is **range bounds**, and it is not a docs problem: the engine is genuinely
-inconsistent. Thirteen `tree_feature` keys sample inclusive of their maximum; geode's `min`/`max`
+inconsistent. Seventeen `tree_feature` keys sample inclusive of their maximum; geode's `min`/`max`
 pairs are exclusive; most of the rest are exclusive. There is no rule to apply, so **measure**.
 
 Measuring means `featurelab generate` against a committed fixture pack — the way every number on
