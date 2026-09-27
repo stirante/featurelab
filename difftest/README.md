@@ -14,9 +14,8 @@ block by block.
 | `generated/manifest.json` | every test: grid cell, setup ops, dump box, and the ready-made game commands |
 | `engine.go` | the engine side: superflat + setup, place N times, measure |
 | `metrics.go` | metrics for one placement (both sides) |
-| `gamedump.go` | turns the game runner's dumps into the same metrics |
+| `gamedump.go` | turns region dumps taken in the game into the same metrics |
 | `compare.go` | KS test + tolerance bands per metric, markdown and JSON report |
-| `game/run_game.py` | the game side runner |
 | `validate_known_bugs.sh` | replays two fixed engine bugs through the comparator |
 
 ## Run
@@ -28,10 +27,11 @@ Engine side (about 20 s for 164 tests x 30 placements):
 Fossil tests need the vanilla fossil templates: set `DIFFTEST_VANILLA_STRUCTURES` to a vanilla
 behaviour pack's `structures/` directory, or those two tests report as not built.
 
-Game side:
-
-    python difftest/game/run_game.py                 # -> difftest/out/game_dumps.jsonl, then the report
-    python difftest/game/run_game.py --dry-run       # every command it would send, nothing touched
+Game side: the runner that places the tests in a live game and dumps the regions is not part of
+this repository. Whatever produces the dumps writes `difftest/out/game_dumps.jsonl`, one placement
+per line, in the shape `gamedump.go` reads: the block palette by name plus the box contents
+run-length encoded, x fastest, then z, then y. `go run ./difftest/cmd/difftest engine -dumps`
+writes the engine's placements in the same shape, which is the reference for it.
 
 Report only (after either side changed):
 
@@ -44,11 +44,8 @@ Report only (after either side changed):
   plains, cheats on, **Require Encrypted Websockets OFF** (Settings > General).
 - Add `difftest/generated/pack` as a behaviour pack (copy it into
   `development_behavior_packs/` and apply it to the world).
-- The helper that serves the `region dump` pipe must be loaded (it provides `region dump`);
-  `the dump client` is found via `--client-dir` / `DIFFTEST_CLIENT_DIR`.
-- Start the runner, then in chat: `/connect localhost:19146`. The runner is a small websocket
-  server speaking the game's own automation protocol (`commandRequest` / `commandResponse`),
-  so commands run as the player without typing into chat.
+- Each test in `generated/manifest.json` carries the ready-made commands: the cell reset, the
+  setup, `/place feature`, and the boxes to dump before and after.
 
 Cells are laid out on a 128-block grid starting at x=z=264; each repeat resets its cell with
 `/fill` (split at 32768 blocks), runs the setup, dumps the region, checks a few setup blocks
@@ -58,16 +55,14 @@ run; `--tests` and `--repeats` narrow it. The player hovers over the middle of t
 wider than 48 blocks (the carvers) also get a ticking area while they run, since they reach past
 the simulation distance.
 
-region dump reads the client's copy of the chunks, and some placements never reach the client: the
-game's ore and geode features write without telling it, so a vein or a geode shell is on the server but
-missing from the dump. For those types the runner clones the dump box onto itself (`replace force`)
-before the after-dump, which resends every block (`RESYNC_TYPES` in `run_game.py`). Another type with
-the same habit would look like "the game placed nothing"; `/fill ... replace <block>` counts what the
-server really has.
+A dump of the client's copy of the chunks misses some placements: the game's ore and geode features
+write without telling the client, so a vein or a geode shell is on the server but not in a
+client-side dump. Cloning the dump box onto itself (`replace force`) before the after-dump resends
+every block. Another type with the same habit would look like "the game placed nothing";
+`/fill ... replace <block>` counts what the server really has.
 
-A `canopy` without `variation_chance` can crash the game on `/place feature` (1.26.60.22, an
-access violation in the game's canopy placement; not every geometry triggers it). The runner skips
-the six tests with that shape by default (`GAME_CRASHERS` in `run_game.py`); `--skip ''` runs them.
+A `canopy` without `variation_chance` crashes the game when it is placed (1.26.60.22). The six
+tests with that shape are marked `expectedGameCrash` in the manifest; skip them in a game run.
 
 Carver tests carry a caveat: the game may not run carvers through `/place feature` at all, and
 the underwater carver needs an ocean biome. A carver the game leaves untouched is reported as

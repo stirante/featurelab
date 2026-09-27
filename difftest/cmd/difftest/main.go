@@ -3,7 +3,6 @@
 // runner's dumps into the same metrics, and compares the two sides.
 //
 //	go run ./difftest/cmd/difftest engine                 # gen + engine side -> difftest/out/engine.json
-//	python difftest/game/run_game.py                      # game side -> difftest/out/game_dumps.jsonl (+ report)
 //	go run ./difftest/cmd/difftest compare --game-dumps difftest/out/game_dumps.jsonl
 //
 // Subcommands: gen, engine, metrics, compare. Run one with -h for its flags.
