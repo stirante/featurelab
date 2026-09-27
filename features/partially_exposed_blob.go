@@ -53,25 +53,21 @@
 // canBePlaced -- what it ACTUALLY checks, no RNG:
 //
 // The position itself, plus all six face neighbors EXCEPT the one named by exposed_face, must each
-// NOT be water (a material test for water -- NOT air; the same material test the game uses for
-// waterlogging). The exposed_face neighbor is skipped from this check
-// entirely -- neither required to be water NOR required not to be -- it is simply excluded,
-// which is exactly the "may be exposed in this one
+// be NOT air and NOT water. A blob therefore only grows into solid (or at least non-air, non-water)
+// ground that is buried on five sides. The exposed_face neighbor is skipped from this check
+// entirely -- it may be air, water or anything else -- which is the "may be exposed in this one
 // direction" semantics the name implies (e.g. underwater magma: buried in solid ground on five
-// sides, with the sixth, typically up, left unconstrained so it may legitimately touch the water
-// above). The six faces are checked in fixed order Down(0), Up(1), North(2), South(3), West(4),
-// East(5), and exactly the one check matching the stored exposed_face is skipped -- including
-// Down (0).
+// sides, with the sixth, typically up, left unconstrained so it may touch the water above). The
+// six faces are checked in fixed order Down(0), Up(1), North(2), South(3), West(4), East(5), and
+// exactly the one check matching the stored exposed_face is skipped -- including Down (0).
 //
-// Layers: the game checks two block layers per position (the primary block and the
-// waterlogging layer -- see structures.ResolvedStructure's own Layer1 doc comment for the same
-// layer this port's world model has never modeled). Those collapse to ONE check here: this
-// codebase's wgen.BlockWorld.GetBlock returns a single block.ID per position with no
-// separate waterlog-layer query at all (unlike .mcstructure data, which does carry a Layer1 --
-// just never surfaced through the live world API any feature place() call can see). Both checks
-// are therefore folded into one isWaterBlock(api.GetBlock(pos)) check, which is a strictly
-// faithful simplification given this port has no second layer to distinguish. Nothing about this
-// type refuses.
+// There is no special case for bedrock or the world floor: a bedrock cell at the bottom of the
+// world is refused only because its down neighbor lies below the world and reads as air.
+//
+// Layers: the game checks water in two block layers per position (the primary block and the
+// waterlogging layer), air only in the primary one. This codebase's wgen.BlockWorld.GetBlock
+// returns a single block.ID per position with no separate waterlog-layer query, so both water
+// checks fold into one isWaterBlock(api.GetBlock(pos)) check. Nothing about this type refuses.
 package features
 
 import (
@@ -173,10 +169,15 @@ func (f *PartiallyExposedBlobFeature) TypeID() string     { return partiallyExpo
 func (f *PartiallyExposedBlobFeature) Identifier() string { return f.identifier }
 
 // canBePlaced mirrors the partially-exposed-blob feature's placement check
-// exactly -- zero RNG. See module header for the full description.
+// exactly -- zero RNG: the cell and its five non-exposed neighbors must each
+// be neither air nor water. See module header for the full description.
 func (f *PartiallyExposedBlobFeature) canBePlaced(api wgen.BlockWorld, pos wgen.BlockPos) bool {
 	pal := api.Palette()
-	if isWaterBlock(pal, api.GetBlock(pos)) {
+	blocked := func(p wgen.BlockPos) bool {
+		id := api.GetBlock(p)
+		return pal.IsAir(id) || isWaterBlock(pal, id)
+	}
+	if blocked(pos) {
 		return false
 	}
 	for face, off := range partiallyExposedBlobFacingOffsets {
@@ -184,7 +185,7 @@ func (f *PartiallyExposedBlobFeature) canBePlaced(api wgen.BlockWorld, pos wgen.
 			continue // the one face deliberately excluded from this check
 		}
 		neighbor := wgen.BlockPos{X: pos.X + off.X, Y: pos.Y + off.Y, Z: pos.Z + off.Z}
-		if isWaterBlock(pal, api.GetBlock(neighbor)) {
+		if blocked(neighbor) {
 			return false
 		}
 	}

@@ -474,7 +474,7 @@ var FeatureTypeCoverage = []CoverageEntry{
 	{
 		TypeID: "minecraft:partially_exposed_blob_feature",
 		Status: StatusImplemented,
-		evidence: "The water-exposure gate tests for water, and blocks are visited centre-outwards, " +
+		evidence: "The exposure gate refuses air and water, and blocks are visited centre-outwards, " +
 			"ring by ring. exposed_face is optional and defaults to \"up\"; omitted JSON fields keep " +
 			"their constructed defaults. Nothing refuses. Covered by its own tests; see " +
 			"features/partially_exposed_blob.go's header.",

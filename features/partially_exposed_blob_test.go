@@ -340,3 +340,83 @@ func TestPartiallyExposedBlobFeature_SchemaValidation(t *testing.T) {
 		}
 	})
 }
+
+// TestPartiallyExposedBlobFeature_RefusesAirLikeWater pins the ground test:
+// a cell is refused when it, or any of its five non-exposed neighbours, is
+// air -- exactly as for water. The exposed face may be air.
+func TestPartiallyExposedBlobFeature_RefusesAirLikeWater(t *testing.T) {
+	pal := block.NewPalette()
+	stone := pal.Get("minecraft:stone", nil)
+	air := pal.Get("minecraft:air", nil)
+	// Solid stone up to y=62 and air from y=63; the floor centre is y=62.
+	bounds := volume.Bounds{MinX: -4, MinY: 55, MinZ: -4, SizeX: 9, SizeY: 15, SizeZ: 9}
+	v := volume.New(bounds, pal, air)
+	for x := -4; x <= 4; x++ {
+		for z := -4; z <= 4; z++ {
+			for y := 55; y <= 62; y++ {
+				v.SetBlock(wgen.BlockPos{X: x, Y: y, Z: z}, stone)
+			}
+		}
+	}
+	origin := wgen.BlockPos{X: 0, Y: 63, Z: 0}
+	f := buildTestPartiallyExposedBlob(t, pal, map[string]any{
+		"placement_radius_around_floor":            float64(1),
+		"placement_probability_per_valid_position": float64(1),
+		"exposed_face": "up",
+	})
+	if placeTestPartiallyExposedBlob(f, v, origin, random.New(1)) == nil {
+		t.Fatal("Place() = nil, want success on the buried layers")
+	}
+	for x := -1; x <= 1; x++ {
+		for z := -1; z <= 1; z++ {
+			for y := 61; y <= 63; y++ {
+				got := pal.NameOf(v.GetBlock(wgen.BlockPos{X: x, Y: y, Z: z}))
+				want := "minecraft:magma"
+				if y == 63 {
+					want = "minecraft:air" // the cell itself is air
+				}
+				if got != want {
+					t.Errorf("(%d,%d,%d) = %q, want %q", x, y, z, got, want)
+				}
+			}
+		}
+	}
+
+	// exposed_face down: the surface layer (y=62) has air above it and is refused,
+	// the layer below it keeps its cells.
+	v2 := volume.New(bounds, pal, air)
+	for x := -4; x <= 4; x++ {
+		for z := -4; z <= 4; z++ {
+			for y := 55; y <= 62; y++ {
+				v2.SetBlock(wgen.BlockPos{X: x, Y: y, Z: z}, stone)
+			}
+		}
+	}
+	fDown := buildTestPartiallyExposedBlob(t, pal, map[string]any{
+		"placement_radius_around_floor":            float64(1),
+		"placement_probability_per_valid_position": float64(1),
+		"exposed_face": "down",
+	})
+	placeTestPartiallyExposedBlob(fDown, v2, origin, random.New(1))
+	if got := pal.NameOf(v2.GetBlock(wgen.BlockPos{X: 0, Y: 62, Z: 0})); got != "minecraft:stone" {
+		t.Errorf("surface cell with air above and exposed_face down = %q, want minecraft:stone", got)
+	}
+	if got := pal.NameOf(v2.GetBlock(wgen.BlockPos{X: 0, Y: 61, Z: 0})); got != "minecraft:magma" {
+		t.Errorf("buried cell = %q, want minecraft:magma", got)
+	}
+}
+
+// TestPartiallyExposedBlobFeature_OpenAirPlacesNothing: a blob in open air
+// has no cell whose neighbours are all non-air, so it fails.
+func TestPartiallyExposedBlobFeature_OpenAirPlacesNothing(t *testing.T) {
+	pal := block.NewPalette()
+	air := pal.Get("minecraft:air", nil)
+	v := volume.New(volume.Bounds{MinX: -4, MinY: 55, MinZ: -4, SizeX: 9, SizeY: 15, SizeZ: 9}, pal, air)
+	f := buildTestPartiallyExposedBlob(t, pal, map[string]any{
+		"placement_radius_around_floor":            float64(1),
+		"placement_probability_per_valid_position": float64(1),
+	})
+	if got := placeTestPartiallyExposedBlob(f, v, wgen.BlockPos{X: 0, Y: 63, Z: 0}, random.New(1)); got != nil {
+		t.Fatalf("Place() = %+v, want nil (every cell is air)", got)
+	}
+}
