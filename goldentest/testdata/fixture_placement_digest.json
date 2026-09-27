@@ -463,9 +463,9 @@
       "identifier": "wiki:lamp_post_constrained",
       "typeId": "minecraft:structure_template_feature",
       "writeCount": 5,
-      "writeHash": "65d9a76a58a60ce6",
-      "drawCount": 0,
-      "drawHash": "cbf29ce484222325",
+      "writeHash": "2e2e5cbdddad60c5",
+      "drawCount": 1,
+      "drawHash": "1839fda3abc29935",
       "returned": {
         "x": 0,
         "y": 63,
