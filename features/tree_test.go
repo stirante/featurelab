@@ -20,8 +20,8 @@ import (
 
 // --- simpleCanopy: slopeAt formula -------------------------------------------------------------
 
-// TestSimpleCanopySlopeAt_DefaultSlope pins the formula (int-multiply,
-// float32-cast, float32-multiply by 1/run, truncate toward zero) for the default rise=1/run=1
+// TestSimpleCanopySlopeAt_DefaultSlope pins the formula (int-multiply by run,
+// float32-cast, float32-multiply by 1/rise, truncate toward zero) for the default rise=1/run=1
 // case, where it must reduce to the identity (slopeAt(dy) == dy).
 func TestSimpleCanopySlopeAt_DefaultSlope(t *testing.T) {
 	c := &simpleCanopy{rise: 1, run: 1}
@@ -34,17 +34,63 @@ func TestSimpleCanopySlopeAt_DefaultSlope(t *testing.T) {
 
 // TestSimpleCanopySlopeAt_TruncatesTowardZero pins the truncation direction specifically (the
 // game's float-to-int conversion rounds toward zero -- see tree.go header) for a case where floor() and
-// trunc-toward-zero disagree: rise=2, run=3, dy=-1 -> raw = -2/3 = -0.667; floor=-1, trunc=0.
+// trunc-toward-zero disagree: run=2, rise=3, dy=-1 -> raw = -2/3 = -0.667; floor=-1, trunc=0.
 func TestSimpleCanopySlopeAt_TruncatesTowardZero(t *testing.T) {
-	c := &simpleCanopy{rise: 2, run: 3}
+	c := &simpleCanopy{rise: 3, run: 2}
 	if got := c.slopeAt(-1); got != 0 {
-		t.Fatalf("slopeAt(-1) with rise=2/run=3 = %d, want 0 (trunc-toward-zero of -0.667, NOT floor's -1)", got)
+		t.Fatalf("slopeAt(-1) with rise=3/run=2 = %d, want 0 (trunc-toward-zero of -0.667, NOT floor's -1)", got)
 	}
 	if got := c.slopeAt(1); got != 0 {
-		t.Fatalf("slopeAt(1) with rise=2/run=3 = %d, want 0 (trunc-toward-zero of 0.667)", got)
+		t.Fatalf("slopeAt(1) with rise=3/run=2 = %d, want 0 (trunc-toward-zero of 0.667)", got)
 	}
 	if got := c.slopeAt(3); got != 2 {
-		t.Fatalf("slopeAt(3) with rise=2/run=3 = %d, want 2 (trunc-toward-zero of 2.0)", got)
+		t.Fatalf("slopeAt(3) with rise=3/run=2 = %d, want 2 (trunc-toward-zero of 2.0)", got)
+	}
+}
+
+// TestSimpleCanopy_RunMultipliesRiseDivides pins which canopy_slope key is which operand, end to
+// end from the JSON keys: run multiplies the layer offset and rise divides it, the other way round
+// from the "rise over run" reading the names suggest. The first case is the configuration that
+// exposed it in game: {rise: 1, run: 2} over canopy_offset {-3, 0} with min_width 1 grows a wide
+// stepped pyramid (radii 7, 5, 3, 1 from the bottom up -- 15 blocks across at the base), while
+// {rise: 2, run: 1} gives the small oak-sized crown (radii 2, 2, 1, 1).
+func TestSimpleCanopy_RunMultipliesRiseDivides(t *testing.T) {
+	pal := block.NewPalette()
+	for _, tc := range []struct {
+		rise, run int
+		want      []int // radius per layer, dy = -3 .. 0
+	}{
+		{rise: 1, run: 2, want: []int{7, 5, 3, 1}},
+		{rise: 2, run: 1, want: []int{2, 2, 1, 1}},
+		{rise: 1, run: 1, want: []int{4, 3, 2, 1}},
+		{rise: 3, run: 2, want: []int{3, 2, 1, 1}},
+	} {
+		tf := buildTestSimpleTree(t, pal, map[string]any{
+			"canopy_offset": map[string]any{"min": float64(-3), "max": float64(0)},
+			"canopy_slope":  map[string]any{"rise": float64(tc.rise), "run": float64(tc.run)},
+		})
+		c := tf.canopy.(*simpleCanopy)
+		top := c.slopeAt(c.offsetMax)
+		for i, dy := 0, c.offsetMin; dy <= c.offsetMax; i, dy = i+1, dy+1 {
+			if got := top + c.minWidth - c.slopeAt(dy); got != tc.want[i] {
+				t.Errorf("rise=%d run=%d: layer dy=%d radius = %d, want %d", tc.rise, tc.run, dy, got, tc.want[i])
+			}
+		}
+	}
+
+	// And the placed crown really is 15 wide at the base for the reported configuration.
+	v, vpal := newTreeTestVolume(t, 10)
+	leaf := vpal.Get("minecraft:oak_leaves", nil)
+	c := &simpleCanopy{leafID: leaf, offsetMin: -3, offsetMax: 0, minWidth: 1, rise: 1, run: 2}
+	anchor := wgen.BlockPos{X: 0, Y: 15, Z: 0}
+	c.place(v, anchor, random.New(1), treeParamsLists{}, nil)
+	for dy, r := range map[int]int{-3: 7, -2: 5, -1: 3, 0: 1} {
+		for dx := -8; dx <= 8; dx++ {
+			pos := wgen.BlockPos{X: dx, Y: anchor.Y + dy, Z: 0}
+			if got, want := v.GetBlock(pos) == leaf, abs(dx) <= r; got != want {
+				t.Errorf("rise=1 run=2: layer dy=%d dx=%d leaf=%v, want %v (radius %d)", dy, dx, got, want, r)
+			}
+		}
 	}
 }
 
@@ -188,10 +234,29 @@ func TestBuildTreeFeature_CanopyKey_SchemaValidation(t *testing.T) {
 			t.Errorf("rise=%d run=%d, want 1,1", sc.rise, sc.run)
 		}
 	})
-	t.Run("canopy_slope.run=0 rejected", func(t *testing.T) {
-		body := simpleTreeBody(map[string]any{"canopy_slope": map[string]any{"rise": float64(1), "run": float64(0)}})
-		if _, err := buildTreeFeature(body, ctx); err == nil {
-			t.Error("want error, got nil")
+	for _, tc := range []struct {
+		name  string
+		extra map[string]any
+		key   string
+	}{
+		{"canopy_slope.rise=0 rejected", map[string]any{"canopy_slope": map[string]any{"rise": float64(0), "run": float64(1)}}, "canopy.canopy_slope.rise"},
+		{"canopy_slope.run=0 rejected", map[string]any{"canopy_slope": map[string]any{"rise": float64(1), "run": float64(0)}}, "canopy.canopy_slope.run"},
+		{"canopy_slope.run=-1 rejected", map[string]any{"canopy_slope": map[string]any{"rise": float64(1), "run": float64(-1)}}, "canopy.canopy_slope.run"},
+		{"min_width=-1 rejected", map[string]any{"min_width": float64(-1)}, "canopy.min_width"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildTreeFeature(simpleTreeBody(tc.extra), ctx)
+			if err == nil {
+				t.Fatal("want error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.key) || !strings.Contains(err.Error(), "schema minimum") {
+				t.Errorf("error must name %s and its schema minimum; got %v", tc.key, err)
+			}
+		})
+	}
+	t.Run("min_width=0 accepted", func(t *testing.T) {
+		if _, err := buildTreeFeature(simpleTreeBody(map[string]any{"min_width": float64(0)}), ctx); err != nil {
+			t.Errorf("want success, got %v", err)
 		}
 	})
 	t.Run("variation_chance refused", func(t *testing.T) {

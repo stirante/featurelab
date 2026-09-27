@@ -320,10 +320,10 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | `canopy_offset` | yes | object with `min` and `max` | — | Which layers to build, relative to the anchor. A negative `min` puts layers *below* it. **Not a range** — see [the warning](#canopy-offset-is-not-a-range). |
 | `canopy_offset.min` | yes | integer | — | The lowest layer. |
 | `canopy_offset.max` | yes | integer | — | The highest layer. |
-| `min_width` | no | integer | `0` | Widens every layer at once. |
-| `canopy_slope` | no | object with `rise` and `run` | `{ "rise": 1, "run": 1 }` | How fast the layers taper. |
-| `canopy_slope.rise` | no | integer | `1` | The numerator. |
-| `canopy_slope.run` | no | integer | `1` | The denominator; must be non-zero. |
+| `min_width` | no | integer | `0` | Widens every layer at once. At least 0. |
+| `canopy_slope` | no | object with `rise` and `run` | `{ "rise": 1, "run": 1 }` | How fast the layers taper. **The names read backwards** — see [the formula](#the-step-pyramid-canopy). |
+| `canopy_slope.rise` | no | integer | `1` | The divisor. At least 1. |
+| `canopy_slope.run` | no | integer | `1` | The multiplier. At least 1. |
 | `variation_chance` | no | a percent, a `{numerator, denominator}`, or an **array with exactly one entry per layer** | absent — no corner removed | The chance to leave out each of a layer's four corners, which is what rounds the square off. An array is ordered from `canopy_offset.min` upward, and one of the wrong length is refused. See [the corner rule](#the-step-pyramid-canopy). |
 | `canopy_decoration` | no | object — the next rows | absent — nothing hangs | Hangs a run of blocks off the crown. |
 | `canopy_decoration.decoration_block` | **yes** | block descriptor | — | What hangs. |
@@ -476,10 +476,14 @@ The definition sets `can_be_submerged` to `{ "max_depth": 1 }` and lists `minecr
 
 ```
 radius = slope(canopy_offset.max) + min_width - slope(dy)
-slope(d) = truncate(canopy_slope.rise * d / canopy_slope.run)
+slope(d) = truncate(canopy_slope.run * d / canopy_slope.rise)
 ```
 
 `dy` runs from `canopy_offset.min` to `canopy_offset.max` and is measured from the anchor the trunk handed over, so a negative `min` puts layers *below* it. With the default 1:1 slope, `min_width` 0 and `canopy_offset` `{ "min": -3, "max": 0 }`, that is radii 3, 2, 1 and 0 from the bottom up — the familiar oak crown. `min_width` widens every layer at once; `canopy_slope` changes how fast they taper.
+
+::: warning `rise` and `run` are the other way round
+Read as a fraction, `canopy_slope` is **run over rise**, not rise over run: `run` is multiplied by the layer's distance and `rise` divides it. So `{ "rise": 1, "run": 2 }` does not make a gentler slope — it adds **two** blocks of half-width per layer. Over `canopy_offset` `{ "min": -3, "max": 0 }` with `min_width` 1 that is radii 7, 5, 3 and 1 from the bottom up, a flat stepped pyramid 15 blocks across at its base. `{ "rise": 2, "run": 1 }` is the gentle one: radii 2, 2, 1 and 1, the size of a vanilla oak crown. Both values must be at least 1, and `min_width` at least 0; the game refuses a file that goes below.
+:::
 
 `variation_chance` is the only part of this canopy that is random at all, and it applies to **corners only** — a cell where `|dx|` and `|dz|` both equal that layer's radius. There are four such cells per layer, each rolled once, and a successful roll leaves that corner out, which is what rounds the square off. The value is either one chance shared by every layer, or an array with one entry per layer, ordered from `canopy_offset.min` upward.
 

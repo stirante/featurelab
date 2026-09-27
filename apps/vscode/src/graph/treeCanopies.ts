@@ -393,16 +393,18 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
   },
   'canopy.min_width': {
     summary: 'A half-width added to every layer, including the topmost.',
-    detail: 'It widens the crown uniformly rather than changing its taper; canopy_slope is what changes the taper.',
+    detail: 'It widens the crown uniformly rather than changing its taper; canopy_slope is what changes the taper. Must be 0 or more.',
   },
   'canopy.canopy_slope': {
-    summary: 'How fast the layers narrow going up, as a rise over a run.',
+    summary: 'How fast the layers widen going down: run steps of width for every rise layers.',
     detail:
-      'A run of 2 makes the crown lose half a step of width per layer, so it tapers half as fast and ends ' +
-      'up taller for the same width. A run of zero is refused rather than divided by.',
+      'The names read backwards: run is the one multiplied by the layer\'s distance and rise is the one ' +
+      'divided by, so each layer below the top is run / rise wider (rounded toward zero). {rise: 1, run: 2} ' +
+      'adds two blocks of half-width per layer -- a wide, flat stepped pyramid -- while {rise: 2, run: 1} ' +
+      'adds one every other layer. Both must be at least 1; the game refuses the file otherwise.',
   },
-  'canopy.canopy_slope.rise': { summary: 'The numerator of the taper: how much width is lost per run of layers.', detail: 'Raising it narrows the crown faster and leaves a smaller top.' },
-  'canopy.canopy_slope.run': { summary: 'The denominator of the taper: how many layers one step of width is spread over.', detail: 'Raising it makes a taller, more column-like crown. Zero is refused.' },
+  'canopy.canopy_slope.rise': { summary: 'The divisor of the taper: how many layers one step of width is spread over.', detail: 'Raising it makes a narrower, more column-like crown. Must be at least 1.' },
+  'canopy.canopy_slope.run': { summary: 'The multiplier of the taper: how much half-width each step adds.', detail: 'Raising it makes a wider, flatter crown. Must be at least 1.' },
   'canopy.variation_chance': {
     summary: 'Chance to leave out each of the four corners of a layer, which is what rounds the square off.',
     detail:
