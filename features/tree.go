@@ -3161,8 +3161,8 @@ type TreeFeature struct {
 	// spruce_tree_with_vines and undecorated_jungle_tree_with_vines.
 	trunkDecoration *megaTrunkDecoration
 	// cherryTrunk is non-nil only for the top-level "cherry_trunk" variant.
-	// Its canopy is parsed from branches.branch_canopy, not from a sibling
-	// canopy key at tree-feature level.
+	// Its tips grow the tree's own top-level canopy key; the trunk's
+	// branches.branch_canopy is validated and then ignored, as in the game.
 	cherryTrunk *cherryTrunk
 	// roots is non-nil only when the JSON supplies "mangrove_roots" -- see
 	// buildTreeFeature and mangroveRootsPlace. nil is a pure no-op (skips
@@ -6261,17 +6261,33 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 
 	}
 
+	// The cherry trunk grows the tree's own top-level canopy at every branch
+	// tip. Its branches.branch_canopy is accepted and validated like any
+	// canopy body, but the game never places it (see cherryBranchCanopy
+	// below), so the top-level canopy stays optional here: without one the
+	// tree is logs only.
 	canopyBody := body
+	var cherryBranchCanopy map[string]any
+	cherryBranchCanopyKey := ""
 	if cherry != nil {
 		branches := trunk["branches"].(map[string]any)
 		if raw, present := branches["branch_canopy"]; present {
 			var ok bool
-			canopyBody, ok = raw.(map[string]any)
+			cherryBranchCanopy, ok = raw.(map[string]any)
 			if !ok {
 				return nil, fmt.Errorf("cherry_trunk.branches.branch_canopy must be an object")
 			}
-		} else {
-			canopyBody = nil
+			for _, k := range knownCanopyKeys {
+				if _, present := cherryBranchCanopy[k]; present {
+					if cherryBranchCanopyKey != "" {
+						return nil, fmt.Errorf("only one canopy key may be present in cherry_trunk.branches.branch_canopy, found: %s, %s", cherryBranchCanopyKey, k)
+					}
+					cherryBranchCanopyKey = k
+				}
+			}
+			if cherryBranchCanopyKey == "" {
+				return nil, fmt.Errorf("cherry_trunk.branches.branch_canopy requires exactly one <shape>_canopy key (one of: %s)", strings.Join(knownCanopyKeys, ", "))
+			}
 		}
 	}
 	var canopyKeys []string
@@ -6281,7 +6297,7 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 		}
 	}
 	if len(canopyKeys) == 0 {
-		if fallen == nil && (cherry == nil || canopyBody != nil) {
+		if fallen == nil && cherry == nil {
 			return nil, fmt.Errorf("exactly one <shape>_canopy key is required (one of: %s)", strings.Join(knownCanopyKeys, ", "))
 		}
 	}
@@ -6400,9 +6416,8 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 	// buildCanopyByKey is the shared <shape>_canopy dispatch, factored out of
 	// this switch (previously operated directly on the top-level canopyBody/
 	// canopyKey/trunkWidth) so mega_trunk's own branches.branch_canopy -- a
-	// SEPARATE nested canopy from the tree's top-level one, unlike
-	// cherry_trunk which has no top-level canopy of its own to conflict
-	// with -- can reuse the EXACT same dispatch rather than duplicating it.
+	// SEPARATE nested canopy from the tree's top-level one -- can reuse the
+	// EXACT same dispatch rather than duplicating it.
 	// canopyBody/canopyKey/trunkWidth are now parameters (shadowing the
 	// outer variables of the same name), so every case body below is
 	// unchanged text. trunkWidth is passed explicitly (not just closure-
@@ -6414,8 +6429,8 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 		var canopy canopyPlacer
 		switch canopyKey {
 		case "":
-			// The cherry trunk's branch_canopy is optional. Without one, the
-			// game's cherry trunk places no canopy at its tips.
+			// Only the cherry and fallen trunks get here. A cherry tree with
+			// no top-level canopy grows bare branch tips, silently.
 		case "acacia_canopy":
 			c, ok := canopyBody["acacia_canopy"].(map[string]any)
 			if !ok {
@@ -7298,11 +7313,26 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 		return nil, err
 	}
 
+	// cherry_trunk.branches.branch_canopy: built only so a malformed body
+	// still fails the load, then dropped -- the game keeps it on the trunk
+	// and never grows it. The tips grow the top-level canopy instead.
+	if cherryBranchCanopy != nil {
+		if _, err := buildCanopyByKey(cherryBranchCanopy, cherryBranchCanopyKey, 1); err != nil {
+			return nil, err
+		}
+		if ctx.Warn != nil {
+			hint := "move it next to cherry_trunk, at the top level of the tree_feature"
+			if canopyKey != "" {
+				hint = "the top-level " + canopyKey + " is what the branch tips grow"
+			}
+			ctx.Warn("cherry_trunk.branches.branch_canopy is accepted but never grown by the game: " + hint)
+		}
+	}
+
 	// shaped.branches (mega_trunk only) is mega_trunk's own
 	// branches.branch_canopy -- parsed via the SAME buildCanopyByKey dispatch
-	// above (not a second, invented path), scoped to its own nested body/key
-	// exactly the way cherry_trunk's branches.branch_canopy already
-	// redirects canopyBody/canopyKey (see above). nil unless
+	// above (not a second, invented path), scoped to its own nested body/key.
+	// nil unless
 	// trunkKind=="mega_trunk" AND branches.branch_canopy is present.
 	if shaped != nil && shaped.branches != nil && shaped.branches.canopyBody != nil {
 		// trunkWidth=1 -- branch tips always report a branch size of {1,1}, the

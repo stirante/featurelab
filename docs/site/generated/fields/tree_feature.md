@@ -380,7 +380,7 @@ Values, in the order the engine lists them:
 
 **A trunk that forks into one, two, or two branches plus a stem.**
 
-The shape is drawn from tree_type_weights, and each resulting tip grows its own canopy. This is the one trunk with no canopy key of its own at tree level -- write the canopy inside branches.branch_canopy instead.
+The shape is drawn from tree_type_weights, and each resulting tip grows a copy of the tree's own canopy -- the canopy key written next to cherry_trunk, not one inside branches. Leave that key out and the tree is logs only.
 
 #### `cherry_trunk.trunk_height` {#cherry_trunk-trunk_height}
 
@@ -472,11 +472,11 @@ Together with the start offset this is what makes a branch rise or fall along it
 
 #### `cherry_trunk.branches.branch_canopy` {#cherry_trunk-branches-branch_canopy}
 
-<p class="fl-facts">optional · json · absent: no canopy is grown at the branch tips</p>
+<p class="fl-facts">optional · json · absent: nothing changes -- the tips grow the tree-level canopy either way</p>
 
-**A canopy grown at the tip of each branch this trunk makes.**
+**Accepted, and never grown.**
 
-Separate from the tree's own canopy key and shaped independently of it -- the branch tips always ask for a canopy one block wide, whatever trunk_width says. Write exactly one canopy variant key inside it; none and two are both reported.
+The file loads with a canopy here, but the cherry trunk never places it: every branch tip grows the tree's own canopy key instead. A cherry tree whose only canopy is in this object grows logs and no leaves. Move the canopy next to cherry_trunk.
 
 ::: warning Free-text field
 A whole canopy body: exactly one canopy variant key, from the same set the tree's own canopy offers, and every one of those variants is described elsewhere in this panel. What is missing here is the control, not the knowledge -- a choice of one nested inside another field is not something this editor can draw yet, so it is edited as JSON. Writing two canopy keys here, or none, is reported rather than ignored.
@@ -1316,7 +1316,7 @@ With it off, the upper layer is a narrower square with four single cells poking 
 
 **The cherry crown: a rounded block of leaves with a fringe hanging below it.**
 
-Built as a stack of square layers that widen toward the bottom, then two more layers below the anchor that also trail leaves downward. The cherry trunk grows one of these at each branch tip rather than one for the whole tree.
+Built as a stack of square layers that widen toward the bottom, then two more layers below the anchor that also trail leaves downward. Under a cherry trunk, written next to cherry_trunk, it is grown once at each branch tip rather than once for the whole tree.
 
 #### `cherry_canopy.leaf_block` {#cherry_canopy-leaf_block}
 

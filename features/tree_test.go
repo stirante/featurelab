@@ -3987,20 +3987,24 @@ func vanillaCherryTreeBody() map[string]any {
 				"branch_horizontal_length":     map[string]any{"range_min": float64(2), "range_max": float64(3)},
 				"branch_start_offset_from_top": map[string]any{"range_min": float64(-4), "range_max": float64(-2)},
 				"branch_end_offset_from_top":   map[string]any{"range_min": float64(-1), "range_max": float64(0)},
-				"branch_canopy": map[string]any{
-					"cherry_canopy": map[string]any{
-						"leaf_block":                      "minecraft:cherry_leaves",
-						"height":                          float64(5),
-						"radius":                          float64(4),
-						"wide_bottom_layer_hole_chance":   float64(0),
-						"corner_hole_chance":              float64(0),
-						"hanging_leaves_chance":           float64(0),
-						"hanging_leaves_extension_chance": float64(0),
-					},
-				},
 			},
 		},
-		"may_replace": []any{"minecraft:air"},
+		// The branch tips grow the tree's top-level canopy, not a
+		// branches.branch_canopy (see TestCherryTrunk_BranchCanopyIsNeverGrown).
+		"cherry_canopy": cherryCanopyTestBody(),
+		"may_replace":   []any{"minecraft:air"},
+	}
+}
+
+func cherryCanopyTestBody() map[string]any {
+	return map[string]any{
+		"leaf_block":                      "minecraft:cherry_leaves",
+		"height":                          float64(5),
+		"radius":                          float64(4),
+		"wide_bottom_layer_hole_chance":   float64(0),
+		"corner_hole_chance":              float64(0),
+		"hanging_leaves_chance":           float64(0),
+		"hanging_leaves_extension_chance": float64(0),
 	}
 }
 
@@ -4026,7 +4030,7 @@ func TestBuildTreeFeature_CherryTrunk_VanillaShapeAndSchema(t *testing.T) {
 		t.Fatal("cherryTrunk = nil, want cherry-trunk dispatch")
 	}
 	if _, ok := tf.canopy.(*cherryCanopy); !ok {
-		t.Fatalf("nested branch canopy = %T, want *cherryCanopy", tf.canopy)
+		t.Fatalf("top-level canopy = %T, want *cherryCanopy", tf.canopy)
 	}
 	if tf.cherryTrunk.baseHeight != 5 || len(tf.cherryTrunk.heightIntervals) != 1 || tf.cherryTrunk.heightIntervals[0] != 2 {
 		t.Fatalf("trunk height = base %d intervals %v, want base 5 intervals [2]", tf.cherryTrunk.baseHeight, tf.cherryTrunk.heightIntervals)
@@ -4042,15 +4046,103 @@ func TestBuildTreeFeature_CherryTrunk_VanillaShapeAndSchema(t *testing.T) {
 			}
 		})
 	}
-	t.Run("branch_canopy_is_optional", func(t *testing.T) {
+	t.Run("top_level_canopy_is_optional", func(t *testing.T) {
 		body := vanillaCherryTreeBody()
-		delete(body["cherry_trunk"].(map[string]any)["branches"].(map[string]any), "branch_canopy")
+		delete(body, "cherry_canopy")
 		built, err := buildTreeFeature(body, ctx)
 		if err != nil {
-			t.Fatalf("optional branch_canopy: %v", err)
+			t.Fatalf("optional top-level canopy: %v", err)
 		}
 		if built.(*TreeFeature).canopy != nil {
 			t.Fatalf("canopy = %T, want nil", built.(*TreeFeature).canopy)
+		}
+	})
+}
+
+// TestCherryTrunk_BranchCanopyIsNeverGrown pins where the tip canopy comes
+// from: the game's cherry trunk hands every tip the tree's own top-level
+// canopy and keeps branches.branch_canopy on the trunk without ever placing
+// it. A tree whose only canopy sits in branch_canopy grows logs and not one
+// leaf; with both present, the top-level body is the one grown.
+func TestCherryTrunk_BranchCanopyIsNeverGrown(t *testing.T) {
+	branchOnly := func() map[string]any {
+		body := vanillaCherryTreeBody()
+		delete(body, "cherry_canopy")
+		body["cherry_trunk"].(map[string]any)["branches"].(map[string]any)["branch_canopy"] = map[string]any{
+			"cherry_canopy": cherryCanopyTestBody(),
+		}
+		return body
+	}
+	count := func(t *testing.T, body map[string]any) (logs, leaves int, warnings []string) {
+		t.Helper()
+		v, pal := newTreeTestVolume(t, 10)
+		ctx := &BuildContext{Palette: pal, Identifier: "test:cherry", FileID: "test:cherry", Warn: func(w string) { warnings = append(warnings, w) }}
+		built, err := buildTreeFeature(body, ctx)
+		if err != nil {
+			t.Fatalf("buildTreeFeature: %v", err)
+		}
+		if got := placeTestTree(built.(*TreeFeature), v, wgen.BlockPos{Y: 10}, random.New(1)); got == nil {
+			t.Fatal("Place() = nil, want the trunk placed")
+		}
+		for x := -10; x <= 10; x++ {
+			for z := -10; z <= 10; z++ {
+				for y := 0; y < 30; y++ {
+					switch pal.NameOf(v.GetBlock(wgen.BlockPos{X: x, Y: y, Z: z})) {
+					case "minecraft:cherry_log":
+						logs++
+					case "minecraft:cherry_leaves":
+						leaves++
+					}
+				}
+			}
+		}
+		return logs, leaves, warnings
+	}
+
+	t.Run("branch_canopy_only_grows_no_leaves", func(t *testing.T) {
+		logs, leaves, warnings := count(t, branchOnly())
+		if logs == 0 || leaves != 0 {
+			t.Fatalf("logs=%d leaves=%d, want logs and no leaves", logs, leaves)
+		}
+		if len(warnings) != 1 || !strings.Contains(warnings[0], "branch_canopy") {
+			t.Fatalf("warnings = %q, want one branch_canopy warning", warnings)
+		}
+	})
+	t.Run("top_level_canopy_grows_at_the_tips", func(t *testing.T) {
+		logs, leaves, warnings := count(t, vanillaCherryTreeBody())
+		if logs == 0 || leaves == 0 {
+			t.Fatalf("logs=%d leaves=%d, want both", logs, leaves)
+		}
+		if len(warnings) != 0 {
+			t.Fatalf("warnings = %q, want none", warnings)
+		}
+	})
+	t.Run("both_present_top_level_wins", func(t *testing.T) {
+		body := branchOnly()
+		top := cherryCanopyTestBody()
+		top["leaf_block"] = "minecraft:oak_leaves"
+		body["cherry_canopy"] = top
+		v, pal := newTreeTestVolume(t, 10)
+		ctx := &BuildContext{Palette: pal, Identifier: "test:cherry", FileID: "test:cherry", Warn: func(string) {}}
+		built, err := buildTreeFeature(body, ctx)
+		if err != nil {
+			t.Fatalf("buildTreeFeature: %v", err)
+		}
+		placeTestTree(built.(*TreeFeature), v, wgen.BlockPos{Y: 10}, random.New(1))
+		oak := countBlocksOfID(v, 10, pal.Get("minecraft:oak_leaves", nil))
+		cherry := countBlocksOfID(v, 10, pal.Get("minecraft:cherry_leaves", nil))
+		if oak == 0 || cherry != 0 {
+			t.Fatalf("oak leaves=%d cherry leaves=%d, want only the top-level oak canopy", oak, cherry)
+		}
+	})
+	t.Run("malformed_branch_canopy_still_fails_the_load", func(t *testing.T) {
+		body := branchOnly()
+		branchCanopy := body["cherry_trunk"].(map[string]any)["branches"].(map[string]any)["branch_canopy"].(map[string]any)
+		delete(branchCanopy["cherry_canopy"].(map[string]any), "leaf_block")
+		pal := block.NewPalette()
+		ctx := &BuildContext{Palette: pal, Identifier: "test:cherry", FileID: "test:cherry", Warn: func(string) {}}
+		if _, err := buildTreeFeature(body, ctx); err == nil {
+			t.Fatal("branch_canopy.cherry_canopy without leaf_block: want error")
 		}
 	})
 }

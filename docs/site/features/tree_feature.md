@@ -125,7 +125,7 @@ The trunk decides *where* the canopy goes; the canopy decides what shape it is. 
 ::: warning Three pairings grow a bare pole, and one grows a bare log
 The anchor list is not filled by every trunk. `trunk` and `cherry_trunk` hand the canopy an **empty** one, and `random_spread_canopy` and `mangrove_canopy` are the only two canopies that read it — they return immediately when it is empty, without placing a leaf. So `trunk` or `cherry_trunk` paired with either of those two grows a **bare pole**. That is engine behaviour, not a bench limit. Pair those two canopies with `acacia_trunk`, `mega_trunk` or `mangrove_trunk`, which push every placed log onto the list.
 
-Two more pairings that surprise people, for different reasons. A **`cherry_trunk` reads its canopy from `cherry_trunk.branches.branch_canopy`**, not from a canopy key on the feature body: a body-level `canopy` on a cherry tree loads without complaint and never grows. And a **`fallen_trunk` grows no canopy under any circumstances** — the key is accepted and never used.
+Two more pairings that surprise people, for different reasons. A **`cherry_trunk` grows the canopy key on the feature body**, once at every branch tip. It also accepts a `branches.branch_canopy` and never grows it: a cherry tree whose only canopy sits there loads without complaint and places its logs and not one leaf. And a **`fallen_trunk` grows no canopy under any circumstances** — the key is accepted and never used.
 :::
 
 ### On the feature body
@@ -133,7 +133,7 @@ Two more pairings that surprise people, for different reasons. A **`cherry_trunk
 | Key | Required | Value | Default | What it does |
 |---|---|---|---|---|
 | *one trunk key* | yes | `trunk` `acacia_trunk` `cherry_trunk` `fallen_trunk` `fancy_trunk` `mangrove_trunk` `mega_trunk` `poplar_trunk` | — | [The table above](#the-eight-trunk-keys). Exactly one. |
-| *one canopy key* | yes, except on `fallen_trunk` and `cherry_trunk` | one of the twelve above | — | [The table above](#the-twelve-canopy-keys). Exactly one. A cherry tree writes it inside `branches.branch_canopy` instead. |
+| *one canopy key* | yes, except on `fallen_trunk` and `cherry_trunk` | one of the twelve above | — | [The table above](#the-twelve-canopy-keys). Exactly one. A cherry tree grows it at every branch tip, and without one it is logs only. |
 | `base_block` | no | block descriptor, or an array of them | absent — no fixup | The cell under the trunk is converted to this list's first entry if it does not already match. An absent or empty list means no fixup at all. |
 | `may_grow_on` | no | array of block descriptors | absent — no restriction | The ground the trunk will accept. If the cell below does not match, the tree fails outright. |
 | `may_replace` | no | array of block descriptors | absent — no restriction | The cells a log or a leaf may overwrite. This is the gate on every trunk cell at or above the origin, and on every canopy cell. |
@@ -216,7 +216,7 @@ The whole object is optional; all three keys are required once it is there.
 | `branches.branch_horizontal_length` | **yes** | range, minimum 2 — maximum **inclusive** | — | How far out a branch reaches. |
 | `branches.branch_start_offset_from_top` | **yes** | range, maximum 0 — maximum **inclusive** | — | Where on the trunk a branch starts, counted down from the top. |
 | `branches.branch_end_offset_from_top` | **yes** | range — maximum **inclusive** | — | What height the branch tip ends at, counted from the top. |
-| `branches.branch_canopy` | no | object with exactly one canopy key | absent — bare tips | **This is where a cherry tree's canopy goes.** Grown once at every branch tip. |
+| `branches.branch_canopy` | no | object with exactly one canopy key | — | Accepted and checked like any canopy body, and **never grown**. The tips grow the canopy key on the feature body instead. |
 
 ### `fallen_trunk` {#fields-fallen_trunk}
 
@@ -409,7 +409,7 @@ Two object keys look like ranges and are not: `canopy_offset` and `mega_trunk`'s
 
 | You wrote | What happens | Do instead |
 |---|---|---|
-| `canopy` on the feature body of a `cherry_trunk` tree | The file loads and the crown never appears. A cherry tree reads its canopy from `cherry_trunk.branches.branch_canopy`. | Move the whole canopy body inside `branches.branch_canopy`. |
+| A `cherry_trunk` tree with its canopy inside `branches.branch_canopy` | The file loads, the logs and branches grow, and not one leaf appears. The cherry trunk never grows its `branch_canopy`. | Move the canopy body out to the feature body, next to `cherry_trunk`. |
 | A canopy key on a `fallen_trunk` tree | Accepted, and never grown. A fallen trunk has no crown. | Nothing to fix — reach for `log_decoration_feature` if you want something on the logs. |
 | `trunk` or `cherry_trunk` paired with `random_spread_canopy` or `mangrove_canopy` | A bare pole: those two canopies read the anchor list, and those two trunks hand them an empty one. | Pair them with `acacia_trunk`, `mega_trunk` or `mangrove_trunk`. |
 | `"trunk_height": { "range_min": 7, "range_max": 9 }` expecting 9 to be possible | The maximum is exclusive: 7 or 8. | `{ "range_min": 7, "range_max": 10 }`. |
@@ -717,7 +717,7 @@ Every measured claim on this page is reproducible from committed fixtures. `tree
 
 Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. Everything except `poplar_trunk` and `poplar_canopy` also holds for **1.26.40.26**, which is why this page carries no "also holds" badge for that build: those two keys do not exist in that build and a file using them does not load there.
 
-Five findings can be reproduced directly from the committed fixture pack. The worked example's **47 blocks** (13 logs, 34 leaves) and the plain trunk's **97** (12 logs, 68 leaves, 17 vines, bottom log at world Y 62 against a requested origin of 63) were read back out of `featurelab generate`'s own result, as was the fancy oak's **405** (31 logs, 374 leaves). The `may_grow_through` claim on the plain trunk was checked both ways: dropping `minecraft:grass_block` from that list moves the whole column up one cell and turns Y 62 from a log into a `base_block` conversion. The three pairings that grow a bare pole, and the two that grow no crown at all, were each run: a `cherry_trunk` with a body-level `canopy` places its logs and not one leaf, and moving the same canopy body into `branches.branch_canopy` grows it at the branch tip. The `poplar_canopy` cross was read off a run with a working radius of 8: the log arms land three layers below the crown's topmost leaf layer and reach four cells from the centre, and at a working radius of 4 the cross is a single centre cell.
+Five findings can be reproduced directly from the committed fixture pack. The worked example's **47 blocks** (13 logs, 34 leaves) and the plain trunk's **97** (12 logs, 68 leaves, 17 vines, bottom log at world Y 62 against a requested origin of 63) were read back out of `featurelab generate`'s own result, as was the fancy oak's **405** (31 logs, 374 leaves). The `may_grow_through` claim on the plain trunk was checked both ways: dropping `minecraft:grass_block` from that list moves the whole column up one cell and turns Y 62 from a log into a `base_block` conversion. The three pairings that grow a bare pole, and the two that grow no crown at all, were each run: a `cherry_trunk` whose only canopy is in `branches.branch_canopy` places its logs and not one leaf, and moving the same canopy body out to the feature body grows it at every branch tip. The `poplar_canopy` cross was read off a run with a working radius of 8: the log arms land three layers below the crown's topmost leaf layer and reach four cells from the centre, and at a working radius of 4 the cross is a single centre cell.
 
 The `branch_slope` table is arithmetic from the formula stated beside it rather than a run, because a negative-slope branch is a shape nobody has shipped.
 

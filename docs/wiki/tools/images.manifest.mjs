@@ -546,10 +546,9 @@ export const IMAGES = [
     //    hands its canopy over, which is itself one of the differences between them -- poplar_trunk
     //    gets only 4 of its 10 cells, because its four branch stubs and its own continuing column
     //    occupy the rest of that layer.
-    //  - cherry_trunk writes that canopy at cherry_trunk.branches.branch_canopy rather than on the
-    //    feature body, because that is where a cherry tree's canopy is read from; a body-level
-    //    canopy key on a cherry tree is accepted and grows nothing. fallen_trunk keeps the
-    //    body-level key, which it also never grows -- both are stated on the page.
+    //  - cherry_trunk writes that canopy on the feature body like the others; its tips grow that
+    //    key, and a branches.branch_canopy is accepted and never grown. fallen_trunk keeps the
+    //    body-level key too, which it never grows -- both are stated on the page.
     //  - may_grow_on, base_block and may_grow_through are written on none of the eight.
     //    may_grow_through is inert on seven of them in this tool (the diagnostic says so) and on
     //    the plain trunk it only matters with can_be_submerged, which no panel sets; the other two

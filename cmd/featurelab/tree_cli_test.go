@@ -1435,19 +1435,17 @@ func treeCherryCanopyFeatureJSON(identifier string) string {
 	        },
 	        "branch_horizontal_length": { "range_min": 2, "range_max": 4 },
 	        "branch_start_offset_from_top": { "range_min": -4, "range_max": -3 },
-	        "branch_end_offset_from_top": { "range_min": -1, "range_max": 0 },
-	        "branch_canopy": {
-	          "cherry_canopy": {
-	            "leaf_block": "minecraft:cherry_leaves",
-	            "height": 5,
-	            "radius": 4,
-	            "wide_bottom_layer_hole_chance": 25,
-	            "corner_hole_chance": 25,
-	            "hanging_leaves_chance": 16.6666667,
-	            "hanging_leaves_extension_chance": 33.3333333
-	          }
-	        }
+	        "branch_end_offset_from_top": { "range_min": -1, "range_max": 0 }
 	      }
+	    },
+	    "cherry_canopy": {
+	      "leaf_block": "minecraft:cherry_leaves",
+	      "height": 5,
+	      "radius": 4,
+	      "wide_bottom_layer_hole_chance": 25,
+	      "corner_hole_chance": 25,
+	      "hanging_leaves_chance": 16.6666667,
+	      "hanging_leaves_extension_chance": 33.3333333
 	    },
 	    "may_replace": ["minecraft:air"]
 	  }
@@ -1455,8 +1453,8 @@ func treeCherryCanopyFeatureJSON(identifier string) string {
 }
 
 // TestCmdGenerate_TreeFeature_CherryTrunk_VanillaJSONGrowsMultipleCanopies runs `featurelab
-// generate` against a temporary pack containing the vanilla-shaped top-level cherry_trunk and nested
-// branches.branch_canopy.cherry_canopy objects. It requires opposing branch extents, x/z-axis logs,
+// generate` against a temporary pack containing a cherry_trunk and a top-level cherry_canopy (the
+// canopy every branch tip grows). It requires opposing branch extents, x/z-axis logs,
 // and leaves spanning the ordered tips, proving the real CLI/build/place pipeline exercises both
 // trunk and multi-anchor canopy dispatch rather than the former synthetic Acacia-trunk pairing.
 func TestCmdGenerate_TreeFeature_CherryTrunk_VanillaJSONGrowsMultipleCanopies(t *testing.T) {

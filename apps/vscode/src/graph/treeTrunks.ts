@@ -155,12 +155,12 @@ function trunkDecorationField(): FieldSpec {
 }
 
 /** A nested canopy body inside a trunk's `branches`. */
-function branchCanopyField(): FieldSpec {
+function branchCanopyField(absent = 'no canopy is grown at the branch tips'): FieldSpec {
   return {
     key: 'branch_canopy',
     kind: 'json',
     required: false,
-    default: 'no canopy is grown at the branch tips',
+    default: absent,
     unsourced:
       'A whole canopy body: exactly one canopy variant key, from the same set the tree\'s own canopy ' +
       'offers, and every one of those variants is described elsewhere in this panel. What is missing ' +
@@ -299,7 +299,7 @@ const CHERRY_TRUNK_BODY: readonly FieldSpec[] = [
       { key: 'branch_horizontal_length', kind: 'range', required: true, min: 2, source: 'builder' },
       { key: 'branch_start_offset_from_top', kind: 'range', required: true, max: 0, source: 'builder' },
       { key: 'branch_end_offset_from_top', kind: 'range', required: true, source: 'builder' },
-      branchCanopyField(),
+      branchCanopyField('nothing changes -- the tips grow the tree-level canopy either way'),
     ],
     source: 'builder',
   },
@@ -778,9 +778,9 @@ export const TREE_TRUNK_DOCS: Readonly<Record<string, DocEntry>> = {
   cherry_trunk: {
     summary: 'A trunk that forks into one, two, or two branches plus a stem.',
     detail:
-      'The shape is drawn from tree_type_weights, and each resulting tip grows its own canopy. ' +
-      'This is the one trunk with no canopy key of its own at tree level -- write the canopy ' +
-      'inside branches.branch_canopy instead.',
+      'The shape is drawn from tree_type_weights, and each resulting tip grows a copy of the ' +
+      'tree\'s own canopy -- the canopy key written next to cherry_trunk, not one inside ' +
+      'branches. Leave that key out and the tree is logs only.',
   },
   'cherry_trunk.trunk_height': {
     summary: 'The height of the stem, as a base plus optional random steps.',
@@ -837,7 +837,13 @@ export const TREE_TRUNK_DOCS: Readonly<Record<string, DocEntry>> = {
       'Together with the start offset this is what makes a branch rise or fall along its length, ' +
       'and it is where the canopy for that branch is anchored.',
   },
-  'cherry_trunk.branches.branch_canopy': BRANCH_CANOPY_DOC,
+  'cherry_trunk.branches.branch_canopy': {
+    summary: 'Accepted, and never grown.',
+    detail:
+      'The file loads with a canopy here, but the cherry trunk never places it: every branch tip ' +
+      'grows the tree\'s own canopy key instead. A cherry tree whose only canopy is in this object ' +
+      'grows logs and no leaves. Move the canopy next to cherry_trunk.',
+  },
   'cherry_trunk.trunk_block': TRUNK_BLOCK_DOC,
 
   // ---- fallen ----
