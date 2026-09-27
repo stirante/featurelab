@@ -146,9 +146,9 @@ Exactly the same as a decoration_blocks_sequence of one entry with a count of 1,
 
 <p class="fl-facts">optional · integer</p>
 
-**Accepted here, but it changes nothing on a trunk decoration.**
+**With decoration_block, one less than the run length.**
 
-The number of blocks placed comes from each sequence entry's own count, and nothing reads this key while placing them. It is accepted rather than refused so that a pack that already writes it still loads.
+A single decoration_block becomes a run of num_steps + 1 blocks, so 4 hangs five vines and the default 0 hangs one. A decoration_blocks_sequence ignores it: there, each entry's own count sets its run.
 
 #### `trunk.trunk_decoration.step_direction` {#trunk-trunk_decoration-step_direction}
 
@@ -351,9 +351,9 @@ Exactly the same as a decoration_blocks_sequence of one entry with a count of 1,
 
 <p class="fl-facts">optional · integer</p>
 
-**Accepted here, but it changes nothing on a trunk decoration.**
+**With decoration_block, one less than the run length.**
 
-The number of blocks placed comes from each sequence entry's own count, and nothing reads this key while placing them. It is accepted rather than refused so that a pack that already writes it still loads.
+A single decoration_block becomes a run of num_steps + 1 blocks, so 4 hangs five vines and the default 0 hangs one. A decoration_blocks_sequence ignores it: there, each entry's own count sets its run.
 
 #### `acacia_trunk.trunk_decoration.step_direction` {#acacia_trunk-trunk_decoration-step_direction}
 
@@ -574,9 +574,9 @@ Exactly the same as a decoration_blocks_sequence of one entry with a count of 1,
 
 <p class="fl-facts">optional · integer</p>
 
-**Accepted here, but it changes nothing on a trunk decoration.**
+**With decoration_block, one less than the run length.**
 
-The number of blocks placed comes from each sequence entry's own count, and nothing reads this key while placing them. It is accepted rather than refused so that a pack that already writes it still loads.
+A single decoration_block becomes a run of num_steps + 1 blocks, so 4 hangs five vines and the default 0 hangs one. A decoration_blocks_sequence ignores it: there, each entry's own count sets its run.
 
 #### `fallen_trunk.trunk_decoration.step_direction` {#fallen_trunk-trunk_decoration-step_direction}
 
@@ -835,9 +835,9 @@ Exactly the same as a decoration_blocks_sequence of one entry with a count of 1,
 
 <p class="fl-facts">optional · integer</p>
 
-**Accepted here, but it changes nothing on a trunk decoration.**
+**With decoration_block, one less than the run length.**
 
-The number of blocks placed comes from each sequence entry's own count, and nothing reads this key while placing them. It is accepted rather than refused so that a pack that already writes it still loads.
+A single decoration_block becomes a run of num_steps + 1 blocks, so 4 hangs five vines and the default 0 hangs one. A decoration_blocks_sequence ignores it: there, each entry's own count sets its run.
 
 #### `mangrove_trunk.trunk_decoration.step_direction` {#mangrove_trunk-trunk_decoration-step_direction}
 
@@ -1016,9 +1016,9 @@ Exactly the same as a decoration_blocks_sequence of one entry with a count of 1,
 
 <p class="fl-facts">optional · integer</p>
 
-**Accepted here, but it changes nothing on a trunk decoration.**
+**With decoration_block, one less than the run length.**
 
-The number of blocks placed comes from each sequence entry's own count, and nothing reads this key while placing them. It is accepted rather than refused so that a pack that already writes it still loads.
+A single decoration_block becomes a run of num_steps + 1 blocks, so 4 hangs five vines and the default 0 hangs one. A decoration_blocks_sequence ignores it: there, each entry's own count sets its run.
 
 #### `mega_trunk.trunk_decoration.step_direction` {#mega_trunk-trunk_decoration-step_direction}
 
@@ -1119,9 +1119,9 @@ Exactly the same as a decoration_blocks_sequence of one entry with a count of 1,
 
 <p class="fl-facts">optional · integer</p>
 
-**Accepted here, but it changes nothing on a trunk decoration.**
+**With decoration_block, one less than the run length.**
 
-The number of blocks placed comes from each sequence entry's own count, and nothing reads this key while placing them. It is accepted rather than refused so that a pack that already writes it still loads.
+A single decoration_block becomes a run of num_steps + 1 blocks, so 4 hangs five vines and the default 0 hangs one. A decoration_blocks_sequence ignores it: there, each entry's own count sets its run.
 
 #### `poplar_trunk.trunk_decoration.step_direction` {#poplar_trunk-trunk_decoration-step_direction}
 
@@ -1254,9 +1254,9 @@ Rolled per leaf per neighbour, so a dense crown spends a great many rolls.
 
 <p class="fl-facts">required · range</p>
 
-**How many cells long a run is, drawn per run.**
+**One less than how many cells long a run is.**
 
-A range, so it wants range_min and range_max. The run stops early at the first cell that is not air, so a long range does not guarantee a long strand.
+A run is num_steps + 1 cells: 4 hangs a five-block vine, 0 a single block. It stops early at the first cell that is not air, so a long run is not guaranteed.
 
 #### `canopy.canopy_decoration.step_direction` {#canopy-canopy_decoration-step_direction}
 
@@ -1436,7 +1436,7 @@ Unlike the layered shapes, this scatters individual leaves around EVERY log the 
 
 **How far up and down a scattered leaf may land, drawn once for the whole crown.**
 
-A range, so it wants range_min and range_max. One value is drawn per tree and then reused for every attempt.
+A range, so it wants range_min and range_max, and its maximum is included. One value is drawn per tree and then reused for every attempt.
 
 #### `mangrove_canopy.canopy_radius` {#mangrove_canopy-canopy_radius}
 
@@ -1444,7 +1444,7 @@ A range, so it wants range_min and range_max. One value is drawn per tree and th
 
 **How far sideways a scattered leaf may land, drawn once for the whole crown.**
 
-A range, so it wants range_min and range_max. Like the height, drawn once and shared by every attempt.
+A range, so it wants range_min and range_max, and its maximum is included. Like the height, drawn once and shared by every attempt.
 
 #### `mangrove_canopy.leaf_placement_attempts` {#mangrove_canopy-leaf_placement_attempts}
 
@@ -1528,11 +1528,11 @@ Rolled per side per candidate position. At zero nothing is attached and the whol
 
 #### `mangrove_canopy.canopy_decoration.num_steps` {#mangrove_canopy-canopy_decoration-num_steps}
 
-<p class="fl-facts">optional · integer · absent: nothing -- the value is accepted and never read</p>
+<p class="fl-facts">optional · integer · absent: 0 -- decoration_block hangs one block</p>
 
-**Accepted and then ignored -- this key has no effect.**
+**With decoration_block, one less than the run length.**
 
-The game reads the key and stores it, and the code that places the decoration never looks at it. It is listed so that finding it in an existing file is not mistaken for a setting that stopped working. Use the count on each sequence entry to control run length instead.
+A single decoration_block becomes a run of num_steps + 1 blocks (the default 0 gives one). A decoration_blocks_sequence ignores it: there, each entry's own count sets its run.
 
 #### `mangrove_canopy.canopy_decoration.step_direction` {#mangrove_canopy-canopy_decoration-step_direction}
 
@@ -1879,7 +1879,7 @@ Like mangrove_canopy it works from every log the trunk placed, not just the top 
 
 **How far up and down a scattered leaf may land, drawn once for the whole crown.**
 
-A range, so it wants range_min and range_max. Drawn once per tree and then reused for every attempt.
+A range, so it wants range_min and range_max, and its maximum is included. Drawn once per tree and then reused for every attempt.
 
 #### `random_spread_canopy.canopy_radius` {#random_spread_canopy-canopy_radius}
 
@@ -1887,7 +1887,7 @@ A range, so it wants range_min and range_max. Drawn once per tree and then reuse
 
 **How far sideways a scattered leaf may land, drawn once for the whole crown.**
 
-A range, so it wants range_min and range_max. Drawn once per tree, like the height.
+A range, so it wants range_min and range_max, and its maximum is included. Drawn once per tree, like the height.
 
 #### `random_spread_canopy.leaf_placement_attempts` {#random_spread_canopy-leaf_placement_attempts}
 
@@ -1939,7 +1939,7 @@ Applies BELOW the tree's own origin. At and above the origin the trunk is govern
 
 **Blocks the tree may overwrite at and above its origin.**
 
-Below the origin it is may_grow_through that decides instead. The canopy and spruce_canopy crowns do not read it: they write into air, leaves and vines only.
+Below the origin it is may_grow_through that decides instead. A trunk log also goes into air, leaves, water or a vine whatever this list says, so a trunk grows through its own trunk_decoration vines. The canopy and spruce_canopy crowns do not read it: they write into air, leaves and vines only.
 
 :::: details `base_cluster` — 4 keys
 

@@ -46,16 +46,16 @@ A 3-element [x, y, z] array.
 
 **The order positions inside the volume are tried in.**
 
-It does not restrict the search to one axis: every position in the volume is still visited. What it picks is which axis is the outermost loop and which way each loop counts -- and because the scan stops at the first position that satisfies the wrapped feature (or at the required_successes-th one), that is what decides WHICH of several workable positions gets used. Two patterns are worth knowing because neither is guessable from the value names: the innermost loop always counts upward whatever the axis sign says, and for the two z values the middle loop runs opposite to the outer one. Each value below is just its own (outer, middle, inner) assignment.
+It does not restrict the search to one axis: every position in the volume is still visited. What it picks is which axis is the outermost loop and which way each loop counts -- and because the scan stops at the first position that satisfies the wrapped feature (or at the required_successes-th one), that is what decides WHICH of several workable positions gets used. Two patterns are worth knowing because neither is guessable from the value names: the middle loop always counts upward (y for the x and z values, z for the y values), and the innermost loop takes its direction from the value rather than from its own axis. Each value below is just its own (outer, middle, inner) assignment.
 
 Values, in the order the engine lists them:
 
-- `-x` — Scans x descending on the outside, z descending in the middle and y ascending innermost.
-- `+x` — Scans x ascending on the outside, z ascending in the middle and y ascending innermost.
-- `-y` — Scans y descending on the outside, x descending in the middle and z ascending innermost.
-- `+y` — Scans y ascending on the outside, x ascending in the middle and z ascending innermost.
-- `-z` — Scans z descending on the outside, x ascending in the middle and y ascending innermost.
-- `+z` — Scans z ascending on the outside, x descending in the middle and y ascending innermost.
+- `-x` — Scans x descending on the outside, y ascending in the middle and z descending innermost.
+- `+x` — Scans x ascending on the outside, y ascending in the middle and z ascending innermost.
+- `-y` — Scans y descending on the outside, z ascending in the middle and x descending innermost.
+- `+y` — Scans y ascending on the outside, z ascending in the middle and x ascending innermost.
+- `-z` — Scans z descending on the outside, y ascending in the middle and x ascending innermost.
+- `+z` — Scans z ascending on the outside, y ascending in the middle and x descending innermost.
 
 #### `required_successes` {#required_successes}
 

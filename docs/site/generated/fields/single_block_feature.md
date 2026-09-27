@@ -36,13 +36,13 @@ Relative, not a percentage: an entry is picked with its weight divided by the to
 
 <p class="fl-facts">required · boolean</p>
 
-Required by the schema, and a no-op during world generation -- the engine's own checks always pass there.
+Required by the schema. True refuses a position where the picked block could not be placed by its own rules (a flower: water, lava, or ground it does not grow on).
 
 #### `enforce_survivability_rules` {#enforce_survivability_rules}
 
 <p class="fl-facts">required · boolean</p>
 
-Required by the schema, and a no-op during world generation.
+Required by the schema. True refuses a position where the picked block would not survive (a flower, sapling or bush: ground other than dirt-like blocks).
 
 #### `randomize_rotation` {#randomize_rotation}
 
