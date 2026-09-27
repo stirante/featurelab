@@ -349,7 +349,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | | `height` | yes | integer ≥ 0 | — | How many discs are stacked. |
 | | `radius` | yes | integer ≥ 1 | — | The half-width of the middle discs; the top and bottom ones are a cell narrower. |
 | `roofed_canopy` | `leaf_block` | yes | block descriptor | — | The floor, the filling and the roof are all this block. |
-| | `canopy_height` | yes | integer ≥ 0 | — | How far above the anchor the roof sits, and so how many layers fill the gap. |
+| | `canopy_height` | yes | integer ≥ 3 | — | Three more than the number of layers between the floor and the roof: the game subtracts 3 first. Vanilla's dark oak writes `4` — one layer of filling, the roof one block above the anchor. `3` builds the floor and the roof with nothing between them. |
 | | `core_width` | yes | integer | — | The trunk width this crown is built around. **Must match it** — the feature is refused when it does not. |
 | | `outer_radius` | yes | integer ≥ -1 | — | The half-width of the floor and the roof. |
 | | `inner_radius` | yes | integer ≥ 0 | — | The half-width of the solid block of leaves stacked between them. |

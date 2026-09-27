@@ -626,7 +626,7 @@ func treeRoofedCanopyFeatureJSON(identifier string) string {
 	    "trunk": { "trunk_block": "minecraft:oak_log", "trunk_height": 5 },
 	    "roofed_canopy": {
 	      "leaf_block": "minecraft:oak_leaves",
-	      "canopy_height": 2,
+	      "canopy_height": 5,
 	      "core_width": 1,
 	      "outer_radius": 2,
 	      "inner_radius": 1

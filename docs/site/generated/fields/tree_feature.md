@@ -1787,11 +1787,11 @@ One block for all three parts -- there is no way to give the roof a different bl
 
 #### `roofed_canopy.canopy_height` {#roofed_canopy-canopy_height}
 
-<p class="fl-facts">required · integer · range [0, −]</p>
+<p class="fl-facts">required · integer · range [3, −]</p>
 
-**How far above the anchor the roof sits, and how many layers of leaves fill the gap.**
+**Three more than the number of leaf layers between the floor and the roof.**
 
-A height of 0 is legal and is not the same as placing nothing: the floor, the roof and the coin-flipped peak are all still placed, and only the filling between them is skipped.
+The game subtracts 3 before using it: vanilla's dark oak writes 4, which is ONE layer of filling, with the roof one block above the anchor. At least 3. A height of 3 is legal and is not the same as placing nothing: the floor, the roof and the coin-flipped peak are all still placed, and only the filling between them is skipped.
 
 #### `roofed_canopy.core_width` {#roofed_canopy-core_width}
 
