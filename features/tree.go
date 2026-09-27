@@ -218,13 +218,14 @@
 //
 // Per-tree algorithm:
 //
-//	// Ground search -- walk straight down from the anchor (typically
-//	// through the trunk's own log column, since logs are not usually in
-//	// may_replace) until the placement allow-list check on
-//	// (existing, may_replace) is true. Draws NOTHING; aborts (places
-//	// nothing) if MinY is reached first. groundY ends up ONE ABOVE the
-//	// first passing position (the Y counter is only decremented on the
-//	// FAILING branch).
+//	// Ground search -- walk straight down from the anchor (the top log,
+//	// so down through the trunk's own log column) until the allow-list
+//	// check on (existing, may_grow_on) is true -- NOT may_replace. Draws
+//	// NOTHING; aborts (places nothing) if MinY is reached first. groundY
+//	// ends up ONE ABOVE the first passing position (the Y counter is only
+//	// decremented on the FAILING branch), which for a tree on its own
+//	// ground is the trunk's base, so the bottom leaf layer lands at
+//	// base + lower_offset.
 //	y := anchor.Y
 //	for {
 //	    if passesAllowList(existing at (anchor.X, y-1, anchor.Z)) { break }
@@ -270,7 +271,7 @@
 // The leaf gate inside the ring is the SAME material test as the simple
 // canopy's (air, leaves, or a plant that can be built over -- see
 // canopyLeafReplaceable), with no may_replace term. The ground search's gate, by contrast, is
-// a plain allow-list check on (api, pos, may_replace) with no OR-air
+// a plain allow-list check on (api, pos, may_grow_on) with no OR-air
 // fallback -- an out-of-bounds/unloaded read that happens to look like air
 // must NOT count as "found ground".
 //
@@ -1569,14 +1570,14 @@ func (c *spruceCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd rand
 	}
 
 	// Ground search. Walks straight down from the anchor testing the
-	// placement allow-list check (NOT the OR-air fallback above -- see the
-	// file header) until a candidate passes, or aborts (drawing NOTHING) if
-	// MinY is reached first.
+	// allow-list check against may_grow_on (not may_replace, and not the
+	// leaf gate above -- see the file header) until a candidate passes, or
+	// aborts (drawing NOTHING) if MinY is reached first.
 	y := anchor.Y
 	for {
 		TickDeadline("searching downward for a canopy anchor")
 		candidate := wgen.BlockPos{X: anchor.X, Y: y - 1, Z: anchor.Z}
-		if passesAllowList(api.GetBlock(candidate), params.mayReplace) {
+		if passesAllowList(api.GetBlock(candidate), params.mayGrowOn) {
 			break
 		}
 		if y <= api.MinY() {

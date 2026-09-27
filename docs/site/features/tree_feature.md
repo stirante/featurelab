@@ -342,7 +342,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | | `canopy_height` | yes | range | — | How tall the cone is, sampled per tree. |
 | | `base_radius` | yes | integer | — | The half-width the cone is allowed to reach at its widest. |
 | `spruce_canopy` | `leaf_block` | yes | block descriptor | — | The leaf. |
-| | `lower_offset` | yes | range | — | How far **below** the trunk top the crown reaches, sampled per tree. |
+| | `lower_offset` | yes | range | — | Where the crown **stops**, sampled per tree: the lowest layer sits this many cells above the ground the trunk stands on — the first cell below the crown that is in `may_grow_on` — so that many logs at the foot of the trunk stay bare. |
 | | `upper_offset` | yes | range | — | How far **above** the trunk top it starts. The crown is built downward from there. |
 | | `max_radius` | yes | range | — | The widest a band may get before it snaps back. |
 | `fancy_canopy` | `leaf_block` | yes | block descriptor | — | The leaf. |

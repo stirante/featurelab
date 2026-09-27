@@ -1403,9 +1403,9 @@ func TestSpruceCanopy_Place_TieredCrossSections(t *testing.T) {
 }
 
 // TestSpruceCanopy_Place_GroundSearch_WalksThroughTrunkAndAborts proves the ground-search loop is
-// real: a solid, non-may_replace column below the anchor makes the search walk all the way down to
-// MinY and abort WITHOUT placing anything and WITHOUT drawing any RNG (confirmed via a Tracer) --
-// see the module header's own account of that early return.
+// real: a solid column below the anchor that never matches may_grow_on makes the search walk all
+// the way down to MinY and abort WITHOUT placing anything and WITHOUT drawing any RNG (confirmed
+// via a Tracer) -- see the module header's own account of that early return.
 func TestSpruceCanopy_Place_GroundSearch_WalksThroughTrunkAndAborts(t *testing.T) {
 	v, pal := newTreeTestVolume(t, 4)
 	leaf := pal.Get("minecraft:oak_leaves", nil)
@@ -1416,9 +1416,9 @@ func TestSpruceCanopy_Place_GroundSearch_WalksThroughTrunkAndAborts(t *testing.T
 		upperMin: 0, upperMax: 2,
 		radiusMin: 1, radiusMax: 3,
 	}
-	// A non-empty may_replace that names neither stone nor air -- so the ground search's own
+	// A non-empty may_grow_on that names neither stone nor air -- so the ground search's own
 	// passesAllowList (no IsAir fallback, unlike the leaf gate) never succeeds.
-	mayReplace := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:short_grass")}, nil, nil, nil)
+	mayGrowOn := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:short_grass")}, nil, nil, nil)
 
 	anchor := wgen.BlockPos{X: 0, Y: 5, Z: 0}
 	for y := 0; y < anchor.Y; y++ {
@@ -1426,7 +1426,7 @@ func TestSpruceCanopy_Place_GroundSearch_WalksThroughTrunkAndAborts(t *testing.T
 	}
 
 	tr := random.NewTracer(random.New(1))
-	c.place(v, anchor, tr, treeParamsLists{mayReplace: mayReplace}, nil)
+	c.place(v, anchor, tr, treeParamsLists{mayGrowOn: mayGrowOn}, nil)
 
 	if len(tr.Draws) != 0 {
 		t.Fatalf("draws = %v, want none (the abort path draws nothing)", tr.Draws)
@@ -1443,11 +1443,10 @@ func TestSpruceCanopy_Place_GroundSearch_WalksThroughTrunkAndAborts(t *testing.T
 	}
 }
 
-// TestSpruceCanopy_Place_RespectsMayReplace mirrors simpleCanopy's own precedent test: the leaf
-// gate has the SAME "may_replace OR IsAir" shape (not Acacia/Pine/Fancy's plain passesAllowList),
-// so a pre-placed block that is neither in may_replace nor air must be left untouched, while air
-// positions still get leafed via the fallback.
-func TestSpruceCanopy_Place_RespectsMayReplace(t *testing.T) {
+// TestSpruceCanopy_Place_LeafGate pins the spruce canopy's leaf gate as the simple canopy's: air,
+// leaves or vine, never may_replace -- a pre-placed stone stays even when may_replace names it,
+// while air cells get leaves.
+func TestSpruceCanopy_Place_LeafGate(t *testing.T) {
 	v, pal := newTreeTestVolume(t, 4)
 	leaf := pal.Get("minecraft:oak_leaves", nil)
 	stone := pal.Get("minecraft:stone", nil)
@@ -1459,8 +1458,10 @@ func TestSpruceCanopy_Place_RespectsMayReplace(t *testing.T) {
 		radiusMin: 1, radiusMax: 3,
 	}
 	// Non-empty, so the ground search's own passesAllowList (no IsAir fallback -- see module
-	// header) needs a real match one below the anchor to succeed immediately.
-	mayReplace := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:short_grass")}, nil, nil, nil)
+	// header) needs a real match one below the anchor to succeed immediately. may_replace names
+	// the stone, and the leaf gate must not care.
+	mayGrowOn := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:short_grass")}, nil, nil, nil)
+	mayReplace := pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:stone")}, nil, nil, nil)
 
 	anchor := wgen.BlockPos{X: 0, Y: 15, Z: 0}
 	blocked := wgen.BlockPos{X: 1, Y: 15, Z: 0}
@@ -1475,13 +1476,13 @@ func TestSpruceCanopy_Place_RespectsMayReplace(t *testing.T) {
 	// on an arbitrary seed's output. spruceScriptedRandom ignores the bound argument entirely (see
 	// its own doc comment), so these exact bound numbers are documentation only, not asserted.
 	rnd := &spruceScriptedRandom{bounds: []int{0, 1}}
-	c.place(v, anchor, rnd, treeParamsLists{mayReplace: mayReplace}, nil)
+	c.place(v, anchor, rnd, treeParamsLists{mayGrowOn: mayGrowOn, mayReplace: mayReplace}, nil)
 	if rnd.idx != 2 {
 		t.Fatalf("consumed %d scripted draws, want exactly 2", rnd.idx)
 	}
 
 	if got := v.GetBlock(blocked); got != stone {
-		t.Fatalf("expected the pre-placed stone to be left untouched (not in may_replace, not air), got %v", pal.Entry(got))
+		t.Fatalf("expected the pre-placed stone to be left untouched (may_replace is not the gate), got %v", pal.Entry(got))
 	}
 	if got := v.GetBlock(anchor); got != leaf {
 		t.Fatalf("expected the anchor itself to be leafed (starts as air, passes the IsAir fallback), got %v", pal.Entry(got))
@@ -8738,5 +8739,50 @@ func TestSimpleCanopy_DecorationIsASecondPass(t *testing.T) {
 	}
 	if corners != 16 || !seenDecoration {
 		t.Errorf("%d corner rolls (want 16), decoration rolled: %v", corners, seenDecoration)
+	}
+}
+
+// TestSpruceCanopy_Place_GroundSearchStopsAtTheTrunkBase pins the ground search to may_grow_on: from
+// the top log it walks down through the logs (not in may_grow_on) to the first cell standing on
+// dirt, which is the trunk's base, so the bottom layer lands at base + lower_offset and the logs
+// below it stay bare. may_replace naming the logs and the dirt changes nothing. Here: dirt at y=9,
+// logs at 10..17, lower_offset 2, upper_offset 1, radii (top down) 1,0,1,1,1,1,1 -- layers y=18
+// down to y=12.
+func TestSpruceCanopy_Place_GroundSearchStopsAtTheTrunkBase(t *testing.T) {
+	v, pal := newTreeTestVolume(t, 4)
+	leaf := pal.Get("minecraft:spruce_leaves", nil)
+	log := pal.Get("minecraft:spruce_log", nil)
+	for y := 10; y <= 17; y++ {
+		v.SetBlock(wgen.BlockPos{X: 0, Y: y, Z: 0}, log)
+	}
+	c := &spruceCanopy{
+		leafID:   leaf,
+		lowerMin: 2, lowerMax: 3,
+		upperMin: 1, upperMax: 2,
+		radiusMin: 1, radiusMax: 3,
+	}
+	params := treeParamsLists{
+		mayGrowOn:  pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:dirt")}, nil, nil, nil),
+		mayReplace: pal.NewMatchSet([]block.Descriptor{block.NameDescriptor("minecraft:spruce_log"), block.NameDescriptor("minecraft:dirt")}, nil, nil, nil),
+	}
+	rnd := &spruceScriptedRandom{bounds: []int{0, 1}}
+	c.place(v, wgen.BlockPos{X: 0, Y: 17, Z: 0}, rnd, params, nil)
+
+	perLayer := map[int]int{}
+	for x := -4; x <= 4; x++ {
+		for z := -4; z <= 4; z++ {
+			for y := 0; y < 30; y++ {
+				if v.GetBlock(wgen.BlockPos{X: x, Y: y, Z: z}) == leaf {
+					perLayer[y]++
+				}
+			}
+		}
+	}
+	// Radius 1 is the 3x3 minus its corners (5 cells), less the log at the centre below the top.
+	want := map[int]int{18: 5, 17: 0, 16: 4, 15: 4, 14: 4, 13: 4, 12: 4}
+	for y := 9; y <= 19; y++ {
+		if perLayer[y] != want[y] {
+			t.Errorf("y=%d: %d leaves, want %d", y, perLayer[y], want[y])
+		}
 	}
 }
