@@ -44,12 +44,35 @@ afterAll(() => {
 function timeIt(runs: number, fn: () => void): number {
   let best = Infinity
   for (let i = 0; i < runs; i++) {
-    const t = performance.now()
+    const t = cpuNow()
     fn()
-    const took = performance.now() - t
+    const took = cpuNow() - t
     if (took < best) best = took
   }
   return best
+}
+
+/** Milliseconds of CPU this thread has spent (process.threadCpuUsage, Node 22.19 and later), or
+ * of wall clock where Node cannot say.
+ *
+ * The minimum removes contention that lands between samples, but not contention inside one: on a
+ * CI runner with two cores, a sample that shares its core with another worker's Chromium reads
+ * slower on the wall clock for a reason that has nothing to do with the code. That is how the
+ * 48^3 comparison below once read 6.6 ms against 6.6 ms on GitHub's runner and passed on a rerun
+ * of the same commit. CPU time charges each side only for its own work.
+ *
+ * Not on Windows: there the counter ticks in ~15.6 ms steps, coarser than several samples in this
+ * file (the environment-hidden pass is a few milliseconds), and quantised readings made those
+ * comparisons fail on a desktop where the wall clock never did. Windows keeps the wall clock; the
+ * contention this guards against is a CI runner's, and CI runs on Linux. */
+const threadCpu =
+  process.platform === 'win32'
+    ? undefined
+    : (process as unknown as { threadCpuUsage?: () => NodeJS.CpuUsage }).threadCpuUsage
+function cpuNow(): number {
+  if (threadCpu === undefined) return performance.now()
+  const used = threadCpu.call(process)
+  return (used.user + used.system) / 1000
 }
 
 const AIR = 0
@@ -247,13 +270,16 @@ describe('a slice drag re-meshes less than it used to, and draws exactly the sam
       current()
       const beforeSamples: number[] = []
       const afterSamples: number[] = []
+      // REPS repetitions per sample make each sample long enough that a single interruption is a
+      // small fraction of it; the samples are divided back down below.
+      const REPS = 4
       for (let i = 0; i < 9; i++) {
-        let t = performance.now()
-        legacy()
-        beforeSamples.push(performance.now() - t)
-        t = performance.now()
-        current()
-        afterSamples.push(performance.now() - t)
+        let t = cpuNow()
+        for (let r = 0; r < REPS; r++) legacy()
+        beforeSamples.push((cpuNow() - t) / REPS)
+        t = cpuNow()
+        for (let r = 0; r < REPS; r++) current()
+        afterSamples.push((cpuNow() - t) / REPS)
       }
       // THE MINIMUM, not the median -- the one place in this repo where that is the right
       // statistic. Vitest runs test files in parallel, so a sample can be interrupted by another
