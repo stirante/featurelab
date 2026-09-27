@@ -58,20 +58,22 @@
 //
 //	int   canopy_offset.min   (required)
 //	int   canopy_offset.max   (required)
-//	int   min_width           (optional, default 0)
-//	float canopy_slope's "run" operand, PRE-CONVERTED to 1.0/run
-//	int   canopy_slope's "rise" operand, kept as a raw int
+//	int   min_width           (optional, default 0, schema minimum 0)
+//	float canopy_slope's "rise" operand, PRE-CONVERTED to 1.0/rise (0.0 when rise is 0)
+//	int   canopy_slope's "run" operand, kept as a raw int
 //	block descriptor: leaf_block (required)
 //	chance value: canopy_decoration's own gate (validity check)
 //	chance value array: variation_chance, indexed
 //	         by (y - canopy_offset.min)
 //
-// The rise/run assignment (which JSON field is the raw-int operand and which
-// is the precomputed reciprocal) follows the natural "slope = rise/run"
-// reading and is not otherwise verified; the arithmetic shape (one operand
-// int-multiplied first, the other a stored float multiplied in after the
-// cast) is exact. This draws no RNG and only affects non-default
-// canopy_slope configs.
+// The operands are the other way round from the "slope = rise/run" reading
+// the key names suggest: `run` is the int multiplied by the layer offset and
+// `rise` is the divisor. A slope of {rise: 1, run: 2} therefore steps the
+// radius by TWO per layer (a wide, flat stepped pyramid), and {rise: 2,
+// run: 1} by half a step. That is the game's behaviour, observed in game as
+// well, and it is what this port reproduces; the key names are just
+// misleading. rise, run and min_width all carry a schema minimum (1, 1 and 0
+// respectively), so a value below it is refused at load time.
 //
 // Per-tree algorithm (ZERO RNG unless variation_chance is configured):
 //
@@ -82,7 +84,7 @@
 //	    // a full (2*radius+1)^2 FILLED SQUARE (no corner cut -- see below),
 //	    // centered on (anchor.X, anchor.Y+dy, anchor.Z)
 //	}
-//	slopeAt(dy) = truncTowardZero( float32(rise*dy) * float32(1.0/run) )
+//	slopeAt(dy) = truncTowardZero( float32(run*dy) * float32(1.0/rise) )
 //
 // This is a plain flat-topped cone: wide at the bottom (dy=min, most
 // negative), narrowing toward min_width at the very top (dy=max) -- unlike
@@ -1390,13 +1392,18 @@ func (d *canopyDecoration) place(api wgen.BlockWorld, leaf wgen.BlockPos, rnd ra
 }
 
 // slopeAt is the simple canopy's pre-loop/per-layer radius formula:
-// int-multiply (rise*dy), cast to float32, float-multiply by a stored
-// float32 (1.0/run), truncate the result toward zero -- exactly Go's
-// float32->int conversion. See the file header for the rise/run
-// operand-assignment caveat.
+// int-multiply (run*dy), cast to float32, float-multiply by a stored
+// float32 (1.0/rise), truncate the result toward zero -- exactly Go's
+// float32->int conversion. Note the operand order: run is the multiplier
+// and rise the divisor (see the file header). A rise of 0 stores 0.0 rather
+// than dividing; the parser refuses it anyway, so that guard only matters to
+// a canopy built directly in a test.
 func (c *simpleCanopy) slopeAt(dy int) int {
-	invRun := float32(1) / float32(c.run)
-	return int(float32(int32(c.rise)*int32(dy)) * invRun)
+	var invRise float32
+	if c.rise != 0 {
+		invRise = float32(1) / float32(c.rise)
+	}
+	return int(float32(int32(c.run)*int32(dy)) * invRise)
 }
 
 func (c *simpleCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd random.IRandom, params treeParamsLists, _ []wgen.BlockPos) {
@@ -6511,11 +6518,24 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 					run = int(runF)
 				}
 			}
-			if run == 0 {
-				// Defensive only -- not known game behaviour, just avoiding a
-				// Go-side divide producing an implementation-defined float->int
-				// conversion.
-				return nil, fmt.Errorf("canopy.canopy_slope.run must be nonzero")
+			// All three carry a schema minimum in the game, which rejects a value below it during
+			// validation and refuses to load the file. Nothing clamps them afterwards, so there is
+			// no in-range behaviour to fall back on.
+			for _, bound := range []struct {
+				key      string
+				value    int
+				min      int
+				fallback string
+			}{
+				{"canopy.min_width", minWidth, 0, "omit the key for 0"},
+				{"canopy.canopy_slope.rise", rise, 1, "omit the key for 1"},
+				{"canopy.canopy_slope.run", run, 1, "omit the key for 1"},
+			} {
+				if bound.value < bound.min {
+					return nil, fmt.Errorf("%s is %d, below the engine's schema minimum of %d -- the real "+
+						"game rejects the value during validation and refuses to load this file; write %d or "+
+						"more, or %s", bound.key, bound.value, bound.min, bound.min, bound.fallback)
+				}
 			}
 			// An INVERTED canopy_offset -- max below min -- used to CRASH THE TOOL, and it is the
 			// same shape, in the same kind of field, as the inverted search_volume that crashed it

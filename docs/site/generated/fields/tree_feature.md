@@ -1188,31 +1188,31 @@ Also the layer the whole taper is measured from: every other layer's width is wo
 
 **A half-width added to every layer, including the topmost.**
 
-It widens the crown uniformly rather than changing its taper; canopy_slope is what changes the taper.
+It widens the crown uniformly rather than changing its taper; canopy_slope is what changes the taper. Must be 0 or more.
 
 #### `canopy.canopy_slope` {#canopy-canopy_slope}
 
 <p class="fl-facts">optional · group · absent: a 1-to-1 slope -- one step of radius per layer</p>
 
-**How fast the layers narrow going up, as a rise over a run.**
+**How fast the layers widen going down: run steps of width for every rise layers.**
 
-A run of 2 makes the crown lose half a step of width per layer, so it tapers half as fast and ends up taller for the same width. A run of zero is refused rather than divided by.
+The names read backwards: run is the one multiplied by the layer's distance and rise is the one divided by, so each layer below the top is run / rise wider (rounded toward zero). {rise: 1, run: 2} adds two blocks of half-width per layer -- a wide, flat stepped pyramid -- while {rise: 2, run: 1} adds one every other layer. Both must be at least 1; the game refuses the file otherwise.
 
 #### `canopy.canopy_slope.rise` {#canopy-canopy_slope-rise}
 
 <p class="fl-facts">optional · integer · absent: 1</p>
 
-**The numerator of the taper: how much width is lost per run of layers.**
+**The divisor of the taper: how many layers one step of width is spread over.**
 
-Raising it narrows the crown faster and leaves a smaller top.
+Raising it makes a narrower, more column-like crown. Must be at least 1.
 
 #### `canopy.canopy_slope.run` {#canopy-canopy_slope-run}
 
 <p class="fl-facts">optional · integer · absent: 1</p>
 
-**The denominator of the taper: how many layers one step of width is spread over.**
+**The multiplier of the taper: how much half-width each step adds.**
 
-Raising it makes a taller, more column-like crown. Zero is refused.
+Raising it makes a wider, flatter crown. Must be at least 1.
 
 #### `canopy.variation_chance` {#canopy-variation_chance}
 
