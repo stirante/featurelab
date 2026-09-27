@@ -61,7 +61,7 @@ Six keys, one of which is an object holding the four constraints. "Default" is w
 | Key | Required | Value | Default | What it does |
 |---|---|---|---|---|
 | `structure_name` | yes | a structure identifier | — | Which `.mcstructure` file to copy. Some loaded structure file must define it; an unresolved name fails the feature when the pack loads, and `featurelab check` reports it with a near-match suggestion. |
-| `facing_direction` | no | `south` `west` `north` `east` `random` | `south` | Which way round the structure goes — see [the four directions](#the-four-facing-directions). `random` picks one of the four per placement. |
+| `facing_direction` | no | `south` `west` `north` `east` `random` | `random` | Which way round the structure goes — see [the four directions](#the-four-facing-directions). `random`, which is also what leaving the key out gives you, picks one of the four per placement. |
 | `rotate_around_center` | no | boolean | `false` | Puts the structure's horizontal **centre** on the found position instead of its `(0, 0)` corner. See [`rotate_around_center`](#rotate-around-center). |
 | `ground_level` | no | number, minimum `0` | `0` | Which **row of the structure** lands at the found position's own Y. See [`ground_level`](#ground-level). |
 | `adjustment_radius` | no | number in `[0, 16]` | `0` — the origin cell only | How far sideways the feature may look for a position where every constraint passes. **Sideways only** — see [the search](#the-search). Outside `[0, 16]` the file does not load. |
@@ -93,11 +93,11 @@ One picture, four placements of one structure that differ in one word. Every pan
 
 | Value | Where the structure ends up | Reach for it when |
 |---|---|---|
-| `south` | Unturned. In the picture the post stands at world `(0, 1)` relative to the marker — due south. This is what an absent key gives you. | The structure is already the right way round, which for anything you exported facing south it is. |
+| `south` | Unturned. In the picture the post stands at world `(0, 1)` relative to the marker — due south. | The structure is already the right way round, which for anything you exported facing south it is. |
 | `west` | A quarter turn. The post lands at `(-1, 0)` — due west. | You want it turned once. |
 | `north` | A half turn. The post lands at `(0, -1)` — due north. | You want it facing back the way it came. |
 | `east` | Three quarters. The post lands at `(1, 0)` — due east. This is the value the example above uses, and why its lantern is east of the shaft. | You want it turned the other way. |
-| `random` | One of the four above, picked fresh for every placement. | You are scattering the same building across a biome and you do not want a row of identical, identically-oriented huts. |
+| `random` | One of the four above, picked fresh for every placement. This is what an absent key gives you. | You are scattering the same building across a biome and you do not want a row of identical, identically-oriented huts. |
 
 The pattern the picture shows is the one worth remembering: **`facing_direction` names the world direction the structure's own local +Z ends up pointing.** Whatever you built facing local +Z in the structure block faces that way in the world. Y is never touched — no rotation of this type tips a structure over.
 
@@ -194,18 +194,18 @@ The example at the top of the page configures no constraints and no radius, so n
 }
 ```
 
-The same 1×4×2 lamp post, with `facing_direction` left out entirely — so this one takes the `"south"` default, the unturned case the first example deliberately avoids — and three of the four constraints over a 5×5 search area.
+The same 1×4×2 lamp post, with `facing_direction` left out entirely — so this one is turned at random, one of the four ways per placement — and three of the four constraints over a 5×5 search area.
 
 ```
 featurelab generate --pack <pack> --feature wiki:lamp_post_constrained --env plains --seed 1
 ```
 
-All five painted cells copy in, with no diagnostic of the feature's own: `minecraft:cobblestone` at `(0, 63, 0)`, `minecraft:oak_log` at `(0, 64, 0)`, `(0, 65, 0)` and `(0, 66, 0)`, and the lantern at `(0, 66, 1)` — one block **south** of the shaft, where the first example's `facing_direction: "east"` put it at `(1, 66, 0)`. Same structure, same origin, same seed; only the rotation differs.
+All five painted cells copy in, with no diagnostic of the feature's own: `minecraft:cobblestone` at `(0, 63, 0)`, `minecraft:oak_log` at `(0, 64, 0)`, `(0, 65, 0)` and `(0, 66, 0)`, and the lantern at `(-1, 66, 0)` — one block **west** of the shaft, the rotation seed `1` happens to draw, where the first example's `facing_direction: "east"` put it at `(1, 66, 0)`. Seeds `2`, `3` and `5` put it south, north and east; write the key if you need one of them every time.
 
 The spiral never leaves its first cell, because all three constraints already pass at the origin. Each checks fewer points than it looks like it should, which is worth tracing once against a real structure:
 
-- **`grounded`** samples the structure's `ground_level` row (row 0) per column and keeps only the columns that have a block there. This structure's `z = 1` column is empty on row 0 — the lantern is up at row 3 — so the constraint has exactly **one** point, one below the `z = 0` column, world `(0, 62, 0)`. That is the plains surface: solid, so it passes.
-- **`unburied`** samples the fixed top row (row 3) instead, where *both* columns are occupied (log and lantern), giving **two** points one row above the structure: `(0, 67, 0)` and `(0, 67, 1)`. Both are open sky, so it passes.
+- **`grounded`** samples the structure's `ground_level` row (row 0) per column and keeps only the columns that have a block there. This structure's local `z = 1` column is empty on row 0 — the lantern is up at row 3 — so the constraint has exactly **one** point, one below the shaft's column, world `(0, 62, 0)`. That is the plains surface: solid, so it passes.
+- **`unburied`** samples the fixed top row (row 3) instead, where *both* columns are occupied (log and lantern), giving **two** points one row above the structure, turned with it: `(0, 67, 0)` and `(-1, 67, 0)`. Both are open sky, so it passes.
 - **`leveled`** reuses `grounded`'s single point and scans the rows from `62 - 1` to `62 + 1 + 1` for a solid block with air above it. It finds solid at `62`, air at `63`, and passes.
 
 Move the same JSON into the air and the whole thing fails:
@@ -236,7 +236,7 @@ featurelab implements `minecraft:structure_template_feature` in full: both offse
 
 You do not need this section to place a structure. It is for reading a preview against the game value for value, or for reproducing the engine's behaviour exactly. [RNG and determinism](./rng_and_determinism.md) is the model these numbers fit into; this section is this type's row in it.
 
-**This type is the cheapest in the system.** The whole placement — the position search, every constraint check, the per-block copy — spends exactly **one** random value, `nextIntBound(4)`, and only when `facing_direction` is `"random"`. It is taken before the search and before any constraint. Every other `facing_direction`, including the `"south"` default an absent key gives you, spends **nothing at all**: a published pack that names its rotation gets a byte-for-byte deterministic structure placement at zero cost to the stream, which is a useful property when you are trying to keep the rest of a chunk stable.
+**This type is the cheapest in the system.** The whole placement — the position search, every constraint check, the per-block copy — spends exactly **one** random value, `nextIntBound(4)`, and only when `facing_direction` is `"random"`. It is taken before the search and before any constraint. An absent `facing_direction` counts as `"random"` and spends it too. Every named direction spends **nothing at all**: a published pack that names its rotation gets a byte-for-byte deterministic structure placement at zero cost to the stream, which is a useful property when you are trying to keep the rest of a chunk stable.
 
 Structures in general support an integrity setting — a per-block random skip during the copy, so a structure can look worn down — but it is **not exposed as a JSON key anywhere** in this feature type. There is no field to set. Every placement behaves as if integrity were `100.0`: keep every block, nothing drawn during the copy. That is the game's own unconditional behaviour here, not an approximation.
 

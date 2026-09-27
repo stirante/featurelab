@@ -594,8 +594,8 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
       summary: 'Which way the structure is turned before it is placed.',
       detail:
         '`south` is the stored, unrotated orientation; the other three are quarter turns from it. ' +
-        '`random` is the only value that costs a random draw, and it is taken before the position ' +
-        'search and before any constraint is checked.',
+        '`random`, which is also what leaving the key out means, is the only value that costs a ' +
+        'random draw, and it is taken before the position search and before any constraint is checked.',
     },
     rotate_around_center: {
       summary: 'Turns the structure about its own centre rather than about its corner.',

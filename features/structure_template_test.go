@@ -33,7 +33,7 @@ func TestStructureTemplate_FacingDirectionEnumValues(t *testing.T) {
 		"north":  2,
 		"east":   3,
 		"random": 255,
-		nil:      0, // absent key -> default 0 -> south
+		nil:      255, // absent key -> the constructed byte 255 -> random
 	}
 	for value, expect := range want {
 		got, err := parseFacingDirection(value)

@@ -8,7 +8,8 @@
 // RNG-order contract, the entire point of this port: exactly ONE possible
 // draw, made BEFORE the position search and BEFORE any constraint is
 // evaluated -- random.nextIntBound(4) -- and ONLY when facing_direction is
-// the "random" sentinel (byte 255). Every other code path (explicit
+// the "random" sentinel (byte 255), which is also what an ABSENT
+// facing_direction means. Every other code path (explicit
 // facing_direction, the adjustment_radius search, every constraint, the
 // per-block copy) draws nothing.
 //
@@ -121,7 +122,10 @@ var facingToRotation = map[string]int{
 
 func parseFacingDirection(value any) (int, error) {
 	if value == nil {
-		return 0, nil // default "south"
+		// Absent key: the feature's constructed rotation byte is 255, and
+		// nothing overwrites it -- so an absent facing_direction is "random",
+		// not south.
+		return randomFacing, nil
 	}
 	s, ok := value.(string)
 	if !ok {

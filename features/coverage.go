@@ -373,7 +373,7 @@ var FeatureTypeCoverage = []CoverageEntry{
 		TypeID: "minecraft:structure_template_feature",
 		Status: StatusImplemented,
 		Note: "Stamps a structure file into the world, gated by `constraints`. Implemented: " +
-			"`facing_direction` (`south`/`west`/`north`/`east`/`random`, and an absent key means south), " +
+			"`facing_direction` (`south`/`west`/`north`/`east`/`random`, and an absent key means random), " +
 			"`rotate_around_center`, `ground_level`, `adjustment_radius`, and all four constraints -- " +
 			"`grounded`, `unburied`, `block_intersection` and `leveled` -- each over the same sample " +
 			"points the engine uses. A VOID cell and a cell holding explicit `minecraft:air` both count " +
@@ -408,7 +408,7 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"turn facing the way it was authored. `fossil_feature`, the other type that stamps a " +
 			"structure file, is the opposite -- it rotates its bone blocks' `pillar_axis` on a " +
 			"quarter turn -- so do not read one across to the other.",
-		evidence: "facing_direction enum: south=0 west=1 north=2 east=3 random=255, absent means south. " +
+		evidence: "facing_direction enum: south=0 west=1 north=2 east=3 random=255, absent means random (the constructed byte is 255). " +
 			"Sample points: grounded samples (x, clamp(ground_level), z) and tests the row ONE BELOW " +
 			"the ground row; unburied samples the fixed top row (sizeY-1), skips columns whose top-row " +
 			"cell is void, and tests (x, sizeY, z); leveled uses grounded's points and max_steepness " +

@@ -759,7 +759,7 @@ const TYPE_SPECS: readonly TypeSpec[] = [
         kind: 'enum',
         required: false,
         values: ['south', 'west', 'north', 'east', 'random'],
-        default: 'south',
+        default: 'random',
         source: 'builder',
       },
       { key: 'rotate_around_center', kind: 'boolean', required: false, source: 'builder' },
