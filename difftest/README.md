@@ -56,6 +56,10 @@ landed (an unloaded chunk reads as air), places, and dumps again. The Go side al
 repeat whose before-dump differs from the expected setup. `--resume` continues an interrupted
 run; `--tests` and `--repeats` narrow it.
 
+A `canopy` without `variation_chance` can crash the game on `/place feature` (1.26.60.22, an
+access violation in the game's canopy placement; not every geometry triggers it). The runner skips
+the six tests with that shape by default (`GAME_CRASHERS` in `run_game.py`); `--skip ''` runs them.
+
 Carver tests carry a caveat: the game may not run carvers through `/place feature` at all, and
 the underwater carver needs an ocean biome. A carver the game leaves untouched is reported as
 "not comparable", not as a failure.
