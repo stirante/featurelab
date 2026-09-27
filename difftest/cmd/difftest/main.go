@@ -163,6 +163,7 @@ func cmdEngine(args []string) error {
 	vanilla := fs.String("vanilla-structures", os.Getenv("DIFFTEST_VANILLA_STRUCTURES"),
 		"vanilla behaviour pack structures/ directory (for fossil_feature; env DIFFTEST_VANILLA_STRUCTURES)")
 	quiet := fs.Bool("quiet", false, "only print the summary")
+	dumps := fs.String("dumps", "", "also write every placement's regions here, in the game runner's JSONL shape")
 	fs.Parse(args)
 
 	var m difftest.Manifest
@@ -180,11 +181,25 @@ func cmdEngine(args []string) error {
 	if *quiet {
 		logf = nil
 	}
+	var dumpFile *os.File
+	var dumpTo func(difftest.GameDumpLine)
+	if *dumps != "" {
+		if dumpFile, err = os.Create(*dumps); err != nil {
+			return err
+		}
+		enc := json.NewEncoder(dumpFile)
+		dumpTo = func(l difftest.GameDumpLine) { enc.Encode(l) }
+	}
 	started := time.Now()
 	res, err := difftest.RunEngine(&m, tests, difftest.EngineOptions{
 		PackDir: filepath.Join(*genDir, "pack"), ExtraStructures: *vanilla,
-		SeedBase: uint32(*seedBase), Repeats: *repeats, Log: logf,
+		SeedBase: uint32(*seedBase), Repeats: *repeats, Log: logf, Dump: dumpTo,
 	})
+	if dumpFile != nil {
+		if err := dumpFile.Close(); err != nil {
+			return err
+		}
+	}
 	if err != nil {
 		return err
 	}

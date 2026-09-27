@@ -51,6 +51,9 @@ type EngineOptions struct {
 	SeedBase        uint32
 	Repeats         int // 0 = each test's own
 	Log             func(format string, args ...any)
+	// Dump, when set, receives every placement's before and after regions in the game runner's
+	// JSONL line shape, so one tool can look at placements from either side.
+	Dump func(GameDumpLine)
 }
 
 // engineVolumeMargin is how much wider than the reset box the engine's bench volume is, so
@@ -183,6 +186,11 @@ func RunEngine(m *Manifest, tests []*Test, opts EngineOptions) (*Results, error)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", t.ID, err)
 			}
+			if opts.Dump != nil {
+				opts.Dump(GameDumpLine{Test: t.ID, Repeat: i, OK: true, PlaceAt: place,
+					Box:    DumpBox{Min: dump.Min, Size: dump.Size()},
+					Before: before.dumpData(), After: after.dumpData()})
+			}
 			outside += changesOutside(vol, baseline, dump)
 			tr.Placements = append(tr.Placements, metrics)
 		}
@@ -262,6 +270,19 @@ func regionFromVolume(vol *volume.Volume, bx Box) *Region {
 		}
 	}
 	return r
+}
+
+// dumpData run-length encodes a region the way the game's region dump answers.
+func (r *Region) dumpData() *DumpData {
+	d := &DumpData{Palette: r.Names}
+	for i, c := range r.Cells {
+		if i > 0 && d.RLE[len(d.RLE)-2] == int(c) {
+			d.RLE[len(d.RLE)-1]++
+			continue
+		}
+		d.RLE = append(d.RLE, int(c), 1)
+	}
+	return d
 }
 
 // changesOutside counts cells of the volume that changed by name but lie outside the dump box.
