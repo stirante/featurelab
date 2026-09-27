@@ -93,6 +93,6 @@ Only the single-edge columns are gated -- corners are always dropped and the int
 
 <p class="fl-facts">optional · boolean · absent: false</p>
 
-**Intended to mark the patch as underwater. Avoid it.**
+**Floods the patch: its enclosed ground cells become water, and the vegetation grows in the water.**
 
-With it on, the patch is walked and its ground blocks are written, and then the collected columns are discarded -- the vegetation never runs and the feature has no defined result to report. The preview reports the placement as failed. Leave it off.
+The ground patch is built as usual; then a column whose ground cell has an open side or an open cell below it is dropped, and every other column has its ground cell replaced by water. The vegetation is placed one block lower than on a dry patch -- in the water cell for a floor patch -- so the delegate has to be allowed to replace water.

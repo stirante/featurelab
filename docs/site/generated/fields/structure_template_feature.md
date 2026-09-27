@@ -12,11 +12,11 @@ Named the way the structure is stored in the pack, without a file extension.
 
 #### `facing_direction` {#facing_direction}
 
-<p class="fl-facts">optional · enum · absent: south</p>
+<p class="fl-facts">optional · enum · absent: random</p>
 
 **Which way the structure is turned before it is placed.**
 
-`south` is the stored, unrotated orientation; the other three are quarter turns from it. `random` is the only value that costs a random draw, and it is taken before the position search and before any constraint is checked.
+`south` is the stored, unrotated orientation; the other three are quarter turns from it. `random`, which is also what leaving the key out means, is the only value that costs a random draw, and it is taken before the position search and before any constraint is checked.
 
 Values, in the order the engine lists them:
 

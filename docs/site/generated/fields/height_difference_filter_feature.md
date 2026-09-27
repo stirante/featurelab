@@ -16,7 +16,7 @@ A `namespace:id` that some file in the pack defines, placed at this feature's ow
 
 **How far out to sample the terrain height, in blocks.**
 
-The four horizontal compass directions are walked one step at a time out to this distance, and the height at every step is tested. Below 1 nothing is sampled: the gate then passes unless one of the upward requirements was configured, in which case it can never pass.
+The four horizontal compass directions are walked one step at a time out to this distance, and the height at every step is tested. Below 1 nothing is sampled: the gate then passes unless one of the two min_required keys was configured, in which case it can never pass.
 
 #### `min_required_upward_height_diff` {#min_required_upward_height_diff}
 
@@ -30,17 +30,17 @@ Satisfied by any ONE sampled position, not by all of them -- it is a "somewhere 
 
 <p class="fl-facts">optional · integer</p>
 
-**Refuses the position if the ground anywhere within the radius sits higher than this allows.**
+**Requires the ground to drop at least this far somewhere within the radius.**
 
-Unlike the two `min_required_upward` / `max_allowed_upward` keys, this one fails HARD on the first sample that breaks it, aborting the rest of the scan. Leaving it out disables it.
+Like its `min_required_upward` counterpart it only has to hold at one sampled position, and leaving it out satisfies it automatically.
 
 #### `max_allowed_upward_height_diff` {#max_allowed_upward_height_diff}
 
 <p class="fl-facts">optional · integer</p>
 
-**Requires the ground to stay at or below this height somewhere within the radius.**
+**Refuses the position if the ground anywhere within the radius rises further than this.**
 
-Like its `min_required_upward` counterpart it only has to hold at one sampled position, and leaving it out satisfies it automatically.
+A hard fail: the first sample that breaks it ends the scan, and the position is refused. Leaving it out disables it.
 
 #### `max_allowed_downward_height_diff` {#max_allowed_downward_height_diff}
 
