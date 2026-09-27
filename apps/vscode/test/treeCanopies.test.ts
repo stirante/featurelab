@@ -414,14 +414,14 @@ describe('the defaults that are the opposite of the obvious guess', () => {
     expect(subSpec('cherry_canopy', 'radius').min).toBe(3)
   })
 
-  it('records the two keys that are accepted and then have no effect', () => {
+  it('records poplar_canopy.trunk_width as accepted, and num_steps as the run length less one', () => {
     for (const spec of [
       subSpec('poplar_canopy', 'trunk_width'),
       subSpec('mangrove_canopy', 'canopy_decoration').entry?.find((f) => f.key === 'num_steps') as FieldSpec,
     ]) {
       expect(spec.required).toBe(false)
     }
-    expect(TREE_CANOPY_DOCS['mangrove_canopy.canopy_decoration.num_steps']?.summary).toMatch(/no effect/)
+    expect(TREE_CANOPY_DOCS['mangrove_canopy.canopy_decoration.num_steps']?.summary).toMatch(/one less than the run length/)
   })
 
   it('says out loud that poplar spends its side-hole roll even at the default of 0', () => {

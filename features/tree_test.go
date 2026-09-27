@@ -5173,15 +5173,13 @@ func TestTreeFeature_MegaTrunk_FullRNGDrawSequenceAndPlacement(t *testing.T) {
 	}
 }
 
-// TestTreeFeature_MegaTrunk_NumStepsAcceptedButUnused proves trunk_decoration.num_steps is a true
-// no-op for mega_trunk, not merely "no longer refused at parse time": builds the SAME body used by
-// TestTreeFeature_MegaTrunk_FullRNGDrawSequenceAndPlacement twice, once with num_steps added to
-// trunk_decoration and once without, places both against separately-scripted (but identically
-// configured) RNG instances, and requires BOTH the exact draw sequence AND the placed blocks to
-// be identical. If a future change ever wires num_steps into the multi-decoration write's own placement
-// count, this test fails (either the draw count changes, or the vine run length at (-1,10,0)
-// changes) -- pinning behavior, not just absence of an error.
-func TestTreeFeature_MegaTrunk_NumStepsAcceptedButUnused(t *testing.T) {
+// TestTreeFeature_MegaTrunk_NumStepsSetsTheRunLength pins trunk_decoration.num_steps on the
+// singular decoration_block: the decoration becomes one entry of count num_steps + 1, so the vine
+// run grows down from the decorated cell. Builds the SAME body used by
+// TestTreeFeature_MegaTrunk_FullRNGDrawSequenceAndPlacement twice, once with num_steps 3 and once
+// without, and requires the SAME draw sequence (the count is fixed, so it costs no draw) and a
+// longer run with num_steps.
+func TestTreeFeature_MegaTrunk_NumStepsSetsTheRunLength(t *testing.T) {
 	build := func(t *testing.T, withNumSteps bool) (*TreeFeature, *volume.Volume, *block.Palette) {
 		v, pal := newTreeTestVolume(t, 10)
 		decoration := map[string]any{
@@ -5246,20 +5244,23 @@ func TestTreeFeature_MegaTrunk_NumStepsAcceptedButUnused(t *testing.T) {
 		}
 	}
 
-	// Spot-check the same decorated cell TestTreeFeature_MegaTrunk_FullRNGDrawSequenceAndPlacement
-	// pins: a single vine block (run length 1, i.e. NOT extended to 3 by num_steps) west of
-	// (0,11,0). Y=11, not Y=10: the bottom layer of a mega column takes no decoration call at all
-	// (see that test's header), so Y=10 would pass vacuously -- the
-	// cell would be air whether or not num_steps did anything.
+	// The decorated cell TestTreeFeature_MegaTrunk_FullRNGDrawSequenceAndPlacement pins is west
+	// of (0,11,0). The bottom layer of a mega column takes no decoration call at all (see that
+	// test's header), so (-1,10,0) is air without num_steps; with num_steps 3 (a run of 4, down)
+	// the vine continues into it and stops at the dirt at Y=9.
 	vine := palWithout.Get("minecraft:vine", nil)
 	westDecorated, _ := palWithout.WithIntState(vine, block.MultiFaceDirectionBits, 32)
 	for name, v := range map[string]*volume.Volume{"without": vWithout, "with": vWith} {
 		if got := v.GetBlock(wgen.BlockPos{X: -1, Y: 11, Z: 0}); got != westDecorated {
 			t.Errorf("[%s num_steps] west vine at (-1,11,0) = %v, want vine with west bit only", name, palWith.Entry(got))
 		}
-		if got := v.GetBlock(wgen.BlockPos{X: -2, Y: 11, Z: 0}); !palWithout.IsAir(got) {
-			t.Errorf("[%s num_steps] (-2,11,0) = %v, want air (num_steps must NOT extend the vine run)", name, palWith.Entry(got))
-		}
+	}
+	if got := vWithout.GetBlock(wgen.BlockPos{X: -1, Y: 10, Z: 0}); !palWithout.IsAir(got) {
+		t.Errorf("[without num_steps] (-1,10,0) = %v, want air (a run of 1)", palWithout.Entry(got))
+	}
+	westWith, _ := palWith.WithIntState(palWith.Get("minecraft:vine", nil), block.MultiFaceDirectionBits, 32)
+	if got := vWith.GetBlock(wgen.BlockPos{X: -1, Y: 10, Z: 0}); got != westWith {
+		t.Errorf("[with num_steps] (-1,10,0) = %v, want the vine run continued down", palWith.Entry(got))
 	}
 }
 
@@ -5943,7 +5944,7 @@ func TestBuildTreeFeature_MangroveTrunk_SchemaValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("trunk_decoration_num_steps_is_accepted_but_unused", func(t *testing.T) {
+	t.Run("trunk_decoration_num_steps_sets_the_count", func(t *testing.T) {
 		body := mangroveTrunkTestBody(func(mt map[string]any) {
 			mt["trunk_decoration"] = map[string]any{
 				"decoration_block":  "minecraft:vine",
@@ -5958,6 +5959,9 @@ func TestBuildTreeFeature_MangroveTrunk_SchemaValidation(t *testing.T) {
 		tf := built.(*TreeFeature)
 		if tf.mangroveTrunk.decoration == nil {
 			t.Fatal("decoration = nil, want non-nil (the rest of trunk_decoration still parsed)")
+		}
+		if e := tf.mangroveTrunk.decoration.entries; len(e) != 1 || e[0].countMin != 4 || e[0].countMax != 4 {
+			t.Errorf("entries = %+v, want one entry of count {4,4} (num_steps 3 + 1)", e)
 		}
 	})
 
@@ -8751,7 +8755,7 @@ func TestSimpleCanopy_DecorationIsASecondPass(t *testing.T) {
 		"canopy_offset": offset,
 		"canopy_decoration": map[string]any{
 			"decoration_block": "minecraft:vine", "decoration_chance": float64(100),
-			"num_steps": map[string]any{"range_min": float64(1), "range_max": float64(1)}, "step_direction": "down",
+			"num_steps": map[string]any{"range_min": float64(0), "range_max": float64(0)}, "step_direction": "down",
 		},
 	})
 	c.place(v, wgen.BlockPos{X: 0, Y: 15, Z: 0}, random.New(1), treeParamsLists{}, nil)
@@ -9197,6 +9201,28 @@ func TestIsValidTreePosition_AcceptsLeavesVineAndWater(t *testing.T) {
 		v.SetBlock(p, pal.Get(name, nil))
 		if got := isValidTreePosition(v, p, mayReplace); got != want {
 			t.Errorf("isValidTreePosition over %s = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestCanopyDecoration_NumStepsPlusOne pins the simple canopy's decoration run length: the
+// decoration's one entry has a count of num_steps + 1, so num_steps 4 hangs a five-block vine
+// (in open air) and num_steps 0 a single block.
+func TestCanopyDecoration_NumStepsPlusOne(t *testing.T) {
+	for _, n := range []int{0, 2, 4} {
+		v, pal := newTreeTestVolume(t, 3)
+		vine := pal.Get("minecraft:vine", nil)
+		d := &canopyDecoration{blockID: vine, chance: chanceInformation{isFraction: true, numerator: 1, denominator: 1},
+			stepsMin: n, stepsMax: n, pal: pal}
+		d.place(v, wgen.BlockPos{X: 0, Y: 20, Z: 0}, random.New(1))
+		run := 0
+		for y := 20; y > 10; y-- {
+			if pal.NameOf(v.GetBlock(wgen.BlockPos{X: -1, Y: y, Z: 0})) == "minecraft:vine" {
+				run++
+			}
+		}
+		if run != n+1 {
+			t.Errorf("num_steps %d: west run %d, want %d", n, run, n+1)
 		}
 	}
 }

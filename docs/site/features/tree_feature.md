@@ -307,7 +307,7 @@ A per-trunk key rather than a shared one, but it behaves the same wherever it ap
 | `decoration_chance` | no | percent, or `{numerator, denominator}` | `0` — decorates nothing | Rolled once per eligible side of every placed log. |
 | `decoration_chance.numerator` | yes, inside the object | integer | — | The fraction's top. |
 | `decoration_chance.denominator` | yes, inside the object | integer | — | The fraction's bottom. |
-| `num_steps` | no | integer | absent | **Accepted and never read** on a trunk decoration. The run length comes from each sequence entry's own `count`. |
+| `num_steps` | no | integer | `0` | With `decoration_block`, the run is **`num_steps + 1`** blocks: `4` hangs five, and leaving it out hangs one. A `decoration_blocks_sequence` ignores it; each entry's own `count` sets that entry's run. |
 | `step_direction` | no | `down` `up` `out` `away` | `down` | Which way a run longer than one block stacks. `out` and `away` are the same value spelled two ways: away from the log, in the direction that chose the cell. Mind the default — it is `down`, not outward. Only visible on a run longer than one block. |
 
 Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar_trunk` enable all four horizontal sides on every log. `acacia_trunk` enables only the sides facing outward from its own footprint, and it evaluates the −X and −Z edges first: at `trunk_width` 1, where a cell is simultaneously on every edge, only the −X and −Z sides are decorated.
@@ -328,7 +328,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | `canopy_decoration` | no | object — the next rows | absent — nothing hangs | Hangs a run of blocks off the crown. |
 | `canopy_decoration.decoration_block` | **yes** | block descriptor | — | What hangs. |
 | `canopy_decoration.decoration_chance` | **yes** | percent, or `{numerator, denominator}` | — | Rolled once per horizontal neighbour of every leaf in the finished crown. |
-| `canopy_decoration.num_steps` | **yes** | range — maximum **inclusive** | — | How many cells a run is. Unlike `trunk_decoration`'s `num_steps`, this one **is** read. The run stops at the first cell that is not air. |
+| `canopy_decoration.num_steps` | **yes** | integer | — | One less than how many cells a run is: `4` hangs five. The run stops at the first cell that is not air. The bench also accepts a range here, drawn inclusive of its maximum; the game takes an integer. |
 | `canopy_decoration.step_direction` | **yes** | `down` | — | Which way the run grows. Only `down` is accepted — see [what the bench does differently](#what-the-bench-does-differently). |
 
 ### The other eleven canopies
@@ -396,7 +396,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 
 Wherever a key above says **range** — the kind the editor's own catalogue calls `range`, and which older notes call an `IntRange` — four spellings are accepted: `{ "range_min": a, "range_max": b }`, `{ "min": a, "max": b }`, `[a, b]`, or a bare number. The sampled value is uniform over **`[min, max)`** — the maximum is **exclusive** — on most keys. **Seventeen keys are the exception and sample inclusive of their maximum**, and they are not all new ones:
 
-- `trunk_decoration.decoration_blocks_sequence[].count`, and `canopy_decoration.num_steps`, wherever either appears.
+- `trunk_decoration.decoration_blocks_sequence[].count`, and `canopy_decoration.num_steps` when it is written as a range (the bench's own allowance; add one to the result), wherever either appears.
 - Every range a **cherry tree** has: `cherry_trunk.trunk_height.intervals` (each entry adds 0 to *that entry*, not 0 to one below it, which is where it parts company with `acacia_trunk`'s identically-spelled key), `branches.branch_start_offset_from_top`, `branches.branch_end_offset_from_top`, `branches.branch_horizontal_length`, and both of `cherry_canopy`'s, `height` and `radius`.
 - `mangrove_trunk.branches.branch_length` and `branches.branch_steps`.
 - `poplar_trunk`'s `remaining_trunk_height_above_branches` and `amount_of_foliage_support_branches`, and `poplar_canopy`'s `height`.
@@ -425,7 +425,7 @@ Two object keys look like ranges and are not: `canopy_offset` and `mega_trunk`'s
 | A plain `canopy` with no `variation_chance` | The file loads, and **the game crashes** the first time it places the tree. `featurelab check` reports it as an error and places nothing. | One entry per layer; `0` keeps a layer's corners. |
 | `"variation_chance": [a, b, c]` on a four-layer `canopy`, or a single chance on a canopy of two layers or more | Loads, and the game reads past the end of the list for the missing layers: random corners or a crash. A warning. | Count the layers — `canopy_offset.max - canopy_offset.min + 1` — and write that many entries. |
 | `mangrove_roots` written inside `mangrove_trunk` | Not a key there. It is a sibling of the trunk key. | Write it on the feature body — and know that it then runs for whatever trunk you chose. |
-| `"num_steps": 3` inside a `trunk_decoration` | Accepted and never read. The run length comes from each sequence entry's `count`. | Write `decoration_blocks_sequence` with a `count`. |
+| `"num_steps": 3` inside a `trunk_decoration`, expecting three blocks | Four: the run is `num_steps + 1`. With a `decoration_blocks_sequence` it is not read at all. | `"num_steps": 2` for three, or a sequence entry with `"count": 3`. |
 | `may_grow_through` on any trunk but the plain one, expecting a trunk to push through undergrowth | Above the origin, every trunk is gated on `may_replace` alone; `may_grow_through` only ever applies below the origin, which only the plain `trunk` with `can_be_submerged` has. | Add the blocks to `may_replace` instead. |
 | Two trunk keys, or two canopy keys, in one body | Reported, not resolved. There is no precedence between them. | Exactly one of each. |
 
@@ -497,7 +497,7 @@ The corner test is **not** guarded against a radius of 0. On a one-cell layer, `
 
 The leaves go into air, into other leaves and into vines, and nowhere else. `may_replace` is not asked at all, so listing water or stone there does not let this crown overwrite them. Vines are the case that shows: `trunk_decoration` hangs its vines on the logs before the crown is built, and the crown then covers the ones beside the logs inside it, so a vine-hung trunk only shows vines below its leaves.
 
-`canopy_decoration` hangs a block off the crown once the whole crown is built. Every leaf block in the canopy's layers, including a matching leaf that was there before the tree, rolls `decoration_chance` once per horizontal neighbour; a successful roll on a neighbour that is air takes `num_steps` (inclusive of its maximum) and writes that many cells straight **down** from it, stopping at the first cell that is not air. It is how vanilla's swamp oak gets its hanging vines.
+`canopy_decoration` hangs a block off the crown once the whole crown is built. Every leaf block in the canopy's layers, including a matching leaf that was there before the tree, rolls `decoration_chance` once per horizontal neighbour; a successful roll on a neighbour that is air writes `num_steps + 1` cells straight **down** from it, stopping at the first cell that is not air. It is how vanilla's swamp oak gets its hanging vines.
 
 ### `variation_chance` is not optional {#variation-chance-is-not-optional}
 

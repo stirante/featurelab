@@ -90,7 +90,7 @@ function attachableDecorationEntry(): readonly FieldSpec[] {
       source: 'builder',
     },
     { key: 'decoration_chance', kind: 'chance', required: true, source: 'builder' },
-    { key: 'num_steps', kind: 'integer', required: false, default: 'nothing -- the value is accepted and never read', source: 'builder-header' },
+    { key: 'num_steps', kind: 'integer', required: false, default: '0 -- decoration_block hangs one block', source: 'builder-header' },
     {
       key: 'step_direction',
       kind: 'enum',
@@ -432,10 +432,10 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
   'canopy.canopy_decoration.decoration_block': { summary: 'The block written down the side of the crown.', detail: 'The whole run is this one block; there is no sequence form here.' },
   'canopy.canopy_decoration.decoration_chance': { summary: 'Chance that any one horizontal neighbour of a leaf starts a run.', detail: 'Rolled per leaf per neighbour, so a dense crown spends a great many rolls.' },
   'canopy.canopy_decoration.num_steps': {
-    summary: 'How many cells long a run is, drawn per run.',
+    summary: 'One less than how many cells long a run is.',
     detail:
-      'A range, so it wants range_min and range_max. The run stops early at the first cell that is not air, ' +
-      'so a long range does not guarantee a long strand.',
+      'A run is num_steps + 1 cells: 4 hangs a five-block vine, 0 a single block. It stops early at the ' +
+      'first cell that is not air, so a long run is not guaranteed.',
   },
   'canopy.canopy_decoration.step_direction': {
     summary: 'Which way the run grows. Only downward is accepted here.',
@@ -593,11 +593,10 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
   },
   'mangrove_canopy.canopy_decoration.decoration_chance': { summary: 'Chance that any one eligible side is decorated.', detail: 'Rolled per side per candidate position. At zero nothing is attached and the whole object has no effect.' },
   'mangrove_canopy.canopy_decoration.num_steps': {
-    summary: 'Accepted and then ignored -- this key has no effect.',
+    summary: 'With decoration_block, one less than the run length.',
     detail:
-      'The game reads the key and stores it, and the code that places the decoration never looks at it. It ' +
-      'is listed so that finding it in an existing file is not mistaken for a setting that stopped working. ' +
-      'Use the count on each sequence entry to control run length instead.',
+      'A single decoration_block becomes a run of num_steps + 1 blocks (the default 0 gives one). A ' +
+      'decoration_blocks_sequence ignores it: there, each entry\'s own count sets its run.',
   },
   'mangrove_canopy.canopy_decoration.step_direction': {
     summary: 'Which way a run of more than one block grows.',

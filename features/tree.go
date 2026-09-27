@@ -1060,10 +1060,9 @@
 //     (the stump column's decoration) is supported via
 //     parseAttachableDecorationObject/megaTrunkDecoration, like mega_trunk/
 //     mangrove_trunk. See placeFallenTrunk.
-//  4. trunk_decoration.num_steps: a valid int key that the game never reads
-//     (the multi-decoration write only uses decoration_blocks_sequence and each
-//     entry's int range), so it is accepted silently, like other inert fields
-//     (trunk_width, branches.branch_chance).
+//  4. trunk_decoration.num_steps: with the singular decoration_block, the
+//     decoration is one entry whose count is num_steps + 1 (num_steps defaults
+//     to 0, so one block). A decoration_blocks_sequence ignores num_steps.
 //  5. base_cluster: used only by the mega trunk. num_clusters/cluster_radius
 //     are plain ints, not int ranges. Implemented as placeBaseClusterGroundwork
 //     (with its circle and single-position base-block replacement helpers),
@@ -1448,7 +1447,9 @@ func (d *canopyDecoration) place(api wgen.BlockWorld, leaf wgen.BlockPos, rnd ra
 		if !ok {
 			decorated = d.blockID
 		}
-		steps := treeIntRangeValueInclusive(d.stepsMin, d.stepsMax, rnd)
+		// The decoration's one entry has a count of num_steps + 1: a
+		// num_steps of 4 hangs a vine five blocks long.
+		steps := treeIntRangeValueInclusive(d.stepsMin, d.stepsMax, rnd) + 1
 		for i := 0; i < steps && api.Palette().IsAir(api.GetBlock(p)); i++ {
 			TickDeadline("growing a canopy decoration as far as its num_steps asks")
 			api.SetBlock(p, decorated)
@@ -3732,8 +3733,8 @@ var megaTrunkVineDirections = [4]struct {
 // decoration_blocks_sequence (array of {block, count: int range defaulting to
 // "1"}), decoration_block (a block descriptor, the singular shorthand -- what
 // mega_jungle_tree_feature.json uses), num_steps (plain int, optional,
-// accepted but without effect -- see below), and step_direction (the growth
-// direction, see stepDirection).
+// default 0 -- the singular decoration_block's count, see below), and
+// step_direction (the growth direction, see stepDirection).
 //
 // Decoration write, per log:
 //
@@ -3772,13 +3773,11 @@ var megaTrunkVineDirections = [4]struct {
 // anything else = no movement) and defaults to 0 = DOWN. It is unobservable
 // for count<=1 entries, since the first placement is always at the candidate
 // cell. The singular decoration_block key synthesizes a ONE-entry sequence
-// with count={1,1} (ZERO draws for that entry's inclusive int-range draw,
-// matching treeIntRangeValueInclusive's min>=max early-return -- see that
-// function's doc comment), so its draw sequence is identical to a plain
-// single-block decoration. trunk_decoration.num_steps is accepted but inert:
-// the multi-decoration step only reads the sequence and each entry's int
-// range -- see parseAttachableDecorationObject's doc comment and the precedent
-// (trunk_width/branches.branch_chance) this follows.
+// with count={num_steps+1, num_steps+1} (ZERO draws for that entry's
+// inclusive int-range draw, matching treeIntRangeValueInclusive's min>=max
+// early-return -- see that function's doc comment). num_steps defaults to 0,
+// so without it the draw sequence is identical to a plain single-block
+// decoration. A decoration_blocks_sequence ignores num_steps.
 type megaTrunkDecorationEntry struct {
 	blockID            block.ID
 	countMin, countMax int
@@ -3792,7 +3791,8 @@ type megaTrunkDecoration struct {
 	// 0 = down (-Y), anything else = no movement. The default is 0 = DOWN.
 	// The difference from "outward" is only observable with a count > 1
 	// entry; the first placement is always at the candidate cell regardless.
-	// (The sibling num_steps key has no effect -- see the doc comment above.)
+	// (The sibling num_steps key sets the singular decoration_block's count --
+	// see the doc comment above.)
 	stepDirection int
 	pal           *block.Palette
 }
@@ -3870,8 +3870,8 @@ func (d *megaTrunkDecoration) place(api wgen.BlockWorld, log wgen.BlockPos, enab
 //
 //	"trunk_width"    int (optional) -- accepted and validated but without
 //	                 effect: neither the trunk placement nor the branch
-//	                 placement uses it. Same "inert, accepted not refused"
-//	                 treatment as mega_trunk's "num_steps".
+//	                 placement uses it, so it is accepted and
+//	                 ignored.
 //	"trunk_height"   object (required):
 //	    "base"           int (required) -- the constant term of the height.
 //	    "height_rand_a"  int (required) -- the height's FIRST bounded draw,
@@ -3889,7 +3889,7 @@ func (d *megaTrunkDecoration) place(api wgen.BlockWorld, log wgen.BlockPos, enab
 //	"trunk_decoration" object (optional) -- the attachable-decoration shape
 //	                 mega_trunk's trunk_decoration also uses
 //	                 (decoration_block / decoration_blocks_sequence /
-//	                 decoration_chance / num_steps accepted but inert),
+//	                 decoration_chance / num_steps),
 //	                 parsed by parseAttachableDecorationObject and placed by
 //	                 megaTrunkDecoration/megaTrunkDecorationEntry, shared
 //	                 rather than duplicated. The trunk column and the branch
@@ -5584,7 +5584,7 @@ func (f *TreeFeature) placeSubmergedTrunk(ctx *wgen.PlacementContext, st *simple
 
 // parseAttachableDecorationObject parses an attachable-decoration
 // JSON object -- decoration_block or decoration_blocks_sequence, plus
-// decoration_chance, num_steps accepted-but-inert (see below) -- into a
+// decoration_chance and num_steps (see below) -- into a
 // *megaTrunkDecoration. Shared by mega_trunk.trunk_decoration and
 // mangrove_trunk.trunk_decoration, both of which embed an
 // attachable decoration at the SAME "trunk_decoration" JSON key and consume
@@ -5592,12 +5592,10 @@ func (f *TreeFeature) placeSubmergedTrunk(ctx *wgen.PlacementContext, st *simple
 // type's doc comment for the full algorithm, and mangroveTrunk's doc comment
 // for where the mangrove trunk applies it.
 //
-// num_steps: a valid int key of the attachable decoration, but it has no
-// effect in vanilla -- decoration placement reads only the
-// decoration_blocks_sequence entries and each entry's count range. A field
-// the game accepts but ignores is not this port's business to refuse -- the
-// same treatment given to mangrove_trunk's trunk_width and
-// branches.branch_chance: accepted silently, value discarded.
+// num_steps: an int, default 0. When the decoration names a single
+// decoration_block, the game turns it into a one-entry sequence whose count is
+// num_steps + 1, so a num_steps of 4 grows a run of five. A
+// decoration_blocks_sequence ignores num_steps.
 func parseAttachableDecorationObject(raw any, path string, ctx *BuildContext) (*megaTrunkDecoration, error) {
 	obj, ok := raw.(map[string]any)
 	if !ok {
@@ -5640,7 +5638,16 @@ func parseAttachableDecorationObject(raw any, path string, ctx *BuildContext) (*
 		if err != nil {
 			return nil, err
 		}
-		entries = []megaTrunkDecorationEntry{{blockID: ctx.Palette.Resolve(desc), countMin: 1, countMax: 1}}
+		numSteps := 0
+		if nsRaw, present := obj["num_steps"]; present && nsRaw != nil {
+			v, ok := toFloat(nsRaw)
+			if !ok {
+				return nil, fmt.Errorf("%s.num_steps must be a number", path)
+			}
+			numSteps = int(v)
+		}
+		count := numSteps + 1
+		entries = []megaTrunkDecorationEntry{{blockID: ctx.Palette.Resolve(desc), countMin: count, countMax: count}}
 	} else {
 		// BOTH are optional in the game -- decoration_block and
 		// decoration_blocks_sequence alike. A hard error here would refuse a file the game
@@ -5664,7 +5671,7 @@ func parseAttachableDecorationObject(raw any, path string, ctx *BuildContext) (*
 	d := &megaTrunkDecoration{entries: entries, chance: chance, pal: ctx.Palette}
 	// step_direction -- the JSON key behind the growth-direction field (see
 	// megaTrunkDecoration.stepDirection's doc comment). Optional; default 0
-	// (down). num_steps stays accepted-but-inert.
+	// (down).
 	if raw, present := obj["step_direction"]; present {
 		// The game accepts this as an ENUM over four string spellings:
 		// "down" = 0, "up" = 1, "out" = 2, and "away" = 2 as an ALIAS for "out".
