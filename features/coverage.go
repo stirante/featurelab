@@ -237,9 +237,9 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"whether the game tests == or >= (indistinguishable for values >= 1). Negatives and " +
 			"fractions are refused. search_axis is required; its enum is -x=0, +x=1, -y=2, +y=3, -z=4, " +
 			"+z=5 (constructed default +y, unreachable because the key is required). Loop order per " +
-			"axis, outer/mid/inner: -x{x-,z-,y+} +x{x+,z+,y+} -y{y-,x-,z+} +y{y+,x+,z+} " +
-			"-z{z-,x+,y+} +z{z+,x-,y+} -- the innermost loop always ascends, and the middle loop " +
-			"follows the outer's sign for the x/y families but INVERTS it for the z family. Pinned by " +
+			"axis, outer/mid/inner: -x{x-,y+,z-} +x{x+,y+,z+} -y{y-,z+,x-} +y{y+,z+,x+} " +
+			"-z{z-,y+,x+} +z{z+,y+,x-} -- the middle loop always ascends, and the innermost loop " +
+			"carries the sign of the range built second. Pinned by " +
 			"features/search_axis_order_test.go, which walks a 2x2x2 volume per axis.",
 	},
 	{

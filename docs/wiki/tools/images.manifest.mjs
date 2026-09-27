@@ -854,15 +854,13 @@ export const IMAGES = [
     // coordinates rather than predicted: the outer loop's first slab is 5x5 = 25 cells, so every
     // panel is one full face of the cube plus a five-cell line into the next slab.
     //
-    //   -x  the x=+2 face, then a line at (x 1, z 2)    +x  the x=-2 face, then (x -1, z -2)
-    //   -y  the y=top face, then a line at (y-1, x 2)   +y  the y=bottom face, then (y+1, x -2)
-    //   -z  the z=+2 face, then a line at (z 1, x -2)   +z  the z=-2 face, then (z -1, x 2)
+    //   -x  the x=+2 face, then a line at (x 1, y bottom)   +x  the x=-2 face, then (x -1, y bottom)
+    //   -y  the y=top face, then a line at (y-1, z -2)       +y  the y=bottom face, then (y+1, z -2)
+    //   -z  the z=+2 face, then a line at (z 1, y bottom)   +z  the z=-2 face, then (z -1, y bottom)
     //
-    // The face says which corner the search starts from; the trailing line says which way the
-    // MIDDLE loop counts, and that is the pattern nobody guesses: it follows the outer loop for
-    // the x and y families and runs OPPOSITE to it for the two z values. -x's line sits at the
-    // z=+2 edge (mid descending with the outer loop) while -z's sits at the x=-2 edge (mid
-    // ascending against it) -- the same inversion, visible, in one picture.
+    // The face says which corner the search starts from; the trailing line says which axis the
+    // MIDDLE loop is and which way it counts: always upward, y for the x and z families (so the
+    // line lies along the bottom of the next slab) and z for the y family (along its z=-2 edge).
     //
     // required_successes is 30 and not 25 for exactly that reason: at 25 every panel is a bare
     // face and the middle loop leaves no trace at all.

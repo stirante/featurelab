@@ -117,17 +117,17 @@ One picture, six searches that differ in one word. Every panel is the same 5×5�
 
 | `search_axis` | Outer loop | Middle | Inner | In the picture | Reach for it when |
 |---|---|---|---|---|---|
-| `-x` | `x`, counting down | `z`, down | `y`, up | The `x = +2` face, then a line down the `z = +2` edge of the next slab | You want the position furthest along `+x` that works. |
-| `+x` | `x`, counting up | `z`, up | `y`, up | The `x = -2` face, then a line at the `z = -2` edge | You want the position furthest along `-x`. |
-| `-y` | `y`, counting down | `x`, down | `z`, up | The top layer, then a line along the `x = +2` edge below it | You want the **highest** workable position — a lamp under a ceiling, a nest at the top of a shaft. The common choice. |
-| `+y` | `y`, counting up | `x`, up | `z`, up | The bottom layer, then a line at the `x = -2` edge | You want the **lowest** workable position — something on the floor of whatever it is dropped into. |
-| `-z` | `z`, counting down | `x`, **up** | `y`, up | The `z = +2` face, then a line at the `x = -2` edge | You want the position furthest along `+z`. |
-| `+z` | `z`, counting up | `x`, **down** | `y`, up | The `z = -2` face, then a line at the `x = +2` edge | You want the position furthest along `-z`. |
+| `-x` | `x`, counting down | `y`, up | `z`, down | The `x = +2` face, then a line along the bottom of the next slab | You want the position furthest along `+x` that works. |
+| `+x` | `x`, counting up | `y`, up | `z`, up | The `x = -2` face, then a line along the bottom of the next slab | You want the position furthest along `-x`. |
+| `-y` | `y`, counting down | `z`, up | `x`, down | The top layer, then a line along the `z = -2` edge below it | You want the **highest** workable position — a lamp under a ceiling, a nest at the top of a shaft. The common choice. |
+| `+y` | `y`, counting up | `z`, up | `x`, up | The bottom layer, then a line along the `z = -2` edge above it | You want the **lowest** workable position — something on the floor of whatever it is dropped into. |
+| `-z` | `z`, counting down | `y`, up | `x`, up | The `z = +2` face, then a line along the bottom of the next slab | You want the position furthest along `+z`. |
+| `+z` | `z`, counting up | `y`, up | `x`, **down** | The `z = -2` face, then a line along the bottom of the next slab | You want the position furthest along `-z`. |
 
 Two patterns in that table are worth naming, because neither is guessable from the value's name:
 
-- **The innermost loop always counts up**, whichever axis it happens to be.
-- **The middle loop follows the outer loop for the `x` and `y` values and runs against it for the two `z` values.** A `-z` search walks `z` downward while walking `x` *upward*; a `+z` search does the opposite. In the picture that is the difference between `-x`, whose trailing line sits at the far `z` edge, and `-z`, whose trailing line sits at the near `x` edge.
+- **The middle loop always counts up**: `y` for the four `x` and `z` values, `z` for the two `y` values. That is why every trailing line in the picture sits at the bottom of its slab, or at the `z = -2` edge for the `y` values. Among positions in the same slab, an `x` or `z` search prefers the **lowest** one.
+- **The innermost loop takes its direction from the value, not from its own axis.** `-x` counts `z` down, `+x` counts it up; `-y` counts `x` down, `+y` counts it up; and the `z` pair runs the other way round — `-z` counts `x` up and `+z` counts it down. Within one row, that decides which end is tried first.
 
 ::: warning The order is invisible in most real files
 None of this shows unless the volume is more than one cell wide on more than one axis. A **fully degenerate** `search_volume` — `min` equal to `max` on all three axes, a single candidate — is common in real packs and hides the loop order completely. A single-column volume like the example above hides two thirds of it: with `x` and `z` pinned, only the sign of a `y` search means anything, and `-x`, `-y` and `-z` are not interchangeable even then.
