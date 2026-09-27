@@ -676,7 +676,7 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
       detail:
         'The four horizontal compass directions are walked one step at a time out to this distance, ' +
         'and the height at every step is tested. Below 1 nothing is sampled: the gate then passes ' +
-        'unless one of the upward requirements was configured, in which case it can never pass.',
+        'unless one of the two min_required keys was configured, in which case it can never pass.',
     },
     min_required_upward_height_diff: {
       summary: 'Requires the ground to rise at least this far somewhere within the radius.',
@@ -685,16 +685,16 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
         'test. Leaving it out satisfies it automatically.',
     },
     min_required_downward_height_diff: {
-      summary: 'Refuses the position if the ground anywhere within the radius sits higher than this allows.',
-      detail:
-        'Unlike the two `min_required_upward` / `max_allowed_upward` keys, this one fails HARD on the ' +
-        'first sample that breaks it, aborting the rest of the scan. Leaving it out disables it.',
-    },
-    max_allowed_upward_height_diff: {
-      summary: 'Requires the ground to stay at or below this height somewhere within the radius.',
+      summary: 'Requires the ground to drop at least this far somewhere within the radius.',
       detail:
         'Like its `min_required_upward` counterpart it only has to hold at one sampled position, and ' +
         'leaving it out satisfies it automatically.',
+    },
+    max_allowed_upward_height_diff: {
+      summary: 'Refuses the position if the ground anywhere within the radius rises further than this.',
+      detail:
+        'A hard fail: the first sample that breaks it ends the scan, and the position is refused. ' +
+        'Leaving it out disables it.',
     },
     max_allowed_downward_height_diff: {
       summary: 'Refuses the position if the ground anywhere within the radius drops further than this.',

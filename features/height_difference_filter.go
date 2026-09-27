@@ -33,32 +33,34 @@
 // and diagnostics chains across every delegation path this tool has, not a claim about the
 // game's behaviour for this one type.
 //
-// The placement decision, exact algorithm:
+// The placement decision, exact algorithm. Every key means what its name says: the two max_*
+// keys are limits every sampled column must respect, the two min_* keys are requirements some
+// sampled column must meet.
 //
 // If search_radius < 1: result = (min_required_upward_height_diff absent) AND
-// (max_allowed_upward_height_diff absent) -- i.e. trivially true unless one of those two fields was
-// actually configured, in which case a radius < 1 can never satisfy it.
+// (min_required_downward_height_diff absent) -- nothing is sampled, so a requirement can never be
+// met, and the limits have nothing to refuse.
 //
 // Otherwise, walk outward from origin along the four HORIZONTAL cardinal directions only (Bedrock's
 // facing enum, checked in this exact order: North=2, East=5, South=3, West=4), each for
 // i = 1..search_radius steps, sampling h := ctx.API.GetHeight(origin.x + stepX*i,
-// origin.z + stepZ*i) at each step (the same height query
-// surface_relative_threshold_feature.go's "preliminary surface provider" stands in for). Two
-// hard-fail checks run BEFORE the accumulation below, in this order, and either
+// origin.z + stepZ*i) at each step (the heightmap: the first air cell above the column's top
+// block). Two hard-fail checks run BEFORE the accumulation below, in this order, and either
 // one failing returns false immediately (aborting the whole scan, not just this direction):
 //
-//   - if min_required_downward_height_diff is set AND (that value + origin.y) < h: fail.
-//   - if max_allowed_downward_height_diff is set AND (origin.y - that value) > h: fail.
+//   - if max_allowed_upward_height_diff is set AND origin.y + that value < h: fail (a column
+//     rises more than allowed).
+//   - if max_allowed_downward_height_diff is set AND origin.y - that value > h: fail (a column
+//     drops more than allowed).
 //
-// Two OR-accumulated flags, seeded true when their corresponding field is ABSENT (so an unconfigured
-// requirement is auto-satisfied and never fails the gate) and OR'd with a per-step test whenever
-// still false:
+// Two OR-accumulated flags, seeded true when their field is ABSENT (so an unconfigured
+// requirement is auto-satisfied and never fails the gate):
 //
-//   - upSatisfied      |= (min_required_upward_height_diff-or-0 + origin.y) <= h
-//   - upBoundSatisfied |= (origin.y - max_allowed_upward_height_diff-or-0) >= h
+//   - upSatisfied   |= origin.y + min_required_upward_height_diff <= h
+//   - downSatisfied |= origin.y - min_required_downward_height_diff >= h
 //
 // After scanning every step of every direction (or failing hard partway through), the final result
-// is upSatisfied AND upBoundSatisfied.
+// is upSatisfied AND downSatisfied.
 package features
 
 import (
@@ -103,35 +105,13 @@ func (f *HeightDifferenceFilterFeature) FeatureRefs() []string { return []string
 // see the header for the full algorithm.
 func (f *HeightDifferenceFilterFeature) shouldPlace(ctx *wgen.PlacementContext) bool {
 	if f.searchRadius < 1 {
-		return !f.hasMinUp && !f.hasMaxUp
+		return !f.hasMinUp && !f.hasMinDown
 	}
 
 	originY := ctx.Origin.Y
 
-	minDown := f.minDown
-	if !f.hasMinDown {
-		minDown = 2147483647
-	}
-	maxDown := f.maxDown
-	if !f.hasMaxDown {
-		maxDown = 2147483647
-	}
-	minUp := f.minUp
-	if !f.hasMinUp {
-		minUp = 0
-	}
-	maxUp := f.maxUp
-	if !f.hasMaxUp {
-		maxUp = 0
-	}
-
-	ceilThreshold := minDown + originY
-	floorThreshold := originY - maxDown
-	upThreshold := minUp + originY
-	upBoundThreshold := originY - maxUp
-
 	upSatisfied := !f.hasMinUp
-	upBoundSatisfied := !f.hasMaxUp
+	downSatisfied := !f.hasMinDown
 
 	for _, dir := range heightDiffDirections {
 		for i := 1; i <= f.searchRadius; i++ {
@@ -140,17 +120,17 @@ func (f *HeightDifferenceFilterFeature) shouldPlace(ctx *wgen.PlacementContext) 
 			z := ctx.Origin.Z + dir.dz*i
 			h := ctx.API.GetHeight(x, z)
 
-			if f.hasMinDown && ceilThreshold < h {
+			if f.hasMaxUp && originY+f.maxUp < h {
 				return false
 			}
-			if f.hasMaxDown && floorThreshold > h {
+			if f.hasMaxDown && originY-f.maxDown > h {
 				return false
 			}
-			upSatisfied = upSatisfied || upThreshold <= h
-			upBoundSatisfied = upBoundSatisfied || upBoundThreshold >= h
+			upSatisfied = upSatisfied || originY+f.minUp <= h
+			downSatisfied = downSatisfied || originY-f.minDown >= h
 		}
 	}
-	return upSatisfied && upBoundSatisfied
+	return upSatisfied && downSatisfied
 }
 
 // describeRejection names the check shouldPlace failed on, for the profiler. It repeats the same
@@ -158,35 +138,27 @@ func (f *HeightDifferenceFilterFeature) shouldPlace(ctx *wgen.PlacementContext) 
 // has already said no, so the normal path is untouched.
 func (f *HeightDifferenceFilterFeature) describeRejection(ctx *wgen.PlacementContext) string {
 	if f.searchRadius < 1 {
-		return fmt.Sprintf("search_radius = %d", f.searchRadius)
+		return fmt.Sprintf("search_radius = %d with a min_required_* key set", f.searchRadius)
 	}
 	originY := ctx.Origin.Y
+	upMet, downMet := !f.hasMinUp, !f.hasMinDown
 	for _, dir := range heightDiffDirections {
 		for i := 1; i <= f.searchRadius; i++ {
 			h := ctx.API.GetHeight(ctx.Origin.X+dir.dx*i, ctx.Origin.Z+dir.dz*i)
-			if f.hasMinDown && f.minDown+originY < h {
-				return fmt.Sprintf("surface %d above, min_required_downward_height_diff %d", h-originY, f.minDown)
+			if f.hasMaxUp && originY+f.maxUp < h {
+				return fmt.Sprintf("surface %d above, max_allowed_upward_height_diff %d", h-originY, f.maxUp)
 			}
 			if f.hasMaxDown && originY-f.maxDown > h {
 				return fmt.Sprintf("surface %d below, max_allowed_downward_height_diff %d", originY-h, f.maxDown)
 			}
+			upMet = upMet || originY+f.minUp <= h
+			downMet = downMet || originY-f.minDown >= h
 		}
 	}
-	if f.hasMinUp {
-		upThreshold := f.minUp + originY
-		met := false
-		for _, dir := range heightDiffDirections {
-			for i := 1; i <= f.searchRadius; i++ {
-				if upThreshold <= ctx.API.GetHeight(ctx.Origin.X+dir.dx*i, ctx.Origin.Z+dir.dz*i) {
-					met = true
-				}
-			}
-		}
-		if !met {
-			return fmt.Sprintf("min_required_upward_height_diff %d not met within %d", f.minUp, f.searchRadius)
-		}
+	if !upMet {
+		return fmt.Sprintf("min_required_upward_height_diff %d not met within %d", f.minUp, f.searchRadius)
 	}
-	return fmt.Sprintf("max_allowed_upward_height_diff %d not met within %d", f.maxUp, f.searchRadius)
+	return fmt.Sprintf("min_required_downward_height_diff %d not met within %d", f.minDown, f.searchRadius)
 }
 
 // Place mirrors the height-difference-filter feature's placement.

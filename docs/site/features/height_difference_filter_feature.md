@@ -1,6 +1,6 @@
 ---
 title: Height difference filter
-description: minecraft:height_difference_filter_feature looks at the ground around a position and only lets another feature place when the terrain nearby rises or falls the way you asked. Every key in a table, what the four constraint names do and do not mean, why zero blocks on flat ground is the right answer, and the two ways search_radius quietly accepts a value it cannot use — measured against Minecraft Bedrock 1.26.60.22.
+description: minecraft:height_difference_filter_feature looks at the ground around a position and only lets another feature place when the terrain nearby rises or falls the way you asked. Every key in a table, which two constraints are requirements and which two are limits, why zero blocks on flat ground is the right answer, and the two ways search_radius quietly accepts a value it cannot use — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:height_difference_filter_feature
 category: proxy
 game: 1.26.60.22
@@ -118,31 +118,29 @@ Every terrain preset the bench ships is essentially flat around the origin, so t
 
 ## Fields
 
-Six keys, all on the feature body, and four of them are optional constraints that behave in two different ways. "Default" is what the game uses when the key is absent. The long-form account of every key, in the editor's own words, is the [field reference](#field-reference) further down; this table is the short version.
+Six keys, all on the feature body, and four of them are optional constraints that behave in two different ways. Every constraint means what its name says. "Default" is what the game uses when the key is absent. The long-form account of every key, in the editor's own words, is the [field reference](#field-reference) further down; this table is the short version.
 
 | Key | Required | Value | Default | What it does |
 |---|---|---|---|---|
 | `places_feature` | **yes** | feature identifier | — | The feature placed when the gate passes, at this feature's own position, unchanged. A name nothing defines is reported and nothing is placed. |
 | `search_radius` | **yes** | whole number | — | How many steps out to sample, along four directions only. A fraction is cut down, not rounded; a value below 1 samples nothing. See [`search_radius`](#search-radius). |
 | `min_required_upward_height_diff` | no | whole number | not asked | Requires **at least one** sampled column to stand this far above the origin. See [the four constraints](#constraints). |
-| `max_allowed_upward_height_diff` | no | whole number | not asked | Despite the name, requires **at least one** sampled column to sit this far *below* the origin. See [the four constraints](#constraints). |
-| `min_required_downward_height_diff` | no | whole number | not asked | Despite the name, a **ceiling**: refuses the position as soon as any sampled column stands more than this far above the origin. |
+| `min_required_downward_height_diff` | no | whole number | not asked | Requires **at least one** sampled column to sit this far below the origin. See [the four constraints](#constraints). |
+| `max_allowed_upward_height_diff` | no | whole number | not asked | A ceiling: refuses the position as soon as any sampled column stands more than this far above the origin. |
 | `max_allowed_downward_height_diff` | no | whole number | not asked | A floor: refuses the position as soon as any sampled column sits more than this far below the origin. |
 
 ### The four constraints, and which kind each one is {#constraints}
 
-Two of them are *requirements* — one satisfying column anywhere in the scan is enough, and the scan keeps going either way. Two of them are *limits* — the first column that breaks one ends the whole scan and refuses the position. Every constraint you leave out is satisfied; a file with none of the four passes anywhere the radius is at least 1.
+The two `min_required_*` keys are *requirements* — one satisfying column anywhere in the scan is enough, and the scan keeps going either way. The two `max_allowed_*` keys are *limits* — the first column that breaks one ends the whole scan and refuses the position. Every constraint you leave out is satisfied; a file with none of the four passes anywhere the radius is at least 1.
 
 | Key | Kind | Passes when | Reach for it when |
 |---|---|---|---|
 | `min_required_upward_height_diff` | requirement | some sampled column is **at least** this far above the origin | Something belongs at the foot of a rise: a boulder under a cliff, debris at the base of a slope. |
-| `max_allowed_upward_height_diff` | requirement | some sampled column is **at least** this far below the origin | Something belongs at the top of a drop: a waterfall head, a ledge marker, a lookout. Read its name as "the ground is allowed to be this much lower than me, and has to be somewhere". |
-| `min_required_downward_height_diff` | limit | **every** sampled column is at most this far above the origin | You want open ground, not a hollow: nothing hemmed in by walls on any side. |
+| `min_required_downward_height_diff` | requirement | some sampled column is **at least** this far below the origin | Something belongs at the top of a drop: a waterfall head, a ledge marker, a lookout. |
+| `max_allowed_upward_height_diff` | limit | **every** sampled column is at most this far above the origin | You want open ground, not a hollow: nothing hemmed in by walls on any side. |
 | `max_allowed_downward_height_diff` | limit | **every** sampled column is at most this far below the origin | You want solid footing: nothing perched on the lip of a chasm. |
 
-::: warning Two of the four names say the opposite of what they do
-`max_allowed_upward_height_diff` does not cap how far the ground may rise — it *requires* the ground to fall. `min_required_downward_height_diff` does not require the ground to fall — it *caps* how far it may rise. The two that read straight are `min_required_upward_height_diff` (requires a rise) and `max_allowed_downward_height_diff` (caps a fall). The table above is the one to trust; the names are not.
-:::
+A requirement and a limit on the same side combine into a band. `min_required_downward_height_diff: 2` with `max_allowed_downward_height_diff: 4` asks for a drop of 2 to 4 blocks somewhere within the radius, and refuses any position that sees a drop deeper than 4 anywhere in it — so a cliff too tall for the band refuses its whole edge, not only the columns next to the deep part.
 
 ## Common mistakes
 
@@ -152,9 +150,9 @@ Two of them are *requirements* — one satisfying column anywhere in the scan is
 | `"search_radius": 4.9`, expecting 5 | It is cut down to **4**, with no complaint of any kind. `4.9` and `4.0` are the same file. | Write the whole number you mean. |
 | `"search_radius": -5` or `0` | Accepted in silence. Nothing is sampled: the gate then passes everywhere unless you asked for a rise or a fall, in which case it passes **nowhere**. | Write at least `1`. |
 | `search_radius` left out | The file is refused with `search_radius is required` — it is the one optional-looking key that is not. | Write it. |
-| `"max_allowed_upward_height_diff": 2` meaning "no more than 2 blocks of rise" | The opposite: it demands a **2-block drop** somewhere nearby, and refuses flat ground. | `"min_required_downward_height_diff": 2` is the cap on rising ground. |
-| `"min_required_downward_height_diff": 2` meaning "at least a 2-block drop" | The opposite: it caps how far the ground may **rise** and says nothing about drops. | `"max_allowed_upward_height_diff": 2` is the required drop. |
-| A constraint that must hold all the way round, written as `min_required_upward_height_diff` | One satisfying column passes it. Fifteen flat columns and one raised one is a pass. | Use a limit (`min_required_downward_height_diff` / `max_allowed_downward_height_diff`) for "everywhere" tests. |
+| `"max_allowed_upward_height_diff": 2` expecting it to keep the position near rising ground | It is a cap, not a request: flat ground passes it, and any column more than 2 blocks higher anywhere on the arms refuses the position. | `"min_required_upward_height_diff"` asks for a rise. |
+| A constraint that must hold all the way round, written as `min_required_upward_height_diff` | One satisfying column passes it. Fifteen flat columns and one raised one is a pass. | Use a limit (`max_allowed_upward_height_diff` / `max_allowed_downward_height_diff`) for "everywhere" tests. |
+| A `max_allowed_downward_height_diff` smaller than the drop your `min_required_downward_height_diff` is meant to find | Every position that sees the drop also breaks the limit: the pair can never pass there. | Keep the limit at least as large as the requirement, and larger than the deepest drop you want to accept. |
 | Expecting the origin's own column to be sampled | It never is. The scan starts one step out in each direction. A pillar standing *on* the origin is invisible to this gate. | Compare against neighbours only, or pick a different position. |
 | Expecting diagonal or filled-area coverage | Four straight arms, nothing else. A rise sitting diagonally two blocks away is never seen, whatever the radius. | Raise the radius until an arm crosses it, or accept the cross shape. |
 | `"search_radius": 1000` to "be safe" | Four thousand height reads for every single placement attempt, on every attempt the rule makes. | Keep it to the distance the terrain feature you are looking for actually spans. |
@@ -163,9 +161,9 @@ Two of them are *requirements* — one satisfying column anywhere in the scan is
 ## How it runs
 
 1. **Resolve `places_feature`.** A name no loaded file defines reports `` `height_difference_filter_feature` could not find feature `places_feature`. `` and nothing is placed — this happens before the ground is ever looked at.
-2. **Check the radius.** Below 1, nothing is sampled at all, and the answer is decided on the spot: it is *yes*, unless `min_required_upward_height_diff` or `max_allowed_upward_height_diff` was written, in which case it is *no*. The two limits are not consulted on this path.
+2. **Check the radius.** Below 1, nothing is sampled at all, and the answer is decided on the spot: it is *yes*, unless `min_required_upward_height_diff` or `min_required_downward_height_diff` was written, in which case it is *no*. The two limits are not consulted on this path.
 3. **Walk the four arms** — north, then east, then south, then west — one step at a time out to the radius, reading the ground height at each step.
-4. **Apply the limits as you go.** The first sampled column that stands higher than `min_required_downward_height_diff` allows, or lower than `max_allowed_downward_height_diff` allows, ends the scan there and refuses the position.
+4. **Apply the limits as you go.** The first sampled column that stands higher than `max_allowed_upward_height_diff` allows, or lower than `max_allowed_downward_height_diff` allows, ends the scan there and refuses the position.
 5. **Collect the requirements.** Each of the two requirement keys is remembered as satisfied the moment one column satisfies it; the scan carries on regardless, because the other one may still need a column.
 6. **Decide.** Both requirements satisfied, and no limit broken, and the gate passes.
 7. **Place `places_feature`** at the unchanged position. The delegate runs its own checks there and may still refuse. If the gate did not pass, nothing at all happens and nothing is reported.
@@ -178,7 +176,7 @@ Three things about the value itself, all of them silent:
 
 - **A fraction is cut towards zero, never rounded.** `4.9` is `4`; `-0.5` is `0`. Nothing is reported, so a file that looks like it reaches five blocks reaches four.
 - **Zero and negative values are accepted.** They are not clamped and they do not warn. What `search_radius < 1` *means* is "sample nothing", and that has two very different outcomes depending on what else the file says.
-- **With nothing sampled, the answer is decided by which keys exist**, not by the terrain: the gate passes when neither `min_required_upward_height_diff` nor `max_allowed_upward_height_diff` is written, and can never pass when either of them is. The two limit keys are ignored entirely — a radius of `0` with only `max_allowed_downward_height_diff` written passes everywhere, however the ground actually falls away.
+- **With nothing sampled, the answer is decided by which keys exist**, not by the terrain: the gate passes when neither `min_required_upward_height_diff` nor `min_required_downward_height_diff` is written, and can never pass when either of them is. The two limit keys are ignored entirely — a radius of `0` with only `max_allowed_downward_height_diff` written passes everywhere, however the ground actually falls away.
 
 So a mistyped radius fails in whichever direction is hardest to notice. A filter that was meant to be selective and has a radius of `0` places its delegate at every position it is offered; a filter that asks for a rise and has a radius of `0` places nothing, anywhere, for ever, and says nothing about why.
 
@@ -214,10 +212,10 @@ The decision, written out, with `y` the origin's own height and `h` a sampled co
 
 | Key | Test at each sample | Effect |
 |---|---|---|
-| `min_required_downward_height_diff` = `d` | `y + d < h` | refuse immediately |
+| `max_allowed_upward_height_diff` = `U` | `y + U < h` | refuse immediately |
 | `max_allowed_downward_height_diff` = `D` | `y − D > h` | refuse immediately |
 | `min_required_upward_height_diff` = `u` | `y + u <= h` | mark satisfied |
-| `max_allowed_upward_height_diff` = `U` | `y − U >= h` | mark satisfied |
+| `min_required_downward_height_diff` = `d` | `y − d >= h` | mark satisfied |
 
 The two limits are tested before the two requirements at every step, and the arms are walked north, east, south, west, each from step 1 to the radius inclusive. Both requirement flags start satisfied when their key is absent; both limits are skipped when theirs is. The final answer is the two requirement flags together, and a scan that refuses on a limit never reaches it.
 
