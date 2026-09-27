@@ -1775,7 +1775,7 @@ func TestRandomSpreadCanopy_Place_RespectsMayReplace(t *testing.T) {
 func roofedTreeBody(canopyExtra map[string]any) map[string]any {
 	canopy := map[string]any{
 		"leaf_block":    "minecraft:oak_leaves",
-		"canopy_height": float64(2),
+		"canopy_height": float64(5), // stored as 5-3 = 2 wall layers
 		"core_width":    float64(1),
 		"outer_radius":  float64(2),
 		"inner_radius":  float64(1),
@@ -1817,7 +1817,7 @@ func TestBuildTreeFeature_RoofedCanopyKey_SchemaValidation(t *testing.T) {
 		}
 		rc := f.(*TreeFeature).canopy.(*roofedCanopy)
 		if rc.canopyHeight != 2 || rc.outerRadius != 2 || rc.innerRadius != 1 {
-			t.Errorf("got %+v, want canopyHeight=2 outerRadius=2 innerRadius=1", rc)
+			t.Errorf("got %+v, want canopyHeight=2 (JSON 5, less 3) outerRadius=2 innerRadius=1", rc)
 		}
 	})
 	t.Run("leaf_block required", func(t *testing.T) {
@@ -1834,10 +1834,21 @@ func TestBuildTreeFeature_RoofedCanopyKey_SchemaValidation(t *testing.T) {
 			t.Error("want error, got nil")
 		}
 	})
-	t.Run("canopy_height must be >= 0", func(t *testing.T) {
-		body := roofedTreeBody(map[string]any{"canopy_height": float64(-1)})
-		if _, err := buildTreeFeature(body, ctx); err == nil {
-			t.Error("want error, got nil")
+	for _, h := range []float64{-1, 0, 2} {
+		t.Run(fmt.Sprintf("canopy_height %v is below the schema minimum of 3", h), func(t *testing.T) {
+			_, err := buildTreeFeature(roofedTreeBody(map[string]any{"canopy_height": h}), ctx)
+			if err == nil || !strings.Contains(err.Error(), "schema minimum of 3") {
+				t.Errorf("want a schema-minimum error, got %v", err)
+			}
+		})
+	}
+	t.Run("canopy_height 3 is accepted and builds no wall layers", func(t *testing.T) {
+		f, err := buildTreeFeature(roofedTreeBody(map[string]any{"canopy_height": float64(3)}), ctx)
+		if err != nil {
+			t.Fatalf("want success, got %v", err)
+		}
+		if h := f.(*TreeFeature).canopy.(*roofedCanopy).canopyHeight; h != 0 {
+			t.Errorf("stored canopyHeight = %d, want 0", h)
 		}
 	})
 	t.Run("core_width required", func(t *testing.T) {
@@ -1945,7 +1956,7 @@ func (r *roofedScriptedRandom) GetSeed() uint32               { return 0 }
 var _ random.IRandom = (*roofedScriptedRandom)(nil)
 
 // TestRoofedCanopy_Place_HutCrossSections places directly with outer_radius=2, inner_radius=1,
-// canopy_height=2, scripting NextBoolean()=true so the optional peak is included. By the module
+// a stored canopyHeight of 2 (JSON canopy_height 5), scripting NextBoolean()=true so the optional peak is included. By the module
 // header's own enumeration, outer_radius=2 produces a solid 5x5 floor and a 13-cell rounded-diamond
 // roof cap (NOT the full 5x5 square -- the 4 far corners AND their immediate radius=2 neighbours on
 // each axis are trimmed by roofedUpperCornerAllowed); inner_radius=1 produces the SAME corner-cut
@@ -2026,7 +2037,7 @@ func TestRoofedCanopy_Place_HutCrossSections(t *testing.T) {
 			art.WriteByte('\n')
 		}
 	}
-	t.Logf("roofed_canopy hut: outer_radius=2/inner_radius=1/canopy_height=2, peak on -- top to bottom "+
+	t.Logf("roofed_canopy hut: outer_radius=2/inner_radius=1/canopy_height=5 (2 wall layers), peak on -- top to bottom "+
 		"(peak, roof cap, 2 wall layers, floor):\n%s", art.String())
 }
 
@@ -8783,6 +8794,34 @@ func TestSpruceCanopy_Place_GroundSearchStopsAtTheTrunkBase(t *testing.T) {
 	for y := 9; y <= 19; y++ {
 		if perLayer[y] != want[y] {
 			t.Errorf("y=%d: %d leaves, want %d", y, perLayer[y], want[y])
+		}
+	}
+}
+
+// TestRoofedCanopy_CanopyHeightFromJSON pins what a JSON canopy_height means: the game stores
+// canopy_height - 3, so vanilla's 4 is ONE wall layer. Built from JSON with outer_radius 2,
+// inner_radius 1, core_width 1 and the lid on: floor (5x5 = 25) at anchor-1, one wall layer (3x3
+// less its corners = 5) at the anchor, the 13-cell roof cap at anchor+1, the 1-cell lid at
+// anchor+2, and nothing above.
+func TestRoofedCanopy_CanopyHeightFromJSON(t *testing.T) {
+	v, vpal := newTreeTestVolume(t, 8)
+	tf := buildTestRoofedTree(t, block.NewPalette(), map[string]any{"canopy_height": float64(4)})
+	c := tf.canopy.(*roofedCanopy)
+	c.leafID = vpal.Get("minecraft:oak_leaves", nil)
+	anchor := wgen.BlockPos{X: 0, Y: 15, Z: 0}
+	c.place(v, anchor, &roofedScriptedRandom{values: []bool{true}}, treeParamsLists{}, nil)
+	want := map[int]int{-2: 0, -1: 25, 0: 5, 1: 13, 2: 1, 3: 0, 4: 0}
+	for dy, n := range want {
+		got := 0
+		for x := -8; x <= 8; x++ {
+			for z := -8; z <= 8; z++ {
+				if v.GetBlock(wgen.BlockPos{X: x, Y: anchor.Y + dy, Z: z}) == c.leafID {
+					got++
+				}
+			}
+		}
+		if got != n {
+			t.Errorf("dy=%d: %d leaves, want %d", dy, got, n)
 		}
 	}
 }

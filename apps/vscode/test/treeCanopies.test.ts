@@ -404,7 +404,7 @@ describe('the defaults that are the opposite of the obvious guess', () => {
   it('lets outer_radius go to -1, which means skip the floor and the roof', () => {
     expect(subSpec('roofed_canopy', 'outer_radius').min).toBe(-1)
     expect(subSpec('roofed_canopy', 'inner_radius').min).toBe(0)
-    expect(subSpec('roofed_canopy', 'canopy_height').min).toBe(0)
+    expect(subSpec('roofed_canopy', 'canopy_height').min).toBe(3)
   })
 
   it('keeps cherry_canopy pinned to a one-block trunk and its two ranges off the floor', () => {

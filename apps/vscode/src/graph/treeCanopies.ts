@@ -275,7 +275,7 @@ const VARIANT_ENTRIES: Readonly<Record<string, readonly FieldSpec[]>> = {
 
   roofed_canopy: [
     leafBlockField(),
-    { key: 'canopy_height', kind: 'integer', required: true, min: 0, source: 'builder' },
+    { key: 'canopy_height', kind: 'integer', required: true, min: 3, source: 'builder' },
     coreWidthField(),
     {
       key: 'outer_radius',
@@ -728,10 +728,12 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
     detail: 'One block for all three parts -- there is no way to give the roof a different block from the floor on this shape.',
   },
   'roofed_canopy.canopy_height': {
-    summary: 'How far above the anchor the roof sits, and how many layers of leaves fill the gap.',
+    summary: 'Three more than the number of leaf layers between the floor and the roof.',
     detail:
-      'A height of 0 is legal and is not the same as placing nothing: the floor, the roof and the ' +
-      'coin-flipped peak are all still placed, and only the filling between them is skipped.',
+      'The game subtracts 3 before using it: vanilla\'s dark oak writes 4, which is ONE layer of filling, ' +
+      'with the roof one block above the anchor. At least 3. A height of 3 is legal and is not the same ' +
+      'as placing nothing: the floor, the roof and the coin-flipped peak are all still placed, and only ' +
+      'the filling between them is skipped.',
   },
   'roofed_canopy.core_width': {
     summary: 'The width of the trunk this crown is built around. Must match it.',
