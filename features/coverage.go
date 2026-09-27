@@ -247,7 +247,8 @@ var FeatureTypeCoverage = []CoverageEntry{
 		Status: StatusPartial,
 		Note: "Places a single block, subject to attachment and rotation rules. Implemented in full: " +
 			"`enforce_placement_rules` and `enforce_survivability_rules` (both REQUIRED by the schema, " +
-			"and both no-ops during world generation -- the engine's own checks always pass there), " +
+			"and both real checks where feature rules run; the per-block rules are modelled for the " +
+			"flower, sapling and bush family, and any other block passes both with a load warning), " +
 			"`randomize_rotation`, `may_attach_to` including its `all`/`sides`/`diagonal` group keys and " +
 			"`auto_rotate` (which defaults to TRUE), and `may_not_attach_to`. How attachment actually " +
 			"works: top, bottom and the diagonals are hard gates checked individually, and only the four " +
@@ -311,8 +312,8 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"unchanged for 4-24, which this feature cannot reach (attachment passes 0/1/2/3 and " +
 			"randomize_rotation draws over 4). rail_direction's mapping holds only a few " +
 			"non-horizontal values, so a horizontal direction is SET to 0, as in the game. Schema: " +
-			"enforce_placement_rules and enforce_survivability_rules are REQUIRED and are no-ops during " +
-			"worldgen (the placement and survivability checks always pass there); randomize_rotation, " +
+			"enforce_placement_rules and enforce_survivability_rules are REQUIRED and ask the picked, " +
+			"unrotated block's placement and survivability rules, with no RNG; randomize_rotation, " +
 			"may_not_attach_to and may_attach_to.diagonal exist from format_version 1.21.40. " +
 			"Attachment: top/bottom/diagonals are individual hard gates, only the four cardinal sides " +
 			"count against min_sides_must_attach (an int, default 4), and unconfigured directions count " +

@@ -92,8 +92,8 @@ func TestBuildSingleBlock_MinSidesMustAttach_IsTranscribedNotRepaired(t *testing
 		body := map[string]any{
 			"description":                 map[string]any{"identifier": "test:b"},
 			"places_block":                "minecraft:stone",
-			"enforce_placement_rules":     true,
-			"enforce_survivability_rules": true,
+			"enforce_placement_rules":     false,
+			"enforce_survivability_rules": false,
 			"may_attach_to":               map[string]any{"min_sides_must_attach": value},
 		}
 		built, err := buildSingleBlockFeature(body, ctx)

@@ -20,13 +20,22 @@
 //	                             (a second nine-slot map)
 //	may_replace                  optional descriptor list
 //
-// Both enforce_* keys are REQUIRED by the schema but are NO-OPS during world
-// generation: they gate a placement check and a survivability check that
-// always pass during world generation, in every supported game version
-// (1.26.50 added a placement-filter check that this feature does not use).
-// The bench therefore parses and stores the two keys but never rejects on
-// them. (Outside world generation the two checks are real; that path is out
-// of scope for a worldgen bench.)
+// Both enforce_* keys are REQUIRED by the schema, and both are real checks
+// wherever feature rules run: biome decoration and /place feature place through
+// a world target that asks the block itself. (Only the terrain pass that builds
+// a chunk's blocks answers "yes" to both unconditionally, and feature rules do
+// not run there.) After the attach step, in this order:
+//
+//	enforce_placement_rules      the block's placement check at the cell
+//	                             ("Block could not be placed given the enforced placement rules")
+//	enforce_survivability_rules  the block's survivability check at the cell
+//	                             ("Block could not be placed given the enforced survivability rules")
+//
+// Both ask about the UNROTATED picked block, and neither draws RNG. The per
+// block rules are modelled by name in block/survive.go (the flower, sapling
+// and bush family: the block below must be one of the vegetation-supporting
+// blocks). A block without a modelled rule passes both checks, and the build
+// warns once when a file turns a check on for such a block.
 package features
 
 import (
@@ -119,8 +128,8 @@ type SingleBlockFeature struct {
 	minSidesMustAttach int  // default 4
 	autoRotate         bool // default true
 	randomizeRotation  bool // default false
-	enforcePlacement   bool // parsed, never rejects (see header)
-	enforceSurvival    bool // parsed, never rejects (see header)
+	enforcePlacement   bool // the placement check runs (see header)
+	enforceSurvival    bool // the survivability check runs (see header)
 
 	// rotated[d][i] is blockIDs[i] after block.Palette.TransformBlock toward
 	// CommonDirection d — the game's block rotation, ported in
@@ -273,8 +282,8 @@ func (f *SingleBlockFeature) passesAllowList(api wgen.BlockWorld, pos wgen.Block
 
 // Place mirrors the single-block feature's placement, in the game's own
 // check order: empty list -> deny list -> weighted pick -> attach (with
-// auto-rotate) -> enforce placement (no-op here) -> enforce survivability
-// (no-op here) -> may_replace -> randomize_rotation (RNG) -> write.
+// auto-rotate) -> enforce placement -> enforce survivability -> may_replace
+// -> randomize_rotation (RNG) -> write.
 func (f *SingleBlockFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 	profiler.PushFeatureFrame(f.identifier, singleBlockTypeID)
 	defer profiler.PopFeatureFrame()
@@ -309,9 +318,26 @@ func (f *SingleBlockFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 		return nil
 	}
 
-	// Steps 8-9: enforce_placement_rules / enforce_survivability_rules gate
-	// the placement and survivability checks, which always pass during world
-	// generation (see this file's header), so they never reject here either.
+	// Steps 8-9: enforce_placement_rules / enforce_survivability_rules. Both
+	// ask about the unrotated pick, and neither draws RNG.
+	if f.enforcePlacement || f.enforceSurvival {
+		pal := api.Palette()
+		placed := pal.NameOf(f.blockIDs[pickIndex])
+		below := pal.NameOf(api.GetBlock(neighbor(pos, 0, -1, 0)))
+		if f.enforcePlacement {
+			cell := api.GetBlock(pos)
+			if ok, _ := block.MayPlace(placed, pal.NameOf(cell), pal.IsAir(cell), below); !ok {
+				LogFailure(ctx, singleBlockTypeID, "Block could not be placed given the enforced placement rules")
+				return nil
+			}
+		}
+		if f.enforceSurvival {
+			if ok, _ := block.CanSurvive(placed, below); !ok {
+				LogFailure(ctx, singleBlockTypeID, "Block could not be placed given the enforced survivability rules")
+				return nil
+			}
+		}
+	}
 
 	// Step 10: replace-list check.
 	if !f.passesAllowList(api, pos) {
@@ -699,6 +725,22 @@ func buildSingleBlockFeature(body map[string]any, ctx *BuildContext) (wgen.IFeat
 			ctx.Warn(fmt.Sprintf(
 				"%s: places_block[%d] is a block type that declares the directional state %q, which rotation (auto_rotate/randomize_rotation) writes -- whether or not your descriptor spells it out. The direction it picks is right; the NAME that value is written under is inferred from vanilla block-state definitions and not confirmed against the game, so the rotated block may be spelled differently in game",
 				ctx.Identifier, i, inferred[0]))
+		}
+	}
+
+	// The enforce_* checks are modelled per block by name. Say once, at load,
+	// when a check is on for a block whose rule is not modelled: it passes
+	// here, and the game may refuse it.
+	if f.enforcePlacement || f.enforceSurvival {
+		for i, id := range blockIDs {
+			name := ctx.Palette.NameOf(id)
+			if block.HasSurviveRule(name) {
+				continue
+			}
+			ctx.Warn(fmt.Sprintf("%s: places_block[%d] (%s) has enforce_placement_rules or "+
+				"enforce_survivability_rules on, and this tool does not model that block's rules: "+
+				"both checks pass here, while the game may refuse the block where it cannot be "+
+				"placed or would not survive", ctx.Identifier, i, name))
 		}
 	}
 
