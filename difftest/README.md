@@ -52,7 +52,16 @@ Report only (after either side changed):
 
 Cells are laid out on a 128-block grid starting at x=z=264; each repeat resets its cell with
 `/fill` (split at 32768 blocks), runs the setup, dumps the region, checks a few setup blocks
-landed (an unloaded chunk reads as air), places, and dumps again. The Go side also rejects any
+landed (an unloaded chunk reads as air), places, and dumps again. The player hovers over the
+middle of the cell; cells wider than 48 blocks (the carvers) also get a ticking area while they run,
+since they reach past the simulation distance.
+
+region dump reads the client's copy of the chunks, and some placements never reach the client: the
+game's ore and geode features write without telling it, so a vein or a geode shell is on the server but
+missing from the dump. For those types the runner clones the dump box onto itself (`replace force`)
+before the after-dump, which resends every block (`RESYNC_TYPES` in `run_game.py`). Another type with
+the same habit would look like "the game placed nothing"; `/fill ... replace <block>` counts what the
+server really has. The Go side also rejects any
 repeat whose before-dump differs from the expected setup. `--resume` continues an interrupted
 run; `--tests` and `--repeats` narrow it.
 
