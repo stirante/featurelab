@@ -40,13 +40,19 @@
 // some of them (the game changelog's "1-4 block types" describes
 // placement, not the schema).
 //
-// weighted_heights element shape: the schema accepts a JSON object, number,
-// or array per element (null and everything else rejected), but ONLY an
-// object is actually read: {"value": asInt, "weight": asInt} with each
-// missing key parsing as 0. A numeric or array element silently yields
-// {value: 0, weight: 1}. This port
-// mirrors that exactly, with a ctx.Warn so the silent degradation is at least
-// visible.
+// weighted_heights element shape: only a {"value", "weight"} object loads.
+// The schema's type check also lets a number or an array through, but its
+// validation then refuses the element, and one refused element refuses the
+// whole file -- so this port makes both a build error. Each key reads with
+// integer semantics (fractions truncate; missing or non-numeric -> 0). value
+// takes any int. weight must lie in [1, 2147483647]: anything else --
+// including a missing weight, which reads as 0 -- makes the game refuse the
+// file with the content log
+//
+//	'weight' with value '<v>' outside valid range [1, 2147483647]
+//
+// and this port returns the same line as the build error. There is no
+// "weight 0 means never picked": a file carrying one never loads.
 //
 // direction: the string is LOWERCASED and then matched exactly: "down"->0,
 // "up"->1, "north"->2, "south"->3, "west"->4, "east"->5. ANY other string
@@ -91,11 +97,12 @@
 //     NO draw, and the walk runs as if the draw were 0. Walk: rem = draw -
 //     w[0]; while rem >= 0: advance, rem -= w[i]. The picked element's VALUE
 //     is the height.
-//     The engine has NO bounds check on this walk -- with weights that never
-//     drive rem negative (all-zero, or negatives) it reads off the end of the
-//     list, which is undefined behaviour and unportable; this port fails
-//     the placement with a LogFailure instead (disclosed divergence,
-//     unreachable for well-formed all-positive weights).
+//     The engine has NO bounds check on this walk. Every weight is >= 1 (the
+//     schema refuses anything else), so the walk always ends inside the list
+//     unless the int32 sum wraps around, i.e. the weights together exceed
+//     the int32 maximum. That read past the end is undefined behaviour and
+//     unportable; this port fails the placement with a LogFailure instead
+//     (disclosed divergence).
 //     b. weighted_heights empty: height = the engine's int-range draw over
 //     height_range = treeIntRangeValue: 0 draws when min >= max-1, else ONE
 //     bounded draw of (max-min).
@@ -151,6 +158,8 @@ package features
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/stirante/featurelab/block"
@@ -178,6 +187,10 @@ var multipartFacingOffsets = [6]wgen.BlockPos{
 // purpose: the engine's sum and walk are both 32-bit, and this port
 // reproduces that arithmetic exactly (including wraparound, however
 // unlikely).
+// multipartMinWeight is the smallest weight the game's schema accepts on a
+// weighted_heights entry; anything lower refuses the whole file.
+const multipartMinWeight = 1
+
 type multipartWeightedHeight struct {
 	value  int32
 	weight int32
@@ -287,10 +300,10 @@ func (f *MultipartBlockColumnFeature) Place(ctx *wgen.PlacementContext) *wgen.Bl
 			idx++
 			if idx >= len(f.weightedHeights) {
 				// Engine UB: the engine's walk has no bounds check and would
-				// read past the list (only reachable with zero/negative
-				// weights). Fail cleanly instead -- disclosed divergence.
+				// read past the list (only reachable when the int32 weight
+				// sum wraps). Fail cleanly instead -- disclosed divergence.
 				LogFailure(ctx, multipartBlockColumnTypeID,
-					"weighted_heights weights never select an entry (zero or negative weights)")
+					"weighted_heights weights never select an entry (the weight sum overflows a 32-bit int)")
 				return nil
 			}
 			rem -= f.weightedHeights[idx].weight
@@ -379,28 +392,37 @@ func parseMultipartWeightedHeights(raw any, ctx *BuildContext) ([]multipartWeigh
 		switch e := v.(type) {
 		case map[string]any:
 			// {"value": int, "weight": int} -- each missing/non-numeric key
-			// parses as 0.
+			// reads as 0. value takes any int; weight must lie in
+			// [1, 2147483647], and the game refuses the WHOLE file when it
+			// does not -- so a missing weight (0) is refused too.
 			entry := multipartWeightedHeight{value: 0, weight: 0}
 			if rawValue, ok := e["value"]; ok {
 				if num, ok := toFloat(rawValue); ok {
 					entry.value = int32(num)
 				}
 			}
+			weight := 0.0
 			if rawWeight, ok := e["weight"]; ok {
 				if num, ok := toFloat(rawWeight); ok {
-					entry.weight = int32(num)
+					weight = math.Trunc(num)
 				}
 			}
+			if weight == 0 {
+				weight = 0 // math.Trunc keeps the sign of -0.5; the game prints an int
+			}
+			if weight < multipartMinWeight || weight > math.MaxInt32 {
+				return nil, fmt.Errorf("%s: 'weight' with value '%s' outside valid range [%d, %d]",
+					p, strconv.FormatFloat(weight, 'f', -1, 64), multipartMinWeight, math.MaxInt32)
+			}
+			entry.weight = int32(weight)
 			out = append(out, entry)
-		case float64, []any:
-			// The element schema accepts numbers and arrays, but the parser
-			// reads nothing from them: the element becomes {value: 0, weight: 1}. Mirrored exactly, with a warning
-			// because it is almost certainly not what the author meant.
-			ctx.Warn(fmt.Sprintf(
-				"%s (%s): a weighted_heights entry must be a {\"value\", \"weight\"} object; this %T "+
-					"element parses as {value: 0, weight: 1}, exactly as the engine would read it",
-				ctx.Identifier, p, v))
-			out = append(out, multipartWeightedHeight{value: 0, weight: 1})
+		case float64:
+			// The element schema lets a number or an array through its
+			// type check, but its validation accepts only an object, so the
+			// game refuses the whole file.
+			return nil, fmt.Errorf("%s must be a {\"value\", \"weight\"} object; the game refuses the whole file for a number here", p)
+		case []any:
+			return nil, fmt.Errorf("%s must be a {\"value\", \"weight\"} object; the game refuses the whole file for an array here", p)
 		default:
 			// null/string/bool fail the element schema outright in the engine.
 			return nil, fmt.Errorf("%s must be a {\"value\", \"weight\"} object", p)

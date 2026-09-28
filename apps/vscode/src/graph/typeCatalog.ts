@@ -1048,7 +1048,7 @@ const TYPE_SPECS: readonly TypeSpec[] = [
         required: false,
         entry: [
           { key: 'value', kind: 'integer', required: true, source: 'builder' },
-          { key: 'weight', kind: 'number', required: true, source: 'builder' },
+          { key: 'weight', kind: 'integer', required: true, min: 1, max: 2147483647, source: 'builder' },
         ],
         source: 'builder-header',
       },

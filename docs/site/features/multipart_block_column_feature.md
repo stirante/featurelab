@@ -81,7 +81,7 @@ Four required block roles, one of two height sources, and three optional keys. "
 | `height_range` | one of the two | range — `[min, max]`, `{range_min, range_max}` or a bare number | absent — `[-1, -1]` | The height, picked evenly over **`[min, max-1]`**: the maximum is **exclusive**, so `[2, 7]` gives 2 to 6. Its `min` doubles as the shortest column that may stand. See [the two height sources](#height-sources). |
 | `weighted_heights` | one of the two | array of `{ "value": n, "weight": m }` | absent — empty | The height, picked from an explicit list instead of a range. The **smallest `value` in the list** doubles as the shortest column that may stand, whichever entry was picked. |
 | `weighted_heights.value` | yes, per entry | integer | — | The height this entry stands for, in blocks along `direction`. A fraction is truncated — `4.9` is a height of 4. |
-| `weighted_heights.weight` | yes, per entry | integer | `0` | This entry's share of the list's total. A missing weight is `0`, which means the entry can never be picked. |
+| `weighted_heights.weight` | yes, per entry | integer, 1 to 2147483647 | — | This entry's share of the list's total. A weight below 1 — a missing one reads as `0` — makes the game refuse the whole file. See [common mistakes](#common-mistakes). |
 | `direction` | no | `down` `up` `north` `south` `west` `east` | `up` | Which way the column is built from the origin. Matched case-insensitively; an unrecognised spelling is silently read as `up`. See [`direction`](#the-six-directions). |
 | `may_place_on` | no | array of block descriptors | absent — anything | What the block **one step behind the origin** must be. Absent or empty means no constraint. |
 | `may_replace` | no | array of block descriptors | absent — anything | What each cell of the column may overwrite. The first cell that does not match **shortens** the column rather than failing it. Absent or empty means no constraint; there is no way to spell "replace nothing". |
@@ -114,9 +114,10 @@ Nobody would build a spike out of those four blocks. The example's own dripstone
 | Both `height_range` and `weighted_heights` | Reported — *"height_range and weighted_heights can't be given at the same time"* — and the file still loads. `weighted_heights` wins. | Pick one and delete the other. |
 | Neither of them | Reported — *"height_range or weighted_heights has to be given"* — the file still loads, and the feature then **places nothing and reports success**. See [the place-nothing success](#place-nothing). | Give one of the two. |
 | `"height_range": [-1, 7]`, meaning "no minimum" | `-1` is the value the game uses for *absent*, so a range with `-1` at either end is reported as not given — and then used anyway, heights and all. Half the time it produces a height below 1 and the column silently vanishes. | Give the real minimum you want. `1` is the shortest column that places anything. |
-| A `weighted_heights` entry with no `weight` | A missing weight is `0`, and an entry with weight 0 can never be picked. Three entries where two have weights is a two-entry list. | Write a weight on every entry. |
-| `{ "value": 4.9, "weight": 1 }` | Both numbers are truncated to whole numbers: that is a height of 4. | Whole numbers only. |
-| Weights that are all zero, or negative | Nothing can be picked. The game's own pick walks off the end of the list, which is undefined behaviour; `featurelab` refuses the placement with a diagnostic rather than guessing. | Positive integers. |
+| A `weighted_heights` entry with `"weight": 0`, or with no `weight` at all | The file **does not load**. The weight's valid range is 1 to 2147483647, a missing weight reads as `0`, and the game refuses the whole definition: *"'weight' with value '0' outside valid range [1, 2147483647]"*. `featurelab check` reports the same line as an error. There is no way to write an entry that is listed but never picked. | Give every entry a weight of at least 1, and delete the entries you do not want. |
+| `{ "value": 4.9, "weight": 1 }` | Both numbers are truncated to whole numbers: that is a height of 4. A weight of `0.5` truncates to `0` and refuses the file. | Whole numbers only. |
+| A negative weight | The file does not load, for the same reason as a weight of 0. | Positive integers. |
+| An entry written as a bare number or an array, such as `"weighted_heights": [4, 7]` | The file does not load: every entry has to be a `{ "value", "weight" }` object. | `[{ "value": 4, "weight": 1 }, { "value": 7, "weight": 1 }]`. |
 | `"direction": "upward"` | Not one of the six spellings, so it is read as the default `up` with no complaint from the game. `featurelab check` warns where the game says nothing. | `"up"`. Check the spelling of the other five too. |
 | `may_place_on` naming what the column grows *through* | It names the block **behind** the origin — below it for `up`, above it for `down`, one block east of it for `west`. The cells the column passes through are `may_replace`'s business. | `may_place_on` for the floor, `may_replace` for the air. |
 | Leaving `middle_block` out because your column is never 4 tall | All four roles are required keys. A column that never grows past 2 still has to declare a `middle_block` it will never place. | Write it anyway; anything will do. |
@@ -195,7 +196,7 @@ That is separate from the game version. The band is 1.26.40; the build that intr
 featurelab implements `minecraft:multipart_block_column_feature` in full: both height sources, all six directions, both block lists, the shortening scan and the minimum check. Three differences are worth knowing when you read a preview of one.
 
 - **Block matching ignores two block states in the game and not here.** When the game matches a candidate against `may_place_on` or `may_replace`, it first clears that block's `update_bit` and `persistent_bit` states, so a listed descriptor matches regardless of either bit. The bench matches block identity directly and does not model that normalisation. The difference is only observable for descriptors that differ from a world block *solely* in one of those two states.
-- **Weights that can never pick anything are refused rather than guessed at.** A `weighted_heights` whose weights are all zero or negative puts the game's own pick past the end of its own list, which is undefined behaviour. The bench fails the placement with a diagnostic instead.
+- **A weight sum past the 32-bit limit is refused rather than guessed at.** Weights are added as 32-bit integers, so entries whose weights together exceed 2147483647 wrap the sum around, and the game's pick can then run past the end of its own list, which is undefined behaviour. The bench fails the placement with a diagnostic instead. No sensible file comes near it.
 - **`featurelab check` is stricter than the game about `height_range`'s spelling.** A `{ "min", "max" }` range is a load error here; in the game the file loads and the column quietly never appears. That is the one place the bench refuses something the game accepts, and it is deliberate — a file that loads and does nothing is worse than a file that says why.
 
 ## Advanced: the one random value {#random-draws}
@@ -207,8 +208,7 @@ A placement spends **at most one draw**, always a bounded integer draw, and alwa
 | Path | Draws | Bound |
 |---|---|---|
 | `may_place_on` refuses | 0 | The gate runs before anything is drawn, so a refused surface costs nothing and shifts nothing after it. |
-| `weighted_heights`, weights summing to anything but 0 | 1 | the sum of the weights |
-| `weighted_heights`, weights summing to 0 | 0 | the walk runs as if the draw were 0 |
+| `weighted_heights` | 1 | the sum of the weights |
 | `height_range` with `min < max - 1` | 1 | `max - min`, so the value is `min + nextIntBound(max - min)` — which is why `max` is never produced |
 | `height_range` with `min >= max - 1` | 0 | returns `min` without drawing |
 
@@ -234,4 +234,6 @@ The figure and the example image were rendered from those exact results by the d
 
 One correction to the wiki page this replaces: it said the example's weights place "short spikes twice as often as tall ones". No reading of 3 / 4 / 1 gives two to one, and the measured counts over 60 seeds are 24, 29 and 7 — the *middle* height is the commonest, and the tall one is one in eight.
 
-What is **not** established: what the game does with a `weighted_heights` whose weights are all zero or negative, because that walks past the end of its own list. The bench refuses it; this page does not claim to know what a real world would do.
+A correction to an earlier version of this page: it said a missing or zero `weight` loads and makes its entry impossible to pick. It does not load. In Bedrock 1.26.60.22 a weight of 0 is refused with *"'weight' with value '0' outside valid range [1, 2147483647]"* and the definition is dropped, which is what the bench now reports.
+
+What is **not** established: what the game does with weights whose sum passes the 32-bit limit, because the pick can then walk past the end of its own list. The bench refuses it; this page does not claim to know what a real world would do.

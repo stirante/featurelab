@@ -994,8 +994,10 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"effective height works out below 1 and it placed nothing at all.",
 		evidence: "New in 1.26.50.24. All four block keys are required. height_range is an optional int " +
 			"range defaulting to {-1,-1}. weighted_heights is an optional array of {value, weight} " +
-			"int32 pairs; missing keys are 0, numeric and array elements parse as {0,1}, and null, " +
-			"string and bool elements are rejected. direction is an optional string defaulting to up; " +
+			"int32 pairs read as ints (missing keys are 0); value takes any int but weight must be in " +
+			"[1, 2147483647], and a weight outside it -- a missing weight included -- refuses the whole " +
+			"file with \"'weight' with value '<v>' outside valid range [1, 2147483647]\". Any element " +
+			"that is not an object also refuses the file. direction is an optional string defaulting to up; " +
 			"it is lowercased, then matched down 0, up 1, north 2, south 3, west 4, east 5, and " +
 			"anything else becomes up. may_place_on and may_replace are optional; empty or absent " +
 			"allows anything. Mutual exclusion is VALUE-based: height_range counts as given when min " +
@@ -1003,8 +1005,8 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"message and still places. Placement: may_place_on is tested one step opposite the " +
 			"direction, before any RNG (silent failure, zero draws). The height is either a weighted " +
 			"pick with a PLAIN int32 weight sum and one nextInt(sum) taken only when the sum is " +
-			"non-zero, walking until negative with no bounds check (undefined for all-zero or negative " +
-			"weights), or the int-range draw, as tree.go's treeIntRangeValue. may_replace counts " +
+			"non-zero, walking until negative with no bounds check (undefined only if the weight sum " +
+			"overflows int32), or the int-range draw, as tree.go's treeIntRangeValue. may_replace counts " +
 			"consecutive passes from the origin itself, n = min(count, height), with zero draws; the " +
 			"minimum gate compares n against height_range.min or the SMALLEST weighted value; roles " +
 			"are selected with i+2-n; and the result is relative(direction, n-1) even when n < 1. At " +

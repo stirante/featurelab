@@ -4112,6 +4112,35 @@ func TestBuildTreeFeature_CherryTrunk_VanillaShapeAndSchema(t *testing.T) {
 			}
 		})
 	}
+	// tree_type_weights: the game's schema range for each of the three is
+	// [0, 2147483647] -- 0 loads (the vanilla body above uses it), anything
+	// below refuses the whole file with the game's own line.
+	for _, tc := range []struct {
+		value   float64
+		wantErr string
+	}{
+		{0, ""},
+		{2147483647, ""},
+		{-0.5, ""}, // truncates to 0
+		{-1, "cherry_trunk.branches.tree_type_weights.one_branch: Value '-1' outside valid range [0, 2147483647]"},
+		{2147483648, "cherry_trunk.branches.tree_type_weights.one_branch: Value '2147483648' outside valid range [0, 2147483647]"},
+	} {
+		t.Run(fmt.Sprintf("tree_type_weights_%v", tc.value), func(t *testing.T) {
+			body := vanillaCherryTreeBody()
+			weights := body["cherry_trunk"].(map[string]any)["branches"].(map[string]any)["tree_type_weights"].(map[string]any)
+			weights["one_branch"] = tc.value
+			_, err := buildTreeFeature(body, ctx)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("err = %v, want the file to load", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
 	t.Run("top_level_canopy_is_optional", func(t *testing.T) {
 		body := vanillaCherryTreeBody()
 		delete(body, "cherry_canopy")

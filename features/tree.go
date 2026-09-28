@@ -1102,6 +1102,7 @@ package features
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/stirante/featurelab/block"
@@ -6234,8 +6235,18 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.IFeature, er
 				"two_branches_and_trunk": &cherry.twoBranchesAndTrunkWeight,
 			} {
 				value, ok := weights[key].(float64)
-				if !ok || int(value) < 0 {
-					return nil, fmt.Errorf("cherry_trunk.branches.tree_type_weights.%s is required and must be a number >= 0", key)
+				if !ok {
+					return nil, fmt.Errorf("cherry_trunk.branches.tree_type_weights.%s is required and must be a number", key)
+				}
+				// The game's schema range for these three is [0, 2147483647]; a
+				// weight outside it refuses the whole file with this line.
+				value = math.Trunc(value)
+				if value == 0 {
+					value = 0 // drop the sign math.Trunc keeps on -0.5
+				}
+				if value < 0 || value > math.MaxInt32 {
+					return nil, fmt.Errorf("cherry_trunk.branches.tree_type_weights.%s: Value '%s' outside valid range [0, %d]",
+						key, strconv.FormatFloat(value, 'f', -1, 64), math.MaxInt32)
 				}
 				*target = int(value)
 			}

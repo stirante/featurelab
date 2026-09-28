@@ -296,30 +296,6 @@ func TestMultipartBlockColumn_DrawSequence(t *testing.T) {
 			t.Errorf("draw bound = %d, want 6 (2+4, the engine's plain integer weight sum)", tracer.Draws[0].Bound)
 		}
 	})
-
-	t.Run("weighted_heights zero weight sum: zero draws, clean failure for the engine-UB walk", func(t *testing.T) {
-		// sum == 0 skips the draw entirely and runs the
-		// walk as if the draw were 0; with the single weight 0 the walk
-		// never goes negative, which in the engine reads past the list
-		// (UB). The port fails cleanly instead -- disclosed divergence.
-		v, pal, origin := newMultipartTestVolume(t)
-		body := multipartBaseBody(0)
-		delete(body, "height_range")
-		body["weighted_heights"] = []any{map[string]any{"value": float64(3), "weight": float64(0)}}
-		f, _ := buildTestMultipart(t, pal, body)
-
-		tracer := random.NewTracer(random.New(1))
-		got, failures := placeTestMultipart(f, v, origin, tracer)
-		if got != nil {
-			t.Fatalf("Place() = %+v, want nil", got)
-		}
-		if len(tracer.Draws) != 0 {
-			t.Errorf("draws = %v, want none (sum == 0 skips the draw)", tracer.Draws)
-		}
-		if len(failures) != 1 || !strings.Contains(failures[0], "weighted_heights") {
-			t.Errorf("failures = %v, want the weighted_heights walk diagnostic", failures)
-		}
-	})
 }
 
 // TestMultipartBlockColumn_MayPlaceOn pins the surface gate: checked at
@@ -432,8 +408,8 @@ func TestMultipartBlockColumn_MayReplaceTruncation(t *testing.T) {
 	})
 
 	t.Run("weighted: min gate uses the smallest configured VALUE, not the picked one", func(t *testing.T) {
-		// Entries {5, w:1} and {1, w:0}: sum=1 so the single NextIntBound(1)
-		// draw returns 0 and the walk picks value 5. The obstruction at cell
+		// Entries {5, w:1000000} and {1, w:1}: one NextIntBound(1000001)
+		// draw, and with seed 1 the walk picks value 5. The obstruction at cell
 		// 2 truncates to n=2 -- BELOW the picked 5 but ABOVE the smallest
 		// configured value 1 (the SMIN reduction),
 		// so placement SUCCEEDS as a 2-cell column: frustum + tip.
@@ -441,8 +417,8 @@ func TestMultipartBlockColumn_MayReplaceTruncation(t *testing.T) {
 		body := multipartBaseBody(0)
 		delete(body, "height_range")
 		body["weighted_heights"] = []any{
-			map[string]any{"value": float64(5), "weight": float64(1)},
-			map[string]any{"value": float64(1), "weight": float64(0)},
+			map[string]any{"value": float64(5), "weight": float64(1000000)},
+			map[string]any{"value": float64(1), "weight": float64(1)},
 		}
 		body["may_replace"] = []any{"minecraft:air"}
 		f, _ := buildTestMultipart(t, pal, body)
@@ -452,8 +428,8 @@ func TestMultipartBlockColumn_MayReplaceTruncation(t *testing.T) {
 		if got == nil {
 			t.Fatalf("Place() = nil, want success (failures: %v)", failures)
 		}
-		if len(tracer.Draws) != 1 || tracer.Draws[0].Bound != 1 {
-			t.Fatalf("draws = %v, want exactly one NextIntBound(1)", tracer.Draws)
+		if len(tracer.Draws) != 1 || tracer.Draws[0].Bound != 1000001 {
+			t.Fatalf("draws = %v, want exactly one NextIntBound(1000001)", tracer.Draws)
 		}
 		wantRoles := []string{"frustum", "tip"} // n=2 layout after truncation
 		for i, want := range wantRoles {
@@ -477,7 +453,7 @@ func TestMultipartBlockColumn_MayReplaceTruncation(t *testing.T) {
 		delete(body, "height_range")
 		body["weighted_heights"] = []any{
 			map[string]any{"value": float64(5), "weight": float64(1)},
-			map[string]any{"value": float64(2), "weight": float64(0)}, // smallest value: 2
+			map[string]any{"value": float64(2), "weight": float64(1)}, // smallest value: 2
 		}
 		body["may_replace"] = []any{"minecraft:air"}
 		f, _ := buildTestMultipart(t, pal, body)
@@ -621,63 +597,34 @@ func TestMultipartBlockColumn_ZeroHeightQuirk(t *testing.T) {
 	}
 }
 
-// TestMultipartBlockColumn_WeightedHeightsShapes pins the element parse:
-// objects read
-// value/weight with missing keys as 0; numeric and array elements silently
-// become {value: 0, weight: 1}; anything else fails the schema.
+// TestMultipartBlockColumn_WeightedHeightsShapes pins the element parse: only
+// a {"value", "weight"} object loads; a missing weight reads as 0 and is
+// refused like any other out-of-range weight; every other element shape is
+// refused.
 func TestMultipartBlockColumn_WeightedHeightsShapes(t *testing.T) {
-	t.Run("missing weight parses as 0", func(t *testing.T) {
-		// {value:3} (weight 0) and {value:2, weight:1}: sum=1, draw=0,
-		// rem = 0 - 0 = 0 stays >= 0, walk advances past the zero-weight
-		// entry and picks {2,1} -- proving the missing weight became 0.
-		v, pal, origin := newMultipartTestVolume(t)
-		body := multipartBaseBody(0)
-		delete(body, "height_range")
-		body["weighted_heights"] = []any{
-			map[string]any{"value": float64(3)},
-			map[string]any{"value": float64(2), "weight": float64(1)},
-		}
-		f, warnings := buildTestMultipart(t, pal, body)
-		if len(warnings) != 0 {
-			t.Errorf("warnings = %v, want none", warnings)
-		}
-		tracer := random.NewTracer(random.New(1))
-		got, failures := placeTestMultipart(f, v, origin, tracer)
-		if got == nil {
-			t.Fatalf("Place() = nil, want success (failures: %v)", failures)
-		}
-		// The draw bound IS the weight sum: 0 (the defaulted missing weight)
-		// + 1 = 1. A nonzero default would inflate it.
-		if len(tracer.Draws) != 1 || tracer.Draws[0].Bound != 1 {
-			t.Errorf("draws = %v, want exactly one NextIntBound(1) (missing weight must sum as 0)", tracer.Draws)
-		}
-		if got.Y != origin.Y+1 {
-			t.Errorf("Place() returned Y=%d, want %d (picked height must be 2, the weighted entry)", got.Y, origin.Y+1)
-		}
-	})
-
-	t.Run("numeric element becomes {value:0, weight:1} with a warning", func(t *testing.T) {
-		v, pal, origin := newMultipartTestVolume(t)
-		body := multipartBaseBody(0)
-		delete(body, "height_range")
-		body["weighted_heights"] = []any{float64(5)}
-		f, warnings := buildTestMultipart(t, pal, body)
-		if len(warnings) != 1 || !strings.Contains(warnings[0], "weighted_heights[0]") {
-			t.Fatalf("warnings = %v, want one naming weighted_heights[0]", warnings)
-		}
-		// The lone entry is {0,1}: sum=1 -> one draw -> picks value 0 ->
-		// n=0 >= min value 0 -> the place-nothing success at Y-1.
-		got, failures := placeTestMultipart(f, v, origin, random.New(1))
-		if got == nil {
-			t.Fatalf("Place() = nil, want the place-nothing success (failures: %v)", failures)
-		}
-		if got.Y != origin.Y-1 {
-			t.Errorf("Place() returned Y=%d, want %d (n=0 -> relative(direction, -1))", got.Y, origin.Y-1)
-		}
-		if !pal.IsAir(v.GetBlock(origin)) {
-			t.Errorf("origin = %q, want air (height 0 places nothing)", pal.NameOf(v.GetBlock(origin)))
-		}
-	})
+	for _, tc := range []struct {
+		name    string
+		element any
+		wantErr string
+	}{
+		{"missing weight reads as 0 and is refused", map[string]any{"value": float64(3)},
+			"weighted_heights[0]: 'weight' with value '0' outside valid range [1, 2147483647]"},
+		{"number element is refused", float64(5),
+			"weighted_heights[0] must be a {\"value\", \"weight\"} object; the game refuses the whole file for a number here"},
+		{"array element is refused", []any{float64(5), float64(1)},
+			"weighted_heights[0] must be a {\"value\", \"weight\"} object; the game refuses the whole file for an array here"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &BuildContext{Palette: block.NewPalette(), Identifier: "test:multipart", FileID: "test:multipart", Warn: func(string) {}}
+			body := multipartBaseBody(0)
+			delete(body, "height_range")
+			body["weighted_heights"] = []any{tc.element}
+			_, err := buildMultipartBlockColumnFeature(body, ctx)
+			if err == nil || err.Error() != tc.wantErr {
+				t.Errorf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
 
 	t.Run("string element is a build error", func(t *testing.T) {
 		pal := block.NewPalette()
@@ -732,5 +679,58 @@ func TestBuildMultipartBlockColumn_HalfSentinelHeightRangeIsNotGiven(t *testing.
 			t.Errorf("height_range %v: %q warned = %v, want %v (warnings: %v)",
 				tc.heightRange, wantMsg, got, tc.wantWarn, warnings)
 		}
+	}
+}
+
+// TestMultipartBlockColumn_WeightRange pins the schema range the game puts on
+// a weighted_heights weight: [1, 2147483647]. Anything outside it refuses the
+// whole file with the game's own content-log line, so a weight of 0 is never
+// "an entry that cannot be picked" -- the file does not load at all.
+func TestMultipartBlockColumn_WeightRange(t *testing.T) {
+	build := func(weights ...any) error {
+		ctx := &BuildContext{Palette: block.NewPalette(), Identifier: "test:multipart", FileID: "test:multipart", Warn: func(string) {}}
+		body := multipartBaseBody(0)
+		delete(body, "height_range")
+		var entries []any
+		for i, w := range weights {
+			entries = append(entries, map[string]any{"value": float64(i + 1), "weight": w})
+		}
+		body["weighted_heights"] = entries
+		_, err := buildMultipartBlockColumnFeature(body, ctx)
+		return err
+	}
+	for _, tc := range []struct {
+		name    string
+		weights []any
+		wantErr string // "" = loads
+	}{
+		{"the reported file: weight 0 beside weight 1", []any{float64(0), float64(1)},
+			"weighted_heights[0]: 'weight' with value '0' outside valid range [1, 2147483647]"},
+		{"negative", []any{float64(1), float64(-3)},
+			"weighted_heights[1]: 'weight' with value '-3' outside valid range [1, 2147483647]"},
+		{"fraction truncating to 0", []any{float64(0.5)},
+			"weighted_heights[0]: 'weight' with value '0' outside valid range [1, 2147483647]"},
+		{"negative fraction truncating to 0", []any{float64(-0.5)},
+			"weighted_heights[0]: 'weight' with value '0' outside valid range [1, 2147483647]"},
+		{"above int32", []any{float64(2147483648)},
+			"weighted_heights[0]: 'weight' with value '2147483648' outside valid range [1, 2147483647]"},
+		{"non-numeric reads as 0", []any{"5"},
+			"weighted_heights[0]: 'weight' with value '0' outside valid range [1, 2147483647]"},
+		{"minimum 1 loads", []any{float64(1)}, ""},
+		{"maximum loads", []any{float64(2147483647)}, ""},
+		{"fraction truncating to 1 loads", []any{float64(1.9)}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := build(tc.weights...)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("err = %v, want the file to load", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Errorf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }

@@ -56,15 +56,15 @@ Mutually exclusive with height_range, and an empty list counts as not given. The
 
 **The height this entry stands for.**
 
-A whole number of blocks, counted along `direction`. An entry written as a bare number or an array rather than an object silently becomes a height of 0 with a weight of 1.
+A whole number of blocks, counted along `direction`. Each entry must be a `{ "value", "weight" }` object: the game refuses the whole file over an entry written as a bare number or an array.
 
 #### `weighted_heights.weight` {#weighted_heights-weight}
 
-<p class="fl-facts">required · number</p>
+<p class="fl-facts">required · integer · range [1, 2147483647]</p>
 
 **This entry's share of the pick.**
 
-Relative to the other entries' weights. If every weight is zero nothing can be picked and the column is not built.
+Relative to the other entries' weights. Required, and a whole number of at least 1: a missing weight reads as 0, and any weight below 1 makes the game refuse the whole file. There is no way to list an entry that is never picked.
 
 #### `direction` {#direction}
 
