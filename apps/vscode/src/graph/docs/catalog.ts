@@ -1177,10 +1177,17 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
     'weighted_heights.value': {
       summary: 'The height this entry stands for.',
       detail:
-        'A whole number of blocks, counted along `direction`. An entry written as a bare number or ' +
-        'an array rather than an object silently becomes a height of 0 with a weight of 1.',
+        'A whole number of blocks, counted along `direction`. Each entry must be a ' +
+        '`{ "value", "weight" }` object: the game refuses the whole file over an entry written as a ' +
+        'bare number or an array.',
     },
-    'weighted_heights.weight': { summary: 'This entry\'s share of the pick.', detail: 'Relative to the other entries\' weights. If every weight is zero nothing can be picked and the column is not built.' },
+    'weighted_heights.weight': {
+      summary: 'This entry\'s share of the pick.',
+      detail:
+        'Relative to the other entries\' weights. Required, and a whole number of at least 1: a ' +
+        'missing weight reads as 0, and any weight below 1 makes the game refuse the whole file. ' +
+        'There is no way to list an entry that is never picked.',
+    },
     direction: {
       summary: 'Which way the column is built from the origin.',
       detail:
