@@ -592,7 +592,7 @@ func (p *Palette) tagKnown(tagName string) bool {
 //     keeps the block type and DISCARDS the states even when the author
 //     wrote them, so a stated entry there behaves exactly like a bare one.
 //
-//   - MatchExact -- scatter's `allowed_surface_blocks` only. It resolves each
+//   - MatchExact -- snap_to_surface's `allowed_surface_blocks` only. It resolves each
 //     descriptor to one concrete Block and compares the hash of the full
 //     serialization id: name AND every state at its concrete value. This is
 //     the only field for which this port's original behaviour was the right
@@ -1096,6 +1096,41 @@ func sameCompletedBlock(name string, wrote, have map[string]StateValue) bool {
 		}
 	}
 	return true
+}
+
+// SameBlock reports whether a and b are the same concrete block once each is
+// completed to its type's defaults: same name, and every state at the same
+// value. This is the identity a feature uses when it resolves one of its own
+// block fields to a single block and compares a world cell against it -- the
+// "already the target" test of an ore rule, a mangrove root's mud_block test --
+// and it is the same comparison MatchExact makes for a list.
+//
+// Comparing ids alone is not that test. The same block can be interned under
+// two spellings, bare and with its default states written out, and an id
+// comparison calls those different, so a field written as a bare name missed
+// every cell that a structure, a fossil or a stated places_block had written.
+func (p *Palette) SameBlock(a, b ID) bool {
+	if a == b {
+		return true
+	}
+	ea, okA := p.lookup(a)
+	eb, okB := p.lookup(b)
+	if !okA || !okB || ea.Name != eb.Name {
+		return false
+	}
+	return sameCompletedBlock(ea.Name, ea.States, eb.States)
+}
+
+// SameBlockType reports whether a and b are the same block type, whatever
+// states either carries. vegetation_patch's "this cell is already ground" test
+// compares at this width.
+func (p *Palette) SameBlockType(a, b ID) bool {
+	if a == b {
+		return true
+	}
+	ea, okA := p.lookup(a)
+	eb, okB := p.lookup(b)
+	return okA && okB && ea.Name == eb.Name
 }
 
 // Contains reports whether id matches this MatchSet, under this set's MatchMode

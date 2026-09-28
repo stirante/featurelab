@@ -2400,7 +2400,9 @@ func mangrovePlaceRoot(api wgen.BlockWorld, pos wgen.BlockPos, rnd random.IRando
 		return
 	}
 	existing := api.GetBlock(pos)
-	if existing == r.mudBlock {
+	// The same concrete block, not the same id: a stated mud cell and a bare
+	// mud_block are one block when the stated one is at the defaults.
+	if api.Palette().SameBlock(existing, r.mudBlock) {
 		// *** RNG CALLS (0-4, root_decoration) *** -- see placeDecoratedBlock/megaTrunkDecoration.place.
 		placeDecoratedBlock(api, pos, rnd, r.muddyRootBlock, r.decoration, mangroveTrunkAllDirections)
 		return

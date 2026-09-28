@@ -519,12 +519,11 @@ func buildSnapToSurfaceFeature(body map[string]any, ctx *BuildContext) (wgen.IFe
 	// every state at its concrete value -- so a descriptor and a candidate that
 	// disagree on any state do not match. See block.MatchMode.
 	//
-	// Known gap, and it is this port's, not the field's: resolving a BARE
-	// descriptor to a concrete block means completing it to its type's DEFAULT
-	// permutation, which needs a per-block-type default-state registry this bench
-	// does not consult yet. Until it does, a bare entry here matches only a cell
-	// interned bare -- so a structure-placed `oak_log#pillar_axis=y` fails a bare
-	// `minecraft:oak_log` even though y is the default and the game would match it.
+	// A bare entry is completed to its type's DEFAULT permutation, not widened to
+	// the type: `minecraft:deepslate` matches deepslate at pillar_axis=y however
+	// the cell spells it, and does NOT match pillar_axis=x or z. That is the
+	// game's rule for this field and differs on purpose from the partial match
+	// every other list uses, where the same bare name accepts any state.
 	allowedIDs := ResolveMatchSetMode(descs, ctx, "allowed_surface_blocks", block.MatchExact)
 	// allow_air_placement defaults to true in the game -- an
 	// absent key must NOT be treated as "false" the way jsonTruthy(nil) would;

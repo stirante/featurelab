@@ -901,7 +901,7 @@ func warnAboutStatedEntries(set block.MatchSet, ctx *BuildContext, field string,
 
 // ResolveMatchSetMode is ResolveMatchSet for the two fields whose comparison is
 // NOT the usual partial predicate: ore's replace_rules[].may_replace, which
-// compares block TYPE and discards any states the author wrote, and scatter's
+// compares block TYPE and discards any states the author wrote, and snap_to_surface's
 // allowed_surface_blocks, which compares the full serialization id -- name and
 // every state at its concrete value. Both are stated at their own call sites;
 // see block.MatchMode for what the engine does in each case.

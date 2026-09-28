@@ -31,6 +31,10 @@ type IPaletteView interface {
 	IsAir(id block.ID) bool
 	IsLiquid(id block.ID) bool
 	IsSolid(id block.ID) bool
+	// SameBlock and SameBlockType compare two cells as the game compares
+	// blocks, not as ids: see block.Palette's methods of the same names.
+	SameBlock(a, b block.ID) bool
+	SameBlockType(a, b block.ID) bool
 }
 
 // BlockWorld is the block world a feature writes into, including the

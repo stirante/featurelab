@@ -160,7 +160,7 @@ The whole object is optional; all three keys are required once it is there. What
 | `y_offset` | yes | range | — | How far above or below the origin the root pass starts. |
 | `root_block` | yes | block descriptor | — | The root block in ordinary ground. |
 | `muddy_root_block` | yes | block descriptor | — | The root block where it runs through `mud_block`. |
-| `mud_block` | yes | block descriptor | — | The block that counts as mud for the rule above. |
+| `mud_block` | yes | block descriptor | — | The block that counts as mud for the rule above. It names one exact block state: states the descriptor leaves out take their defaults, and a cell in any other state is not mud. |
 | `roots_may_grow_through` | yes | array of block descriptors | — | The roots' own pass-through list. Unlike `may_grow_through`, this one is consulted on every trunk shape. |
 | `above_root` | no | object | absent — nothing on top | What to put on top of a root. |
 | `above_root.above_root_chance` | no | percent, or `{numerator, denominator}` | absent — never placed | How often to place it. |
