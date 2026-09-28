@@ -6,6 +6,7 @@
 package features
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stirante/featurelab/block"
@@ -130,5 +131,85 @@ func TestVegetationPatch_AlreadyGroundComparesTheType(t *testing.T) {
 		if got := v.GetBlock(wgen.BlockPos{X: c.X, Y: 9, Z: c.Z}); got != sideways {
 			t.Errorf("column %+v: ground rewritten to %v", c, pal.Entry(got))
 		}
+	}
+}
+
+// A feature that places a bare block name writes the block's default
+// permutation, and a bare allowed_surface_blocks entry names that same
+// permutation, so a ceiling of engine-placed bare deepslate -- a column's, or a
+// single_block's with no may_attach_to -- is a surface the list accepts.
+//
+// The one way the same bare name comes out in another state is auto_rotate: a
+// single_block whose may_attach_to is present (even `{}`) matches all four
+// sides for free and rotates toward the last, west, which lays a pillar block
+// along x. That cell is deepslate by name and not by state, the list refuses
+// it as the game does, and the failure has to say which state it saw -- "no
+// surface" over a column that visibly ends in deepslate is not an answer.
+func TestSnapToSurface_EnginePlacedBareBlockIsTheAllowedDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		place     func(t *testing.T, pal *block.Palette, v *volume.Volume, at wgen.BlockPos)
+		snaps     bool
+		wantInLog string
+	}{
+		{"multipart column", func(t *testing.T, pal *block.Palette, v *volume.Volume, at wgen.BlockPos) {
+			body := multipartBaseBody(3)
+			for _, role := range []string{"tip_block", "frustum_block", "middle_block", "base_block"} {
+				body[role] = "minecraft:deepslate"
+			}
+			body["direction"] = "up"
+			f, _ := buildTestMultipart(t, pal, body)
+			if p, fails := placeTestMultipart(f, v, at, random.New(1)); p == nil {
+				t.Fatalf("column did not place: %v", fails)
+			}
+		}, true, ""},
+		{"single_block, no may_attach_to", func(t *testing.T, pal *block.Palette, v *volume.Volume, at wgen.BlockPos) {
+			f := buildSB(t, pal, map[string]any{"places_block": "minecraft:deepslate"})
+			ctx := sbCtx(v)
+			ctx.Origin = at
+			if f.Place(ctx) == nil {
+				t.Fatal("single_block did not place")
+			}
+		}, true, ""},
+		{"single_block, may_attach_to {}", func(t *testing.T, pal *block.Palette, v *volume.Volume, at wgen.BlockPos) {
+			f := buildSB(t, pal, map[string]any{"places_block": "minecraft:deepslate", "may_attach_to": map[string]any{}})
+			ctx := sbCtx(v)
+			ctx.Origin = at
+			if f.Place(ctx) == nil {
+				t.Fatal("single_block did not place")
+			}
+		}, false, "minecraft:deepslate [pillar_axis=x]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v, pal, _ := newMultipartTestVolume(t)
+			ceiling := wgen.BlockPos{X: 0, Y: 70, Z: 0}
+			tc.place(t, pal, v, ceiling)
+			if got := pal.NameOf(v.GetBlock(ceiling)); got != "minecraft:deepslate" {
+				t.Fatalf("the placed ceiling holds %s, want minecraft:deepslate", got)
+			}
+			f := buildTestSnap(t, pal, stubResolver{&stubDelegate{}}, map[string]any{
+				"vertical_search_range":  float64(12),
+				"surface":                "ceiling",
+				"allowed_surface_blocks": []any{"minecraft:deepslate"},
+			})
+			var failures []string
+			got := f.Place(&wgen.PlacementContext{
+				API: v, Origin: wgen.BlockPos{X: 0, Y: 62, Z: 0}, Random: random.New(1),
+				MolangScope: wgen.NewScope(),
+				Biome:       &wgen.MolangBiome{ID: "test:biome", Tags: map[string]struct{}{}},
+				LogFailure:  func(_, message string, _ wgen.BlockPos) { failures = append(failures, message) },
+			})
+			if (got != nil) != tc.snaps {
+				t.Fatalf("snapped=%v, want %v (ceiling %s; failures %q)", got != nil, tc.snaps,
+					pal.Entry(v.GetBlock(ceiling)).CanonicalString(), failures)
+			}
+			if tc.snaps && *got != (wgen.BlockPos{X: 0, Y: 69, Z: 0}) {
+				t.Fatalf("snapped to %+v, want the cell under the ceiling", *got)
+			}
+			if tc.wantInLog != "" && (len(failures) != 1 || !strings.Contains(failures[0], tc.wantInLog) ||
+				!strings.Contains(failures[0], "allowed_surface_blocks")) {
+				t.Fatalf("failure log %q should name %q and the list that refused it", failures, tc.wantInLog)
+			}
+		})
 	}
 }

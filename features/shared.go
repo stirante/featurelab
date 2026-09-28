@@ -2,6 +2,7 @@ package features
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -980,6 +981,31 @@ func describeBlockAt(api wgen.BlockWorld, pos wgen.BlockPos) string {
 		return "an unnamed block"
 	}
 	return name
+}
+
+// describeBlockStateAt is describeBlockAt with the block's states written out,
+// e.g. `minecraft:deepslate [pillar_axis=x]`, for a diagnostic whose point is
+// a state -- where the bare name would read as "the right block".
+func describeBlockStateAt(api wgen.BlockWorld, pos wgen.BlockPos) string {
+	name := describeBlockAt(api, pos)
+	pal := api.Palette()
+	if pal == nil {
+		return name
+	}
+	states := pal.StatesOf(api.GetBlock(pos))
+	if len(states) == 0 {
+		return name
+	}
+	keys := make([]string, 0, len(states))
+	for k := range states {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = fmt.Sprintf("%s=%v", k, states[k])
+	}
+	return name + " [" + strings.Join(parts, ", ") + "]"
 }
 
 // parseEngineRange reads one of the engine's range objects -- an int range or a float range --

@@ -268,7 +268,11 @@ func (f *SnapToSurfaceFeature) confirms(api wgen.BlockWorld, pos wgen.BlockPos, 
 // -- for an open start: the last open cell, or the surface block itself with
 // embed_in_surface; for a buried start (allow_non_air_placement): the first
 // open cell past the solid run, or the last solid cell with embed.
-func (f *SnapToSurfaceFeature) findSnapPosInDirection(api wgen.BlockWorld, pos wgen.BlockPos, facing snapFacing) *wgen.BlockPos {
+//
+// refused is set when the walk DID stop on a block and a non-empty
+// allowed_surface_blocks turned it down -- the one failure whose cause is the
+// list rather than the column, which the failure message has to tell apart.
+func (f *SnapToSurfaceFeature) findSnapPosInDirection(api wgen.BlockWorld, pos wgen.BlockPos, facing snapFacing) (snapped *wgen.BlockPos, refused *wgen.BlockPos) {
 	startOpen := f.startOpen(api, pos)
 	passable := f.passableOpen
 	if !startOpen {
@@ -279,7 +283,7 @@ func (f *SnapToSurfaceFeature) findSnapPosInDirection(api wgen.BlockWorld, pos w
 	// itself -- this is where a buried start without allow_non_air_placement
 	// (or an open start without allow_air_placement) fails.
 	if !passable(api, pos) {
-		return nil
+		return nil, nil
 	}
 
 	cur := snapStep(pos, facing, 1)
@@ -293,7 +297,11 @@ func (f *SnapToSurfaceFeature) findSnapPosInDirection(api wgen.BlockWorld, pos w
 		cur = snapStep(cur, facing, 1)
 	}
 	if !f.confirms(api, cur, facing, startOpen) {
-		return nil
+		if !f.allowedIDs.Empty() && !passable(api, cur) {
+			stopped := cur
+			return nil, &stopped
+		}
+		return nil, nil
 	}
 
 	adjust := 0
@@ -303,15 +311,15 @@ func (f *SnapToSurfaceFeature) findSnapPosInDirection(api wgen.BlockWorld, pos w
 	if !startOpen {
 		adjust ^= 1
 	}
-	snapped := snapStep(pos, facing, steps+adjust)
-	return &snapped
+	at := snapStep(pos, facing, steps+adjust)
+	return &at, nil
 }
 
 // findWallSnapPos mirrors the feature's wall snap search: shuffle
 // [north, east, south, west] with an ascending
 // Fisher-Yates (three bounded draws, ALWAYS, before any searching), then try
 // each direction in shuffled order and return the first success.
-func (f *SnapToSurfaceFeature) findWallSnapPos(ctx *wgen.PlacementContext) *wgen.BlockPos {
+func (f *SnapToSurfaceFeature) findWallSnapPos(ctx *wgen.PlacementContext) (snapped *wgen.BlockPos, refused *wgen.BlockPos) {
 	// Initial order, as in the game: [NORTH(2), EAST(5), SOUTH(3), WEST(4)].
 	dirs := [4]snapFacing{facingNorth, facingEast, facingSouth, facingWest}
 	// *** RNG CALLS *** -- three bounded integer draws (NextIntBound), with
@@ -324,11 +332,15 @@ func (f *SnapToSurfaceFeature) findWallSnapPos(ctx *wgen.PlacementContext) *wgen
 		}
 	}
 	for _, d := range dirs {
-		if p := f.findSnapPosInDirection(ctx.API, ctx.Origin, d); p != nil {
-			return p
+		p, r := f.findSnapPosInDirection(ctx.API, ctx.Origin, d)
+		if p != nil {
+			return p, nil
+		}
+		if r != nil && refused == nil {
+			refused = r
 		}
 	}
-	return nil
+	return nil, refused
 }
 
 // snapDirectionWord is where the no_surface stop looked: "above", "below" or "on any side".
@@ -361,9 +373,9 @@ func (f *SnapToSurfaceFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos 
 		}
 	}
 
-	var snapped *wgen.BlockPos
+	var snapped, refused *wgen.BlockPos
 	if mode == snapWall {
-		snapped = f.findWallSnapPos(ctx)
+		snapped, refused = f.findWallSnapPos(ctx)
 	} else {
 		// Direction resolution: up for a ceiling, down for a floor -- INVERTED
 		// when the origin cell is neither air nor water, because snapping out
@@ -373,7 +385,7 @@ func (f *SnapToSurfaceFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos 
 		if (mode == snapCeiling) == f.startOpen(ctx.API, ctx.Origin) {
 			facing = facingUp
 		}
-		snapped = f.findSnapPosInDirection(ctx.API, ctx.Origin, facing)
+		snapped, refused = f.findSnapPosInDirection(ctx.API, ctx.Origin, facing)
 	}
 
 	if snapped == nil {
@@ -389,13 +401,30 @@ func (f *SnapToSurfaceFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos 
 		case snapWall:
 			dirName = "horizontally (to a wall, all four directions)"
 		}
-		LogFailure(ctx, snapToSurfaceTypeID,
-			fmt.Sprintf("no surface found searching %s from a position holding %s "+
-				"(search_range %d) -- a fully solid or fully empty column has no "+
-				"surface to snap to", dirName, describeBlockAt(ctx.API, ctx.Origin), f.searchRange))
+		if refused != nil {
+			// The column had a surface; the list turned it down. Name the block
+			// with its states, because the usual way here is a block that is the
+			// right type in the wrong state -- a log or deepslate that a
+			// single_block's auto_rotate laid on its side -- and the bare name
+			// alone reads as "the right block was there and still refused".
+			LogFailure(ctx, snapToSurfaceTypeID,
+				fmt.Sprintf("searching %s, the scan stopped on %s, which "+
+					"allowed_surface_blocks does not accept -- each entry there is one exact "+
+					"block state, a bare name meaning its default states", dirName,
+					describeBlockStateAt(ctx.API, *refused)))
+		} else {
+			LogFailure(ctx, snapToSurfaceTypeID,
+				fmt.Sprintf("no surface found searching %s from a position holding %s "+
+					"(search_range %d) -- a fully solid or fully empty column has no "+
+					"surface to snap to", dirName, describeBlockAt(ctx.API, ctx.Origin), f.searchRange))
+		}
 		if profiler.StopsActive && !profiler.StopCounted(profiler.StopNoSurface, profiler.NoOrdinal) {
+			what := "no surface"
+			if !f.allowedIDs.Empty() {
+				what = "no allowed surface"
+			}
 			profiler.RecordStop(profiler.StopNoSurface,
-				fmt.Sprintf("no surface %s within %d", snapDirectionWord(mode), f.searchRange), profiler.NoOrdinal)
+				fmt.Sprintf("%s %s within %d", what, snapDirectionWord(mode), f.searchRange), profiler.NoOrdinal)
 		}
 		return nil
 	}
