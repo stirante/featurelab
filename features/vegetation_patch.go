@@ -258,7 +258,9 @@ func (f *VegetationPatchFeature) placeGroundPatch(ctx *wgen.PlacementContext, sp
 				TickDeadline("filling a column as deep as its extra_deep_block_chance/depth asks")
 				cellPos := wgen.BlockPos{X: groundPos.X, Y: groundPos.Y + i*scanStep, Z: groundPos.Z}
 				blk := api.GetBlock(cellPos)
-				if blk == f.groundBlockID {
+				// Already ground by TYPE: any state of the ground block counts,
+				// so a column that is already that block is left as it is.
+				if api.Palette().SameBlockType(blk, f.groundBlockID) {
 					wrote++
 					continue
 				}

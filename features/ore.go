@@ -293,8 +293,8 @@ func (f *OreFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 					if !rule.mayReplaceIDs.Contains(worldBlock) {
 						continue // not this rule's block
 					}
-					if worldBlock == rule.targetID {
-						continue // already the target block
+					if api.Palette().SameBlock(worldBlock, rule.targetID) {
+						continue // already the target block, however it is spelled
 					}
 
 					// Step 7c: discard-chance-on-air-exposure gate, rolled
