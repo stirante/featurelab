@@ -147,7 +147,7 @@ Two things in the figure are chosen for legibility rather than realism, and both
 7. **Grow the vegetation.** Only when every column has been walked does the second pass begin: for each kept column, roll `vegetation_chance`, and on success run `vegetation_feature` in the **open** cell from step 3 — one above the ground for `floor`, one below it for `ceiling`. With `waterlogged`, one block lower: in the water cell itself for `floor`, two below the ground cell for `ceiling`. The delegate runs its own checks there and may still refuse; nothing retries.
 8. **Report.** At least one kept column is a success, and the position reported is the **ground cell of the last column kept** in walk order. No kept columns at all is a failure, with `Vegetation could not be placed`.
 
-The recursion guard applies to this feature as it does to every type that delegates, and refuses with `Cannot place internal feature` — but it is checked *after* the ground layer has been written, so a refusal leaves the patch's ground in the world and reports failure anyway.
+Like every type that delegates, this feature also goes through an internal-feature check, which refuses with `Cannot place internal feature` — a fixed permission about the types the game reserves for itself, not a loop check. It is checked *after* the ground layer has been written, so a refusal would leave the patch's ground in the world and report failure anyway; a feature loaded from a pack always passes it, though. See [delegation loops](./feature_delegation.md#delegation-loops).
 
 ## The footprint: `horizontal_radius` is wider than it says {#footprint}
 

@@ -1,7 +1,7 @@
 // Package features is the feature-type registry/builder and the two
 // implemented `minecraft:*_feature` types (scatter_feature,
 // single_block_feature) plus the shared machinery (weighted pick,
-// recursion guard, scatter distribution sampling) they and the rest
+// delegation limits, scatter distribution sampling) they and the rest
 // of this package grow on.
 package features
 

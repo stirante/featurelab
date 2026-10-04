@@ -876,6 +876,11 @@ func generate(ctx context.Context, config Config, palette *block.Palette, lib *f
 					addPlacementFailure("error", fmt.Sprintf(
 						"%s; %d repeat placement(s) completed before stopping -- its nested chain expands without converging, so the blocks shown are a partial result",
 						e.Error(), completed), e.Chain, wgen.BlockPos{}, false)
+				case *features.DelegationDepthExceeded:
+					partial = true
+					addPlacementFailure("error", fmt.Sprintf(
+						"%s; %d repeat placement(s) completed before stopping -- the blocks shown are a partial result",
+						e.Error(), completed), e.Chain, wgen.BlockPos{}, false)
 				case *features.PlacementDeadlineExceeded:
 					partial = true
 					// Deliberately NOT the same "expands without converging" suffix the count-based

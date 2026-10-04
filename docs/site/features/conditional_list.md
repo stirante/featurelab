@@ -109,12 +109,12 @@ Given an origin, the feature runs these steps in this order:
 1. **Publish the origin's own `(x, y, z)` into the shared Molang scope**, as six variables — `variable.worldx` / `worldy` / `worldz` and `variable.originx` / `originy` / `originz`. All six hold the same three numbers. They are visible to this call's own conditions and to every feature placed from here on down the chain.
 2. **Walk `conditional_features` in order.** For each entry:
    - **Resolve `places_feature`.** Unresolved, the game reports `Feature not found!` and the whole list ends here.
-   - **Check that this feature is allowed to place an internal feature** — the [recursion guard](./feature_delegation.md#the-recursion-guard). Refused, it reports `Cannot place an internal feature!` and the whole list ends here too.
+   - **Check that this feature is allowed to place an internal feature** — a fixed permission about the types the game reserves for itself, not a loop check. Refused, it reports `Cannot place an internal feature!` and the whole list ends here too; a feature loaded from a pack always passes it. See [delegation loops](./feature_delegation.md#delegation-loops).
    - **Evaluate `condition`.** Exactly zero means skip to the next entry; anything else means run.
    - **Delegate, at the origin, unmodified** — and then `early_out_scheme` decides whether the walk continues.
 3. **Return a result.** Under `none` it is the last placement that succeeded, or nothing if no entry placed. Under the other two schemes it is whatever the entry that ended the walk returned, or nothing if the walk ran off the end.
 
-Both ways of ending the list early — an unresolved reference and a refused guard — keep whatever earlier entries already placed. The blocks stay; only the rest of the walk is lost.
+Both ways of ending the list early — an unresolved reference and an entry refused by the internal-feature check — keep whatever earlier entries already placed. The blocks stay; only the rest of the walk is lost.
 
 ## What ends the walk, and why the default is the one to check {#early-out}
 
@@ -180,7 +180,7 @@ You do not need this section to use a conditional list. It is for reading a prev
 | Step | Cost |
 |---|---|
 | Publishing the six `variable.` slots | 0 |
-| Resolving an entry's `places_feature`, and the recursion guard | 0 |
+| Resolving an entry's `places_feature`, and the internal-feature check | 0 |
 | Evaluating `condition` | 0, unless the expression calls a Molang random itself — and that one is taken from the placing feature's own generator, in the order the expression is evaluated |
 | Delegating to an entry | the delegate's own cost |
 | Deciding whether to continue | 0 |
@@ -202,7 +202,7 @@ The fixtures behind this page are committed under [`docs/wiki/tools/fixtures/fea
 - [Weighted random feature](./weighted_random_feature.md) — the other "choose between delegates" Proxy type: exactly one candidate, by weight rather than by condition, and never more than one.
 - [Aggregate](./aggregate_feature.md) and [sequence](./sequence_feature.md) features — the Proxy types that walk their whole list unconditionally, and whose `early_out` vocabulary is a different enum from this type's `early_out_scheme`.
 - [Molang in world generation](./molang.md) — the namespace, precedence and evaluation rules a `condition` follows, and the lifetime of everything it can read.
-- [Feature delegation and composite features](./feature_delegation.md) — the shared origin, the shared scope and the recursion guard, which are three quarters of this page's behaviour.
+- [Feature delegation and composite features](./feature_delegation.md) — the shared origin, the shared scope and what happens when delegations form a loop, which are three quarters of this page's behaviour.
 - [Scatter feature](./scatter_feature.md) — the delegate in the example, and the type most likely to have overwritten `variable.world*` before a condition reads it.
 - [RNG and determinism](./rng_and_determinism.md) — why an entry that places changes what the entries after it do.
 

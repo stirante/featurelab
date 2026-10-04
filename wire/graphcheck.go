@@ -238,8 +238,8 @@ var checkListDelegation = map[string]struct {
 //     an info level, and this is the first finding that would use it for
 //     something other than a missing directory.
 //
-//   - cycle (warning). A delegation cycle, which is legal -- the engine
-//     guards recursion at run time -- so this can only ever be a warning, and
+//   - cycle (warning). A delegation cycle, which is legal -- the game runs
+//     it until a link declines -- so this can only ever be a warning, and
 //     a pack that means it needs a way to say so. DECIDE: nothing beyond
 //     accepting that @featurelab:ignore cycle is the answer for a pack that
 //     is doing it deliberately.
@@ -905,9 +905,9 @@ func expressionOutcome(what string) string {
 
 // checkCycles reports Graph.Cycles, as warnings, never as errors.
 //
-// A cycle is legal. Features are addressed by name and shared, the engine
-// guards recursion at run time rather than forbidding it at load, and a pack
-// that contains one loads and generates. What it costs is the reader's ability
+// A cycle is legal. Features are addressed by name and shared, the game has
+// no recursion guard and runs the loop until one of its links declines, and a
+// pack that contains one loads and generates. What it costs is the reader's ability
 // to see where the chain ends, and the editor's ability to lay the graph out as
 // if it were a tree -- so the useful thing is to hand over the path and let the
 // author decide, not to refuse the pack.
@@ -941,13 +941,11 @@ func (c *graphChecker) checkCycles() {
 // the error count and by nothing else (see cmdCheck), so wiring this one adds a
 // row and cannot fail a pack that passes today.
 //
-// And the finding is real rather than stylistic. A -> B -> A means one of the
-// two delegations places nothing: the recursion guard refuses the re-entry, so
-// the inner branch is dropped at run time, silently, with no diagnostic
-// anywhere and no seed at which it behaves differently. That is the same class
-// of defect as a dangling places_feature -- a branch of the pack that cannot
-// do anything -- and the editor already refuses the one-node spelling of it
-// when someone draws A -> A on the canvas. An author who means it says so with
+// And the finding is worth a row. A -> B -> A has no recursion guard to stop
+// it: the game recurses until one of the links declines on its own, which can
+// be the whole point (a column grown until it hits something) or a loop in
+// which nothing can ever decline, which does not end. Only the author knows
+// which, and nothing at run time says so. An author who means it says so with
 // `@featurelab:ignore cycle`, which this honours, for the same reason
 // UnresolvedTargets honours its own annotation: the note is about the pack, not
 // about whichever tool happens to be reading it.
@@ -998,7 +996,7 @@ func DelegationCycleDiagnostics(g *Graph) []session.Diagnostic {
 			Chain:      append([]string(nil), cycle...),
 			Count:      1,
 			Message: graphCheckMessage(CheckCycle, fmt.Sprintf(
-				"delegation cycle: %s. The pack loads and generates -- the engine's recursion guard stops the loop at run time -- but that guard works by DROPPING the re-entry, so one of these delegations places nothing, at every origin and under every seed, and reports nothing when it does. The chain also has no end, so anything walking or laying out this graph has to be ready for that.",
+				"delegation cycle: %s. The pack loads and generates, and the game has no recursion guard: the loop runs until one of its links declines on its own. That can be deliberate -- a column grown until it hits something -- but if no link can ever decline, it never ends. Add `@featurelab:ignore cycle` if this loop is meant.",
 				strings.Join(append(append([]string(nil), cycle...), cycle[0]), " -> "))),
 		})
 	}

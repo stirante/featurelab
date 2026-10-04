@@ -37,7 +37,7 @@ type Graph struct {
 	Roots []string `json:"roots"`
 	// Cycles lists each delegation cycle found, as the node ids around it.
 	// Empty for the overwhelmingly common case. These are legal -- the
-	// engine's recursion guard stops them at run time -- but an editor must
+	// game runs them until a link declines -- but an editor must
 	// not lay out or walk the graph as if they cannot happen.
 	Cycles [][]string `json:"cycles,omitempty"`
 

@@ -199,10 +199,9 @@ func (a *App) LoadPack(dir string) (*LoadPackResult, error) {
 //
 //   - A delegation whose target no loaded file defines and the game does not provide
 //     (wire.UnresolvedTargetDiagnostics).
-//   - A delegation cycle (wire.DelegationCycleDiagnostics). A -> B -> A means one of the two
-//     delegations places nothing: the recursion guard refuses the re-entry at run time,
-//     silently, at every seed. Legal, so `check` calls it a warning -- which is exactly what
-//     this channel is.
+//   - A delegation cycle (wire.DelegationCycleDiagnostics). A -> B -> A recurses until one of
+//     its links declines, and never ends if none can. Legal, so `check` calls it a warning --
+//     which is exactly what this channel is.
 //
 // THE POINT IS THAT THIS APP SAID NOTHING. A pack with one letter wrong in one
 // `"places_feature"` is made of perfectly well-formed files, so every loader loads it without a

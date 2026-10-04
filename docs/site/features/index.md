@@ -88,7 +88,7 @@ Subtract or reshape existing terrain rather than add to it.
 | Page | Purpose |
 |---|---|
 | [Feature rules](./feature_rules.md) | The `{distribution, places_feature}` pair a `minecraft:feature_rules` file attaches to every matching biome's chunks; the biome filter; the eleven ordered passes and the twelfth; the seven ways a rule places nothing while looking correct. |
-| [Delegation and composite features](./feature_delegation.md) | The shape every Proxy feature shares — which types substitute the origin and which pass it through, the shared random stream and Molang scope, how the recursion guard is keyed, and what a delegate's return value does and does not promise. |
+| [Delegation and composite features](./feature_delegation.md) | The shape every Proxy feature shares — which types substitute the origin and which pass it through, the shared random stream and Molang scope, what a delegation loop does, and what a delegate's return value does and does not promise. |
 | [RNG and determinism](./rng_and_determinism.md) | Where a feature's seed comes from — world seed to chunk to decoration entry, and the two independent streams that entry gets — which operations skip their draw, why a rename moves a feature, and why draw *order* is part of a feature's contract. |
 | [Molang in world generation](./molang.md) | Where an expression can go, what `math.random` actually returns, namespace scope lifetime, the versioned `&&`/`\|\|` precedence change, float32 evaluation, and the six queries available during worldgen. |
 

@@ -95,7 +95,7 @@ function kitchenSinkGraph(): GraphWire {
     // references are one of these, so a renderer that cannot tell them apart puts an error on
     // thirteen working delegations, which is how a warning stops being read.
     { id: 'minecraft:bush_feature', unresolved: true, external: true },
-    // A 3-cycle, legal per the contract (the engine's recursion guard stops it at run time).
+    // A 3-cycle, legal per the contract (the game runs it until a link declines).
     { id: 'ex:cycle_a', typeId: 'minecraft:aggregate_feature', file: 'features/ca.json', coverage: 'implemented' },
     { id: 'ex:cycle_b', typeId: 'minecraft:aggregate_feature', file: 'features/cb.json', coverage: 'implemented' },
     { id: 'ex:cycle_c', typeId: 'minecraft:aggregate_feature', file: 'features/cc.json', coverage: 'implemented' },

@@ -409,8 +409,8 @@ function expandColumn(identifier: string, params: ColumnParams, formatVersion: s
   if (checked.places === identifier) {
     return no(
       'cycle',
-      `a column cannot place itself. "${identifier}" would delegate to "${identifier}", and the engine's recursion guard, not this ` +
-        'column, would decide how deep it got.',
+      `a column cannot place itself. "${identifier}" would delegate to "${identifier}", and with no recursion guard in the game, ` +
+        'nothing in this column would decide how deep it got.',
       [identifier],
     )
   }

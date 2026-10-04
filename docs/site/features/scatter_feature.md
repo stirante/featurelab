@@ -148,7 +148,7 @@ One picture, six scatters that differ in one word. Every panel is 64 iterations 
 
 ## How it runs
 
-1. **Resolve `places_feature`.** If the reference is unresolved — no loaded file defines it — or this scatter is disallowed from placing an internal feature (the [recursion guard](./feature_delegation.md#the-recursion-guard)), the whole call fails and nothing else happens.
+1. **Resolve `places_feature`.** If the reference is unresolved — no loaded file defines it — or this scatter is disallowed from placing an internal feature (a fixed permission about the types the game reserves for itself, which a feature loaded from a pack always passes — see [delegation loops](./feature_delegation.md#delegation-loops)), the whole call fails and nothing else happens.
 2. **If `project_input_to_floor` is set**, descend the origin straight down through air until it lands on something solid or the world floor.
 3. **Roll `scatter_chance`** once, to decide whether to scatter *at all* this call.
 4. **If it passed, evaluate `iterations` and run that many rounds.** Each round computes an x/y/z offset from `distribution`, adds it to the origin, and delegates to the resolved feature at that position. Every round runs to completion regardless of whether earlier rounds succeeded or failed.

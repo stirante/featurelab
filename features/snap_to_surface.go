@@ -445,9 +445,8 @@ func (f *SnapToSurfaceFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos 
 		return nil
 	}
 
-	// Recursion guard marks/checks `f` (the wrapper), not `sub` -- see
-	// shared.go. MolangScope is forwarded unchanged (childScope is an
-	// identity function).
+	// MolangScope is forwarded unchanged (childScope is an identity
+	// function).
 	subCtx := ctx.WithOrigin(*snapped)
 	return WithRecursionGuard(f, func() *wgen.BlockPos { return sub.Place(subCtx) })
 }
