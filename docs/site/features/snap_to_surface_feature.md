@@ -136,7 +136,7 @@ The game logs ``Bad value for surface - should be 'ceiling', 'floor', 'random_ho
 4. **Confirm the surface.** The cell the walk stopped at has to pass the test in [what counts as a surface](#passable). If it does not, that direction has failed — and for every value except `wall`, that fails the whole feature, with nothing placed.
 5. **Place `feature_to_snap`** at the snapped position: by default the open cell next to the surface, or the surface block itself with [`embed_in_surface`](#embedding). The delegate runs its own checks there and may still refuse. The name is looked up only at this point, so a file naming a feature nothing defines reports that only on the runs where the scan actually worked.
 
-The recursion guard applies to the wrapper, as it does for every Proxy type, and refuses with `Cannot place internal feature`.
+Like every Proxy type, the wrapper also goes through an internal-feature check, which refuses with `Cannot place internal feature`. It is a fixed permission about the types the game reserves for itself, not a loop check, and a feature loaded from a pack always passes it — see [delegation loops](./feature_delegation.md#delegation-loops).
 
 ## `search_range`, and the name your file must use {#search-range}
 

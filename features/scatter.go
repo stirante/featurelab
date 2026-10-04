@@ -55,7 +55,7 @@ func (f *ScatterFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 		}
 		return nil
 	}
-	// Keyed on `f` (this), not `target`: see shared.go's IsAllowedToPlaceFeature.
+	// The internal-feature permission gate: see shared.go's IsAllowedToPlaceFeature.
 	if !IsAllowedToPlaceFeature(f) {
 		LogFailure(ctx, scatterTypeID, "Cannot place internal feature")
 		if profiler.StopsActive {
@@ -104,10 +104,10 @@ func (f *ScatterFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 	// One sub-context and one delegation closure for the whole loop, with
 	// only Origin rewritten per iteration -- behaviorally identical to the
 	// old per-iteration ctx.WithOrigin copy (nothing below retains the
-	// context or mutates any other field of it: the recursion guard means
-	// this exact ScatterFeature instance is never re-entered while its own
-	// loop is running, and Place implementations only read their ctx
-	// synchronously), but a scatter that runs hundreds of thousands of
+	// context or mutates any other field of it: subCtx is local to this
+	// call, so a loop that re-enters this same scatter gets its own, and
+	// Place implementations only read their ctx synchronously), but a
+	// scatter that runs hundreds of thousands of
 	// iterations no longer allocates a context copy plus a fresh closure
 	// per iteration.
 	subCtx := ctx.WithOrigin(origin)

@@ -154,7 +154,7 @@ None of this shows unless the volume is more than one cell wide on more than one
 4. **Count the ones that work**, remembering the latest. The moment the count reaches `required_successes`, **stop** — do not visit the rest — write everything that was held back, in the order it was made, and return that latest position.
 5. **If the positions run out first**, throw the whole buffer away. Nothing is written, and the feature reports `Could not find a valid position for the feature`.
 
-The recursion guard applies to the wrapper, as it does for every Proxy type: a search that is already running cannot be reached again from inside its own delegate. That refusal has its own message, `Cannot place internal feature`, distinct from the one in step 5.
+Like every Proxy type, the search also goes through an internal-feature check before delegating — a fixed permission about the types the game reserves for itself, with its own message, `Cannot place internal feature`, distinct from the one in step 5. A feature loaded from a pack always passes it. It is not a loop check: a search reached again from inside its own delegate simply runs again, as described in [delegation loops](./feature_delegation.md#delegation-loops).
 
 ## `required_successes` {#required-successes}
 
@@ -178,7 +178,7 @@ Three different things go wrong here and two of them say the same thing, which i
 |---|---|
 | `places_feature` names nothing the pack defines | `Could not find a valid position for the feature` |
 | The volume ran out before `required_successes` | `Could not find a valid position for the feature` |
-| The search was reached from inside its own delegate | `Cannot place internal feature` |
+| The internal-feature check refused the search (a pack's own features always pass it) | `Cannot place internal feature` |
 
 The first two are genuinely indistinguishable from the message alone. `featurelab check` separates them for you: an unresolved `places_feature` is reported as an error against the file, with a near-match suggestion, without anything being run.
 

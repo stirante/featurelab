@@ -100,9 +100,8 @@ func (f *AggregateFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 		}
 
 		if target != nil {
-			// Recursion guard — keyed on `f` (this, the AggregateFeature
-			// instance doing the delegating), gated by target's own flag —
-			// not from target's in-progress state. See shared.go's
+			// The internal-feature permission gate, which every pack feature
+			// passes -- not a recursion guard; see shared.go's
 			// IsAllowedToPlaceFeature.
 			if IsAllowedToPlaceFeature(f) {
 				// Molang scope propagation: both variants forward the SAME

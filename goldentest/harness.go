@@ -273,7 +273,7 @@ func InScope(identifier string, typeByID map[string]string, refsByID map[string]
 		"minecraft:surface_relative_threshold_feature", "minecraft:scan_surface",
 		"minecraft:search_feature", "minecraft:vegetation_patch_feature":
 		if visiting[identifier] {
-			return true // cycle: runtime recursion guard terminates it deterministically
+			return true // cycle: the depth limit and the delegation budget bound it deterministically
 		}
 		visiting[identifier] = true
 		defer delete(visiting, identifier)
@@ -398,6 +398,8 @@ func PlaceOne(feature wgen.IFeature, proto *volume.Volume, baseline volume.Snaps
 					out.BudgetError = "write_budget_exceeded"
 				case *features.DelegationBudgetExceeded:
 					out.BudgetError = "delegation_budget_exceeded"
+				case *features.DelegationDepthExceeded:
+					out.BudgetError = "delegation_depth_exceeded"
 				default:
 					out.OtherError = errString(r)
 				}

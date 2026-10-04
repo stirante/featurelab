@@ -1770,7 +1770,7 @@ function assignPorts(edges: readonly GraphEdgeWire[], rects: ReadonlyMap<string,
   //
   // The separator is safe here in a way it would not be for an arbitrary pair: the second half
   // is a boolean, so no id can collide with it whatever it contains.
-  const sideKey = (id: string, right: boolean): string => `${id} ${right ? 'r' : 'l'}`
+  const sideKey = (id: string, right: boolean): string => `${id}\u0000${right ? 'r' : 'l'}`
   const add = (id: string, right: boolean, slot: Slot): void => {
     const key = sideKey(id, right)
     const list = sides.get(key)
@@ -1800,14 +1800,14 @@ function assignPorts(edges: readonly GraphEdgeWire[], rects: ReadonlyMap<string,
       // Both halves are known-shaped -- a number and a side -- so a separator cannot be
       // ambiguous, and this runs once per slot per drag frame. See sideKey above for the
       // measurement that made this worth changing.
-      slotOf.set(`${slot.edgeIndex} ${slot.end}`, { index: i, count: list.length })
+      slotOf.set(`${slot.edgeIndex}\u0000${slot.end}`, { index: i, count: list.length })
     }
   }
 
   const out = new Map<number, EdgePorts>()
   for (const [index, info] of classified) {
-    const fromSlot = slotOf.get(`${index} from`) ?? { index: 0, count: 1 }
-    const toSlot = slotOf.get(`${index} to`) ?? { index: 0, count: 1 }
+    const fromSlot = slotOf.get(`${index}\u0000from`) ?? { index: 0, count: 1 }
+    const toSlot = slotOf.get(`${index}\u0000to`) ?? { index: 0, count: 1 }
     out.set(index, {
       fromRight: info.fromRight,
       toRight: info.toRight,
@@ -4060,7 +4060,7 @@ export function createGraphView(host: HTMLElement, options: GraphViewOptions = {
     if (inCycle) {
       const badge = el('span', 'flg-badge flg-badge-cycle')
       badge.textContent = 'cycle'
-      badge.title = 'This node is part of a delegation cycle. Cycles are legal -- the engine\'s recursion guard stops them at run time -- but they are worth knowing about.'
+      badge.title = 'This node is part of a delegation cycle. Cycles are legal -- the game runs them until a link declines, and never stops one where none can -- so they are worth knowing about.'
       badges.append(badge)
     }
     if (node.annotations && node.annotations.length > 0) {

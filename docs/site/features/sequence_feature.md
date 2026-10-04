@@ -126,7 +126,7 @@ There is deliberately no `early_out` row: **this type has no such key.** Its sch
 Given an origin, the sequence runs these steps:
 
 1. **Take the next entry in `features`, in order,** and resolve the name. A name no loaded file defines is skipped here, and the walk carries on to step 4.
-2. **Check that this sequence is still allowed to place a feature inside another feature** — the [recursion guard](./feature_delegation.md). If it is not, the entry is refused and [the running result is cleared](./aggregate_feature.md#running-result), which also resets the threaded origin.
+2. **Check that this sequence is allowed to place an internal feature** — a fixed permission about the types the game reserves for itself, not a record of what is running. If it is not, the entry is refused and [the running result is cleared](./aggregate_feature.md#running-result), which also resets the threaded origin. A feature loaded from a pack always passes this check, and it does not stop a [delegation loop](./feature_delegation.md#delegation-loops).
 3. **Run the entry** — the first one, and every one while nothing has succeeded yet, at the sequence's own origin; every one after a success at the position the previous successful entry returned. If it places something, its returned position becomes the running result.
 4. **Stop if nothing has succeeded yet.** Otherwise go back to step 1.
 5. **Report the running result** as the sequence's own: the position of the last entry that succeeded, or nothing at all.
@@ -158,7 +158,7 @@ A sequence is permanently in the mode an aggregate spells `"early_out": "first_f
 
 **Before the first success, the list is fragile.** If entry one places nothing, entry two is never asked. This is the type's most useful property rather than a hazard, and it is how you write a conditional without a condition: make the first entry a cheap probe — a [single block feature](./single_block_feature.md) whose `may_replace` or `may_attach_to` describes the ground you are willing to build on — and everything after it runs only where that probe could place. A probe that fails ends the call.
 
-**After the first success, the list is hard to stop.** A later entry that places nothing leaves the running result alone, so the walk carries on to the end. The only thing that empties it again mid-walk is an entry being refused outright by the recursion guard — and that also resets the threading to the original origin and, if it is the last thing to happen, makes the whole call report nothing despite the earlier success.
+**After the first success, the list is hard to stop.** A later entry that places nothing leaves the running result alone, so the walk carries on to the end. The only thing that empties it again mid-walk is an entry refused outright by the internal-feature check — which a pack's own features always pass — and that also resets the threading to the original origin and, if it is the last thing to happen, makes the whole call report nothing despite the earlier success.
 
 ::: warning An unresolved first entry ends the sequence, silently
 A name no loaded file defines is skipped rather than reported — the same as in an [aggregate](./aggregate_feature.md#unresolved-entries) — but here the consequence is different. Skipping leaves nothing succeeded, so the walk stops at once and the sequence places nothing at all, at every seed, in every biome. A typo at the top of the list is indistinguishable in the world from a probe that refused.
@@ -179,6 +179,7 @@ Nothing specific to this type: featurelab implements `minecraft:sequence_feature
 - **`featurelab generate --profile` names the entry that ended the walk** and how many entries were skipped after it, in the sequence's own profile row. That is the difference between "my sequence does nothing" and "entry one placed nothing, so the other three were never asked".
 - **`featurelab generate`'s `diagnostics` name the delegation chain** for every refusal underneath the sequence, position by position.
 - **`featurelab check` never runs a placement**, so it will tell you that an entry is unresolved and nothing about whether the first entry would have succeeded.
+- **Delegations nested more than 4096 deep stop the placement** with an error diagnostic beginning `delegation depth limit hit`, and the result is marked partial. The game has no such limit: a sequence that reaches itself again through one of its entries keeps recursing for as long as every link keeps placing. The limit is a count, so a run that hits it hits it at the same point every time; it exists so a loop in which nothing ever declines cannot crash the tool. See [delegation loops](./feature_delegation.md#delegation-loops).
 
 ## Advanced: what a sequence spends {#random-values}
 
@@ -197,7 +198,7 @@ Two consequences are specific to this type:
 - [Snap to surface](./snap_to_surface_feature.md) and [search](./search_feature.md) — the two delegate types whose returned position is worth threading, and the reason a sequence exists at all.
 - [Scatter feature](./scatter_feature.md) and [single block feature](./single_block_feature.md) — the other two delegates in this page's example, and the second of them is what returns its own input unchanged.
 - [Weighted random feature](./weighted_random_feature.md) — the Proxy feature that picks exactly one entry from a list instead of walking it.
-- [Feature delegation and composite features](./feature_delegation.md) — the recursion guard that can refuse an entry mid-walk, and what a delegating feature does and does not hand down.
+- [Feature delegation and composite features](./feature_delegation.md) — what happens when a sequence is reached again from inside one of its own entries, and what a delegating feature does and does not hand down.
 
 ## How this page was checked
 
@@ -206,3 +207,5 @@ Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.
 The threading rule, the fallback to the original origin while nothing has succeeded, the permanent stop condition and the absence of an `early_out` key are stated as facts about the game. The worked example was run end to end and its result read back out of `featurelab generate`: 7 blocks, all at world Y 63, the first at `(0, 63, 0)` from a call that began at `(0, 71, 0)`, 6 of the scatter's 14 rounds attaching, and `(5, 63, 1)` reported as the call's own result. Both images were rendered from exactly those results by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) and [the documentation's own pack](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/figure-fixtures) with a fixed seed and a deterministic camera, so re-running either reproduces it byte for byte.
 
 The figure was read against the runs behind it rather than described from the JSON: 11 changed cells per panel, the shared pumpkin at `(0, 63, 0)` in both, and the 10 markers at identical x and z at world Y 71 on one side and world Y 63 on the other. The pipeline additionally refuses a figure whose panels come out nearly identical; this pair differs over 7.7% of its panel area. That the sequence ends at an unresolved or failing first entry while an aggregate over the same two entries carries on was reproduced as a pair of two-entry fixtures at one origin and one seed, read back off the placed-block count and the `--profile` stop list, and that a `early_out` written on a sequence changes nothing was reproduced the same way.
+
+That the game puts no cap on a sequence reaching itself again was checked in game on 1.26.60.22, with a sequence of a single gold block followed by a one-iteration scatter, one block up, whose delegate was the sequence itself. It built a 19-block gold column that stopped only where the gold block met a stone block placed in its way; a second run went well over 100 levels with no limit appearing.

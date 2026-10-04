@@ -205,9 +205,9 @@ func (f *ConditionalListFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPo
 			return lastSuccess
 		}
 
-		// Internal-feature/recursion-guard denial also ends the whole list
+		// An internal-feature permission denial also ends the whole list
 		// (logs "Cannot place an internal feature!" and returns the same
-		// accumulator). Guard keyed on `f`, not the callee -- see shared.go.
+		// accumulator). Every pack feature passes the gate -- see shared.go.
 		if !IsAllowedToPlaceFeature(f) {
 			LogFailure(ctx, conditionalListTypeID, "Cannot place an internal feature!")
 			if profiler.StopsActive {

@@ -124,7 +124,7 @@ All three are tested **after every entry**, against [the running result](#runnin
 Given an origin, the aggregate runs these steps:
 
 1. **Take the next entry in `features`, in order,** and resolve the name. A name no loaded file defines is skipped here, and the walk carries on to step 4.
-2. **Check that this aggregate is still allowed to place a feature inside another feature** — the [recursion guard](./feature_delegation.md). If it is not, the entry is refused, a failure is reported, and [the running result is cleared](#running-result).
+2. **Check that this aggregate is allowed to place an internal feature** — a fixed permission about the types the game reserves for itself, not a record of what is running. If it is not, the entry is refused, a failure is reported, and [the running result is cleared](#running-result). A feature loaded from a pack always passes this check, and it does not stop a [delegation loop](./feature_delegation.md#delegation-loops).
 3. **Run the entry at the aggregate's own origin** — the same position, unmodified, for every entry in the list. If it places something, its returned position becomes the running result.
 4. **Test `early_out`** against the running result. Under `first_success`, stop if there is one; under `first_failure`, stop if there is not; under `none`, never stop. Otherwise go back to step 1.
 5. **Report the running result** as the aggregate's own: the position of the last entry that succeeded, or nothing at all.
@@ -145,9 +145,9 @@ One value is carried through the whole walk, and it does three jobs: it is what 
 
 - **An entry that succeeds overwrites it** with its own returned position.
 - **An entry that runs and places nothing leaves it alone.** It is *sticky*: a failure in the middle of a list does not undo an earlier success, and does not make the aggregate report failure.
-- **An entry that is refused outright clears it.** When the recursion guard denies an entry — the aggregate is already inside a chain that is not allowed to place another feature — the running result is emptied, not preserved. If that is the last thing to happen in the walk, the aggregate reports nothing at all, *despite* an earlier entry having placed something.
+- **An entry that is refused outright clears it.** When the internal-feature check refuses an entry, the running result is emptied, not preserved. If that is the last thing to happen in the walk, the aggregate reports nothing at all, *despite* an earlier entry having placed something. A pack's own features always pass that check, so for pack content this case does not arise.
 
-So "the aggregate failed" means "no entry succeeded, or the last thing that happened was a refusal", and not "some entry failed". The value that reaches the caller is the last *successful* entry's position — which for the example above is the scatter's final attaching round, not the single block that ran first.
+So "the aggregate failed" means "no entry succeeded" — or, in the game's own code, "the last thing that happened was a refusal" — and not "some entry failed". The value that reaches the caller is the last *successful* entry's position — which for the example above is the scatter's final attaching round, not the single block that ran first.
 
 ## `early_out`: stopping before the end of the list {#early-out}
 
@@ -163,7 +163,7 @@ The default is `"none"`, and most files want it: every entry runs and the aggreg
 The test after every entry is simply *is the running result still empty*. Two consequences:
 
 - **Before the first success it stops immediately.** If entry one places nothing, no later entry runs at all. That is what makes the guard-first pattern work: a cheap probe as the first entry turns the whole list into a conditional.
-- **After a success it becomes hard to stop.** A later entry's own failure [leaves the running result alone](#running-result), so the walk carries on. The only thing that empties it again mid-walk is an entry being refused outright.
+- **After a success it becomes hard to stop.** A later entry's own failure [leaves the running result alone](#running-result), so the walk carries on. The only thing that empties it again mid-walk is an entry being refused outright by the internal-feature check, which a pack's own features always pass.
 
 Every [sequence feature](./sequence_feature.md) is this mode and cannot be anything else, so [that page](./sequence_feature.md#where-the-list-stops) is where the probe-first pattern is written out with a worked file.
 :::
@@ -202,7 +202,7 @@ Nothing specific to this type: featurelab implements `minecraft:aggregate_featur
 
 You do not need this section to use an aggregate. It is for reading a preview value for value against the game, or for reproducing the engine exactly. [RNG and determinism](./rng_and_determinism.md) is the model these numbers fit into; this is this type's row in it.
 
-**An aggregate takes no random value of its own — zero draws, in every mode, at every list length.** Resolving a name costs nothing, the recursion-guard check costs nothing, `early_out` costs nothing, and the running result is bookkeeping. Every value spent under an aggregate belongs to a delegate.
+**An aggregate takes no random value of its own — zero draws, in every mode, at every list length.** Resolving a name costs nothing, the internal-feature check costs nothing, `early_out` costs nothing, and the running result is bookkeeping. Every value spent under an aggregate belongs to a delegate.
 
 What the type *does* decide is position in the stream, and that is the whole of its effect on determinism:
 
@@ -216,7 +216,7 @@ What the type *does* decide is position in the stream, and that is the whole of 
 - [Weighted random feature](./weighted_random_feature.md) — the Proxy feature that picks exactly **one** entry from a list, where these two walk the whole list every call.
 - [Conditional list](./conditional_list.md) — a list walk gated per entry by Molang, with its own `early_out_scheme` that shares a word with `early_out` and nothing else.
 - [Scatter feature](./scatter_feature.md) and [single block feature](./single_block_feature.md) — the two delegates this page's example reuses unchanged.
-- [Feature delegation and composite features](./feature_delegation.md) — the recursion guard, and what any delegating feature does and does not hand the feature below it.
+- [Feature delegation and composite features](./feature_delegation.md) — what happens when delegations form a loop, and what any delegating feature does and does not hand the feature below it.
 
 ## How this page was checked
 

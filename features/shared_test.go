@@ -16,9 +16,9 @@ import (
 // doc comments in shared.go. A user must be able to tell the two apart from the message alone,
 // without reading this file or shared.go.
 
-// shardStubFeature is a minimal wgen.IFeature -- WithRecursionGuard's own inProgress map is keyed
-// on the wrapper instance, so any comparable IFeature value works; this file only needs one that
-// never actually gets invoked (fn is what WithRecursionGuard calls, not wrapper.Place itself).
+// sharedStubFeature is a minimal wgen.IFeature -- WithRecursionGuard only reads the wrapper's
+// identity for the profiler, so any IFeature value works; this file only needs one that never
+// actually gets invoked (fn is what WithRecursionGuard calls, not wrapper.Place itself).
 type sharedStubFeature struct{ id string }
 
 func (s *sharedStubFeature) TypeID() string     { return "test:shared_stub" }

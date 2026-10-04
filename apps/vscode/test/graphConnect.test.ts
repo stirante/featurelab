@@ -747,7 +747,7 @@ describe('what a connection refuses, and what it says', () => {
     const aggregate = node('example:both', 'minecraft:aggregate_feature')
     const refused = refusal(planConnection(graphOf([aggregate]), { from: aggregate.id, to: aggregate.id }))
     expect(refused.code).toBe('cycle')
-    expect(refused.reason).toContain('recursion guard')
+    expect(refused.reason).toContain('no recursion guard')
   })
 
   it('ALLOWS a connection that closes a longer loop, and warns that it does', () => {

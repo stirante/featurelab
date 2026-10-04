@@ -73,7 +73,7 @@ The three levels, and what earns each:
 **Two findings only `check` can make**, because they are about how two files relate rather than about either one of them:
 
 - **A dangling delegation is an `error`.** `places_feature: "wiki:gold_blok"` is valid JSON in a valid file; nothing is wrong with the file you are looking at. It becomes visible only when the whole pack is in front of you.
-- **A delegation cycle is a `warning`.** `a → b → a` loads and generates — the recursion guard stops the loop at run time — but the guard works by *dropping* the re-entry, so one of those delegations places nothing at every origin and under every seed, and says nothing when it does. See [delegation and composite features](../features/feature_delegation.md#the-recursion-guard).
+- **A delegation cycle is a `warning`.** `a → b → a` is legal: the game has no recursion guard, and the loop runs until one of its links declines on its own. That can be the point — a loop is how a column grows until it hits something — but a loop in which no link can ever decline never ends. The warning is there so you check which one you have; a pack that means it says so with `@featurelab:ignore cycle`. See [delegation loops](../features/feature_delegation.md#delegation-loops).
 
 **A pack root that does not exist is a failure, not a clean pack.** `check --pack <a path that is not there>` prints `featurelab: pack: pack root "…" does not exist` on stderr and exits 1, with no table and no empty JSON array. A typo in a CI script therefore fails the job instead of reporting that a pack nobody loaded is fine.
 

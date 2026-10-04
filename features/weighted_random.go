@@ -131,8 +131,7 @@ func (f *WeightedRandomFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos
 	}
 
 	// Delegate once, with the SAME original context, returning its result
-	// verbatim -- including MolangScope unchanged. Recursion guard marks/
-	// checks `f` (the wrapper), not `resolved` -- see shared.go.
+	// verbatim -- including MolangScope unchanged.
 	return WithRecursionGuard(f, func() *wgen.BlockPos { return resolved.Place(ctx) })
 }
 

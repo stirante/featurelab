@@ -139,7 +139,7 @@ var FeatureTypeCoverage = []CoverageEntry{
 			"list reports the last placement that succeeded. `condition_success` stops at the first " +
 			"entry whose condition passes, whether or not that entry placed anything. " +
 			"`placement_success` keeps walking past entries that failed to place until one succeeds. If " +
-			"an entry's `places_feature` cannot be resolved -- or the recursion guard refuses it -- the " +
+			"an entry's `places_feature` cannot be resolved, the " +
 			"whole list ABORTS there, and whatever earlier entries already placed stays placed. " +
 			"Conditions evaluate in the `world_gen` Molang namespace, with variable.originx/y/z and " +
 			"variable.worldx/y/z both published, holding the same values.",

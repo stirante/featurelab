@@ -149,7 +149,7 @@ The first three are the ones a rule file can get wrong while looking entirely co
 
 Of the remaining four, the biome filter and an unresolved reference will never place anything at any seed in any world; the middle two look identical to each other in-game and are separated only by retrying, since a chance rejection eventually places and a zero `iterations` never does. [Test at several seeds before believing a placement is broken](./rng_and_determinism.md#what-this-means-when-you-are-authoring) is the habit this table exists to make concrete.
 
-One failure is *not* quiet: a rule whose delegation is refused by the recursion guard content-logs `Feature rule <name> can't place internal feature`. If a rule places nothing and that line appears, the problem is a reference loop, not the filter — see [the recursion guard](./feature_delegation.md#the-recursion-guard).
+One failure is *not* quiet: a rule whose delegation is refused by the internal-feature check content-logs `Feature rule <name> can't place internal feature`. That check is a fixed permission about the feature types the game reserves for itself, not a loop check, and a feature loaded from a pack always passes it — internal types are refused when the pack's file loads — so in practice a pack does not see this line, and it is not a sign of a reference loop. See [delegation loops](./feature_delegation.md#delegation-loops).
 
 Everything else stays silent by design; a chunk runs hundreds of refusals per pass and a log line each would be unusable. [Failure is normal, and mostly quiet](./feature_delegation.md#failure-is-normal) covers why, and how to work down a chain instead of guessing.
 
@@ -255,7 +255,7 @@ The per-cell arrays in that JSON are run-length encoded as `{"rle": [value, run,
 
 - [Scatter feature](./scatter_feature.md) — the distribution block a rule uses, kind for kind. Read that page's field tables and its six-kinds figure as if they were this one's.
 - [RNG and determinism](./rng_and_determinism.md) — where a rule's seed comes from, why renaming one moves it, and the two independent streams every decoration entry gets.
-- [Feature delegation and composite features](./feature_delegation.md) — what happens below a rule: the shared stream and Molang scope, the recursion guard, and why most refusals are quiet.
+- [Feature delegation and composite features](./feature_delegation.md) — what happens below a rule: the shared stream and Molang scope, delegation loops, and why most refusals are quiet.
 - [Single block feature](./single_block_feature.md) — the far end of almost every rule's chain.
 
 ## How this page was checked

@@ -57,8 +57,7 @@ func (f *ScanSurfaceFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 	if sub == nil {
 		return nil
 	}
-	// Recursion guard marks/checks `f` (the wrapper), not `sub` -- see
-	// shared.go.
+	// The internal-feature permission gate -- see shared.go.
 	if !IsAllowedToPlaceFeature(f) {
 		return nil
 	}

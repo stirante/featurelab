@@ -100,12 +100,11 @@ Everything on this page about *what the type does* is measured. The exact JSON k
 | Chaining it as the first entry of a [sequence](./sequence_feature.md) | The next entry inherits that far-corner position, not the origin you started from. | Put the scan last, or wrap it so its return value is not threaded on. |
 | Expecting a diagnostic for each column that refused | There is none, for any of them. 256 quiet refusals and 256 quiet successes look the same from outside. | Run the delegate on its own at a known position to see why it refuses. |
 | A delegate that reads Molang variables another feature wrote | All 256 columns share **one** variable scope, so a variable the delegate writes on column 3 is still there on column 4. | Have the delegate set what it reads, or do not rely on the scope being fresh. |
-| Nesting a scan inside a scan | The inner one is refused by the recursion guard, and the whole call fails. | One scan per chain. |
 
 ## How it runs
 
 1. **Resolve `places_feature`.** A name no loaded file defines fails the entire call, with no column visited and nothing placed.
-2. **Check the recursion guard.** If this feature is already running somewhere up the chain, the call is refused — the guard is on this wrapper, not on the delegate.
+2. **Check the internal-feature permission.** This is a fixed check on whether the feature may place one of the types the game reserves for itself, not a record of what is running. A feature loaded from a pack always passes it, and it does not stop a [delegation loop](./feature_delegation.md#delegation-loops).
 3. **Work out the chunk.** Not a box around the origin: the 16 by 16 chunk the origin's own `(x, z)` falls in, aligned to multiples of 16.
 4. **Walk every column**, `x` ascending on the outside and `z` ascending on the inside. Nothing is skipped, nothing is sampled, and nothing ends the walk early — not a failure, not a success, not a hundred failures in a row.
 5. **For each column**, read its surface height, build a position at `(x, height, z)` and run the delegate there. Whatever it does is real: blocks written on column 5 are there to be read on column 6.

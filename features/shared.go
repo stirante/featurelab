@@ -13,22 +13,53 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Recursion guard — follows the engine's own feature-permission gate and
-// its recursion guard exactly: keyed on the WRAPPER performing the
-// delegation (this, not the resolved callee), which is deliberate rather
-// than backwards.
+// Feature-permission gate. The game has NO recursion guard: A -> B -> A
+// recurses for as long as every link keeps delegating, and stops only when
+// one of them declines on its own (checked in game, 1.26.60.22: a sequence
+// and a scatter delegating to each other built a column of well over a
+// hundred levels). The check behind "Cannot place internal feature" is about
+// internal feature types, not about what is currently being placed, and a
+// feature loaded from a pack always passes it (internal feature types are
+// refused at load, before anything could delegate to them).
+//
+// What stops a loop that never declines here is MaxDelegationDepth, which is
+// tooling, not engine behaviour: see WithRecursionGuard.
 // ---------------------------------------------------------------------------
 
-var inProgress = make(map[wgen.IFeature]bool)
-
-// IsAllowedToPlaceFeature mirrors the engine's feature-permission gate:
-// false while wrapper (the feature instance currently delegating) is
-// already mid a sub-place() call itself.
+// IsAllowedToPlaceFeature mirrors the engine's feature-permission gate,
+// which every pack-loaded feature passes. Kept as a call at each delegation
+// site, where the game makes it, so the denial paths stay where the game has
+// them.
 func IsAllowedToPlaceFeature(wrapper wgen.IFeature) bool {
-	if wrapper == nil {
-		return false
-	}
-	return !inProgress[wrapper]
+	return wrapper != nil
+}
+
+// MaxDelegationDepth is how many delegations may be nested inside one
+// another before a placement stops with DelegationDepthExceeded. Tooling, not
+// engine behaviour: the game recurses until a link declines or its own
+// native stack runs out, but a Go stack overflow is fatal to the whole
+// process rather than recoverable, so this bench stops well before that. A
+// vertical loop is already bounded by the 384-block world height; 4096
+// leaves room for any horizontal chain a pack plausibly means.
+const MaxDelegationDepth = 4096
+
+var delegationDepth int
+
+// DelegationDepthExceeded is raised when delegations nest deeper than
+// MaxDelegationDepth -- a reference loop in which no link ever declines.
+// Reproducible, like DelegationBudgetExceeded: it is a pure count. Chain is
+// captured at the raise for the same reason that type captures its own.
+type DelegationDepthExceeded struct {
+	Depth int
+	Chain []profiler.ChainFrame
+}
+
+func (e *DelegationDepthExceeded) Error() string {
+	return fmt.Sprintf(
+		"delegation depth limit hit: %d feature placements nested inside one another -- a "+
+			"reference loop in which no link ever declines. The game has no recursion guard and "+
+			"would keep going; this tool stops here (count-based -- reproducible)",
+		e.Depth)
 }
 
 // DelegationBudgetExceeded is raised when the delegation budget runs out. Attempted is delegationsUsed at
@@ -406,7 +437,7 @@ var (
 // fraction of the 2,000,000 default. The count budget bounds delegation; the clock bounds work;
 // conflating them would break the first to duplicate the second.
 //
-// NOT SAFE FOR CONCURRENT PLACEMENT, exactly like delegationBudget/delegationsUsed/inProgress
+// NOT SAFE FOR CONCURRENT PLACEMENT, exactly like delegationBudget/delegationsUsed/delegationDepth
 // above, and for the same reason: this package's placement model is one placement at a time per
 // process. This adds no new constraint, only more state under the existing one.
 func TickDeadline(site string) {
@@ -471,11 +502,11 @@ func tickDeadlineSlow(site string) {
 	deadlineTicks = deadlineInterval
 }
 
-// WithRecursionGuard runs fn (a delegated target.Place() call) with wrapper
-// marked in-progress for the duration — the same shape as the engine's own
-// recursion guard: the count-based delegation budget, plus (when armed
-// via SetDelegationBudgetMs) a wall-clock deadline checked at the same
-// roughly-every-1024-delegations cadence used elsewhere here.
+// WithRecursionGuard runs fn (a delegated target.Place() call) under this
+// tool's own limits, none of which the game has: MaxDelegationDepth, the
+// count-based delegation budget, and (when armed via SetDelegationBudgetMs) a
+// wall-clock deadline checked at the same roughly-every-1024-delegations
+// cadence used elsewhere here. It refuses nothing the game would place.
 func WithRecursionGuard(wrapper wgen.IFeature, fn func() *wgen.BlockPos) *wgen.BlockPos {
 	if delegationBudget != nil {
 		delegationsUsed++
@@ -510,8 +541,11 @@ func WithRecursionGuard(wrapper wgen.IFeature, fn func() *wgen.BlockPos) *wgen.B
 	if profiler.ProfilingActive {
 		profiler.RecordDelegation(wrapper.Identifier(), wrapper.TypeID())
 	}
-	inProgress[wrapper] = true
-	defer delete(inProgress, wrapper)
+	if delegationDepth >= MaxDelegationDepth {
+		panic(&DelegationDepthExceeded{Depth: delegationDepth + 1, Chain: profiler.CurrentChain()})
+	}
+	delegationDepth++
+	defer func() { delegationDepth-- }()
 	return fn()
 }
 

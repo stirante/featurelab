@@ -6,6 +6,56 @@ All notable changes to the Feature Lab extension. This project follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-04
+
+### Added
+
+- **A playground on the documentation site.** A page can now place a feature in the browser, with
+  the engine compiled to WebAssembly, and says what the run did as well as what it placed.
+- **The Molang editor offers the world-generation biome-tag queries**,
+  `has_any_biome_tags` and `has_all_biome_tags`, instead of `any_tag`, which world generation does
+  not have. The site lists the queries world generation accepts and what a wrong one costs.
+
+### Changed
+
+- **Delegation loops recurse, as they do in the game.** `A → B → A` used to be cut off after one
+  round with `Cannot place internal feature`, from a recursion guard the game does not have. The
+  game keeps going until a link in the loop declines on its own, and the preview now does the
+  same. A sequence that places a block and hands its cell to a scatter one block up, which places
+  the sequence again, grows a column until it hits something. A loop in which nothing ever
+  declines stops at 4,096 nested placements with a `delegation depth limit hit` error and a
+  partial result, rather than taking the tool down. The `check` warning for a cycle and the
+  documentation now say this.
+- **The documentation is pinned to Bedrock 1.26.60.22.**
+- **Opening a pack is faster**: the vanilla block catalogue is parsed once, not on every load.
+
+### Fixed
+
+Each of these makes the preview place what the game places. Most were found by placing the same
+features in the game and in the engine and comparing the results.
+
+- **Trees.** Canopy defaults are `min_width` 1, rise 2, run 1. `canopy_slope`'s run multiplies and
+  its rise divides. Canopy leaves overwrite vines, and `canopy_decoration` runs after the crown.
+  `spruce_canopy` looks for its ground in `may_grow_on`. `roofed_canopy` builds
+  `canopy_height - 3` wall layers. Mangrove and `random_spread` canopies draw height and radius
+  inclusive of the maximum. `cherry_trunk` tips grow the tree's own canopy, never
+  `branch_canopy`. Wide trunks get `base_block` underneath, and `base_cluster` lays it. A trunk
+  log also goes into leaves, water or a vine. A decoration's `num_steps` gives a run of
+  `num_steps + 1`. A plain `canopy` without `variation_chance`, or with too short a list, is
+  diagnosed.
+- **`single_block`'s `enforce_placement_rules` and `enforce_survivability_rules` are real checks.**
+  Configured blocks are compared the way the game compares them, not by id alone.
+- **`search_feature`'s ranges are walked in the game's order**: the third range is the middle
+  loop and the second the innermost.
+- **`height_difference_filter`: every key means what its name says.**
+- **`vegetation_patch` models waterlogged patches.**
+- **`structure_template` with no `facing_direction` picks a random facing**, not south.
+- **`partially_exposed_blob` refuses air as well as water.**
+- **`multipart_block_column` refuses a file with a weight below 1**, as the game does.
+- **`snap_to_surface` names the block `allowed_surface_blocks` refused.**
+- **Saving a pack file writes it whole**, never half-written.
+- **The extension icon is drawn at the size it claims.**
+
 ## [0.2.0] — 2026-09-20
 
 ### Added

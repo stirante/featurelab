@@ -87,8 +87,7 @@ func (f *SurfaceRelativeThresholdFeature) Place(ctx *wgen.PlacementContext) *wge
 	}
 
 	// The game logs nothing on this specific gate either (an empty
-	// return only). Recursion guard marks/checks `f` (the wrapper), not
-	// `sub` -- see shared.go.
+	// return only). The internal-feature permission gate -- see shared.go.
 	if !IsAllowedToPlaceFeature(f) {
 		if profiler.StopsActive {
 			profiler.RecordStop(profiler.StopRecursionGuard, "already placing", profiler.NoOrdinal)

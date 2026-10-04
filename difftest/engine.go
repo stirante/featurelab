@@ -227,6 +227,8 @@ func placeOnce(feature wgen.IFeature, vol *volume.Volume, origin wgen.BlockPos, 
 				stopped = e.Error()
 			case *features.DelegationBudgetExceeded:
 				stopped = e.Error()
+			case *features.DelegationDepthExceeded:
+				stopped = e.Error()
 			case *features.PlacementDeadlineExceeded:
 				stopped = e.Error()
 			case *features.MalformedRangeRefusal:

@@ -558,7 +558,7 @@ export function planConnection(graph: ConnectGraph, request: ConnectRequest): Co
   if (source.id === target.id) {
     return refuse(
       'cycle',
-      `"${source.id}" cannot place itself. The engine's recursion guard stops the loop at run time, so the feature would place nothing and report nothing.`,
+      `"${source.id}" cannot place itself. The game has no recursion guard, so a feature that places itself repeats until something in it declines -- and with no second feature in the loop to place a block, it gains nothing by repeating and may never end. To repeat something, loop through a second feature.`,
       [source.id],
     )
   }

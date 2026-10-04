@@ -1055,8 +1055,8 @@
 //     scan_surface/scatter/search_feature/snap_to_surface/
 //     surface_relative_threshold/vegetation_patch/weighted_random), vanilla
 //     applies NO feature-permission gate here, so there is no
-//     IsAllowedToPlaceFeature check; WithRecursionGuard is kept purely as a
-//     safety net against circular references. fallen_trunk.trunk_decoration
+//     IsAllowedToPlaceFeature check; WithRecursionGuard is kept purely for
+//     this tool's own limits (see MaxDelegationDepth). fallen_trunk.trunk_decoration
 //     (the stump column's decoration) is supported via
 //     parseAttachableDecorationObject/megaTrunkDecoration, like mega_trunk/
 //     mangrove_trunk. See placeFallenTrunk.

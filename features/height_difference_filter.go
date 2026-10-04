@@ -28,10 +28,9 @@
 //
 // This port additionally routes the delegated call through WithRecursionGuard/
 // IsAllowedToPlaceFeature, matching every other composite in this codebase -- the game applies
-// no explicit guard for this type (unlike conditional_list.go/surface_relative_threshold.go),
-// but this is deliberate port-level plumbing for consistent recursion guarding, profiler frames,
-// and diagnostics chains across every delegation path this tool has, not a claim about the
-// game's behaviour for this one type.
+// no permission gate for this type (unlike conditional_list.go/surface_relative_threshold.go),
+// but every pack feature passes that gate anyway, and the call is there for the depth limit,
+// profiler frames and diagnostics chains every delegation path in this tool shares.
 //
 // The placement decision, exact algorithm. Every key means what its name says: the two max_*
 // keys are limits every sampled column must respect, the two min_* keys are requirements some

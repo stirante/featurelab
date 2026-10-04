@@ -107,7 +107,7 @@ The reference field is `feature_to_place`. `places_feature` — the name [scatte
 1. **Read the surface height** for the origin's 4×4 patch of columns. If there is no value for that patch, the feature fails with `"Surface level could not be found"` and nothing is placed.
 2. **Compare.** The position must be **strictly below** `surface − minimum_distance_below_surface`. At or above it, the feature fails with `Target location is not within the minimum distance to surface` and nothing else happens — the delegate is not even looked up.
 3. **Resolve `feature_to_place`.** A name no loaded file defines fails with the *same* message as step 2, which is worth knowing when reading a log. See [the two failures that read alike](#same-message).
-4. **Check the recursion guard.** If this feature is already running somewhere up the chain, the call is refused silently — no message at all. The guard is on this wrapper, not on the delegate.
+4. **Check the internal-feature permission.** This is a fixed check on whether the feature may place one of the types the game reserves for itself, not a record of what is running. Refused, it fails silently — no message at all — but a feature loaded from a pack always passes it, and it does not stop a [delegation loop](./feature_delegation.md#delegation-loops).
 5. **Place `feature_to_place`** at the unchanged position, with the same Molang scope. The delegate runs its own checks there and may still refuse.
 
 ## The depth test, block by block {#depth-test}
@@ -147,7 +147,7 @@ The lookup can also come back with no value at all, which fails the feature with
 
 They are still distinguishable, because the order is fixed: the depth is tested first, so the reference is only ever looked up on runs where the depth passed. If a feature reports that message at *every* origin you try, including ones you know are deep enough, check the delegate's name. If it reports it only as you move upwards, it means what it says.
 
-The third failure path — the recursion guard refusing a feature that is already running — reports nothing whatsoever. A chain that goes quiet with no diagnostic anywhere is a candidate for that.
+There is a third failure path in the game — a refusal by the internal-feature check in step 4 — and it reports nothing whatsoever. A feature loaded from a pack always passes that check, though, so for pack content it is not the explanation for a chain that goes quiet.
 
 ## Field reference
 
@@ -167,7 +167,7 @@ This page documents the game. Three things belong to the **featurelab** bench us
 
 You do not need this section to use a surface relative threshold feature. It is for reading a preview value for value against the game, or for reproducing the engine exactly. [RNG and determinism](./rng_and_determinism.md) is the model these numbers fit into; this is this type's row in it.
 
-**This type spends nothing at all.** Not when it passes, not when it refuses, not when the reference is unresolved, not when the guard refuses it. A position it rejects and a position it accepts leave the stream identically placed, so a gate that flips from yes to no between two runs shifts nothing downstream by itself — everything spent belongs to the delegate.
+**This type spends nothing at all.** Not when it passes, not when it refuses, not when the reference is unresolved, not when the internal-feature check refuses it. A position it rejects and a position it accepts leave the stream identically placed, so a gate that flips from yes to no between two runs shifts nothing downstream by itself — everything spent belongs to the delegate.
 
 The comparison, exactly, with `y` the position's own height:
 
@@ -193,7 +193,7 @@ The delegate is called with the **same context object**: the same position, and 
 
 Everything above is a statement about Bedrock **1.26.60.22**, and it holds for **1.26.50.24** and **1.26.40.26** too: this type's two keys, their shapes, the default and the behaviour are unchanged across the three.
 
-The strictly-below rule, the fixed order of the depth test and the reference lookup, the shared failure message, the silent recursion-guard path, the quarter-resolution lookup and the unchanged delegate position are stated as facts about the game.
+The strictly-below rule, the fixed order of the depth test and the reference lookup, the shared failure message, the silent internal-feature path, the quarter-resolution lookup and the unchanged delegate position are stated as facts about the game.
 
 The worked example was run end to end from the committed fixtures [`surface_relative_threshold_deep.json`](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/fixtures/features/surface_relative_threshold_deep.json) and [`threshold_marker.json`](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures/features), at four origins rather than one: `(0, 50, 0)` and `(0, 57, 0)` place a block, `(0, 58, 0)` and `(0, 60, 0)` place nothing and report `Target location is not within the minimum distance to surface`. The `58`/`57` pair is what pins the word *strictly*; reading the rule off the field name would have got it wrong by one block. The image was rendered from the `(0, 50, 0)` result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), as a solid cutaway for the same buried-feature reason [the ore page](./ore_feature.md)'s vein is.
 
