@@ -36,6 +36,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -88,9 +90,12 @@ type renameFeatureParams struct {
 type renameFeatureResult struct {
 	From string `json:"from"`
 	To   string `json:"to"`
-	// File is the file that declares the feature, pack-relative. It is
-	// reported and NOT renamed -- see methodRenameFeature.
+	// File is the file that declared the feature before the rename,
+	// pack-relative.
 	File string `json:"file"`
+	// RenamedTo is where File was moved, pack-relative, when its name followed
+	// the old identifier -- see methodRenameFeature. Empty when it stayed put.
+	RenamedTo string `json:"renamedTo,omitempty"`
 	// References is how many delegations elsewhere in the pack were rewritten
 	// to the new name.
 	References int      `json:"references"`
@@ -108,23 +113,20 @@ type renameFeatureResult struct {
 // one that updated only the references would break the pack the other way
 // round.
 //
-// WHAT IT DOES NOT WRITE: the FILE NAME. `features/<name>.json` is the
-// convention this tool follows when it creates a file, but it is only a
-// convention -- a pack may name a feature file anything, and the engine reads
-// the identifier out of the file rather than deriving anything from the name.
-// Renaming the file would therefore be a second, different operation with its
-// own failure modes: it invalidates whatever the author has open in an editor
-// (unsaved buffers included), it moves a path that version control, a build
-// script or another tool may be holding, and it cannot be undone by undoing an
-// edit. So the file stays where it is and the result names it, which leaves
-// renaming it a thing the author does deliberately if they want it.
+// THE FILE NAME moves with the identifier when it followed it: a file whose
+// name (one extension removed) is the old identifier's name half is renamed to
+// the new name half, keeping its directory and extension. That is the
+// convention this tool creates files by, and for a feature RULE it is more
+// than a convention -- the engine compares a rule's identifier against its own
+// file name and reports every load where they differ (see rules/schema.go's
+// identifier checks), so a rename that left the file behind handed the author
+// that report plus a manual step. A file the author named some other way is
+// left where it is: its name was a choice, not a copy of the identifier.
 //
-// A feature RULE is the one case where that has a visible consequence, and it
-// is reported as a note rather than acted on: the engine compares a rule's
-// identifier against its own file name and logs when they differ (see
-// rules/schema.go's identifier checks). The rule still loads and still runs --
-// the check is a warning there and nothing is broken by it -- but an author
-// who does not hear about it will meet it in the log later.
+// The file is moved only after every edit has been written, and a target name
+// that is already taken leaves it in place with a note rather than refusing
+// the rename -- the identifiers are the operation, the file name follows it.
+// A rule left with a name that differs from its identifier is noted too.
 //
 // CASE. The engine matches feature identifiers without regard to case (see
 // features/registry.go), so two files whose identifiers differ only in case
@@ -251,23 +253,118 @@ func methodRenameFeature(state *serverState, raw json.RawMessage) (any, error) {
 			"%q and %q are the same name to the engine, which matches feature identifiers without regard to case. Nothing this pack generates changes; the files now spell the name one way.",
 			from, to))
 	}
-	if node.TypeID == ruleTypeID {
-		notes = append(notes, fmt.Sprintf(
-			"%s still holds this rule. The engine compares a feature rule's identifier against its own file name and logs when the two differ -- the rule loads and runs either way; renaming the file silences it.",
-			node.File))
+	// Decided before anything is written, so a taken target is a note about a
+	// file that stayed put rather than a half-finished move.
+	target := renamedFilePath(node.File, node.ID, to)
+	if target != "" {
+		if why := renameTargetTaken(state.loaded.Dir, node.File, target); why != "" {
+			notes = append(notes, fmt.Sprintf("%s keeps its name: %s.", node.File, why))
+			target = ""
+		}
 	}
 
 	written, err := files.commit()
 	if err != nil {
 		return nil, fmt.Errorf("renameFeature: %v", err)
 	}
+	if target != "" {
+		if err := moveInPack(state.loaded.Dir, node.File, target); err != nil {
+			notes = append(notes, fmt.Sprintf("%s keeps its name: moving it to %s failed (%v).", node.File, target, err))
+			target = ""
+		} else {
+			for i, w := range written {
+				if w == node.File {
+					written[i] = target
+				}
+			}
+			sort.Strings(written)
+		}
+	}
+	if node.TypeID == ruleTypeID {
+		holder := node.File
+		if target != "" {
+			holder = target
+		}
+		if stem := fileStem(holder); stem != identifierName(to) {
+			notes = append(notes, fmt.Sprintf(
+				"%s holds this rule under a different name (%q). The engine compares a feature rule's identifier against its own file name and logs when the two differ -- the rule loads and runs either way; renaming the file silences it.",
+				holder, stem))
+		}
+	}
 	if err := reloadWholePack(state); err != nil {
 		return nil, fmt.Errorf("renameFeature: %v", err)
 	}
 	return renameFeatureResult{
-		From: node.ID, To: to, File: node.File,
+		From: node.ID, To: to, File: node.File, RenamedTo: target,
 		References: references, Files: written, Notes: notes,
 	}, nil
+}
+
+// identifierName is an identifier's name half: everything after the last ':'.
+// It is what the engine compares a rule's file name against.
+func identifierName(id string) string {
+	return id[strings.LastIndex(id, ":")+1:]
+}
+
+// fileStem is a file's own name as the engine compares it: the last path
+// segment with ONE extension removed, so oak.fr.json reads as oak.fr.
+func fileStem(file string) string {
+	name := path.Base(filepath.ToSlash(file))
+	if i := strings.LastIndex(name, "."); i > 0 {
+		return name[:i]
+	}
+	return name
+}
+
+// renamedFilePath is where a declaring file moves when its identifier changes
+// from `from` to `to`, or "" when it stays: its name did not follow the old
+// identifier, the name does not change, or the new name half is not something
+// a file can be called.
+func renamedFilePath(file, from, to string) string {
+	file = filepath.ToSlash(file)
+	stem := fileStem(file)
+	if stem != identifierName(from) {
+		return ""
+	}
+	name := identifierName(to)
+	if name == stem || name == "." || name == ".." || strings.ContainsAny(name, `<>:"/\|?*`) {
+		return ""
+	}
+	return path.Join(path.Dir(file), name+strings.TrimPrefix(path.Base(file), stem))
+}
+
+// renameTargetTaken says why `target` cannot receive `file`, or "" when it
+// can. The same file under another case is not a collision: that is a rename
+// that only re-spells the name, and the filesystem may report both as existing.
+func renameTargetTaken(dir, file, target string) string {
+	from, err := resolveInPack(dir, file)
+	if err != nil {
+		return err.Error()
+	}
+	to, err := resolveInPack(dir, target)
+	if err != nil {
+		return err.Error()
+	}
+	existing, err := os.Stat(to)
+	if err != nil {
+		return ""
+	}
+	if current, err := os.Stat(from); err == nil && os.SameFile(current, existing) {
+		return ""
+	}
+	return target + " already exists"
+}
+
+func moveInPack(dir, file, target string) error {
+	from, err := resolveInPack(dir, file)
+	if err != nil {
+		return err
+	}
+	to, err := resolveInPack(dir, target)
+	if err != nil {
+		return err
+	}
+	return os.Rename(from, to)
 }
 
 // collisionError is the refusal that stops a rename onto a name some other

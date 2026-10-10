@@ -53,7 +53,7 @@ import {
 // already writes wherever it has to name a feature and does not know one yet, and graph/
 // incomplete.ts is what turns a reference to it into "this node needs a feature" on the canvas.
 // A second spelling of the sentinel here would be a second thing to keep in step with that.
-import { PLACEHOLDER_FEATURE, RULE_BODY_KEY, RULE_TYPE_ID, ruleFileNameNote } from './compounds/spec.js'
+import { PLACEHOLDER_FEATURE, RULE_BODY_KEY, RULE_TYPE_ID, bareName, ruleFileNameNote, ruleFileStem } from './compounds/spec.js'
 
 /** Kinds whose delegation is one entry of an ARRAY. Detaching one means removing the entry, not
  * the reference: a conditional entry stripped of its places_feature still has a condition and
@@ -362,14 +362,13 @@ export interface RenameFeatureRequest {
  * So a reference this cannot address refuses the whole operation rather than producing a plan
  * that is right about most of the pack.
  *
- * THE FILE IS NOT RENAMED. `features/<name>.json` is the convention this editor follows when it
- * creates one, but it is only a convention: a pack may name a feature file anything, and the
- * engine reads the identifier out of the file rather than deriving anything from the name.
- * Renaming the file would be a different operation with its own surprises -- it invalidates
- * whatever the author has open, including unsaved buffers, and moves a path that version control
- * or a build script may be holding. A feature rule is the one case where leaving it has a visible
- * consequence, and that is a note: the engine compares a rule's identifier against its own file
- * name and logs when they differ. The rule loads and runs either way.
+ * THE FILE NAME FOLLOWS when it was a copy of the old identifier's name half: the engine moves
+ * `features/oak.json` to `features/oak_log.json` after writing the edits (renamedFilePath, in
+ * cmd/featurelab/lifecycle.go). For a feature rule that matters -- the engine compares a rule's
+ * identifier against its own file name and reports every load where they differ. A file named
+ * some other way was the author's choice and stays; a rule left that way is noted. The move is
+ * not an operation of this plan, because it is the engine's decision against the disk as it is
+ * when the rename runs (a taken target leaves the file in place).
  *
  * CASE. The engine matches feature identifiers without regard to case, so a name that differs
  * only in case from another feature's is not a free name -- the two would be one name, the first
@@ -464,16 +463,20 @@ export function renameFeature(graph: IdiomGraph, request: RenameFeatureRequest):
         `nothing. From now on ${adopted === 1 ? 'it places' : 'they place'} this feature.`,
     })
   }
+  const moved = node.file !== undefined ? renamedFilePath(node.file, node.id, newId) : null
   notes.push({
     level: 'info',
-    message: `${node.file} still holds it. The engine reads the identifier out of the file and derives nothing from the file's name.`,
+    message:
+      moved !== null
+        ? `${node.file} is renamed to ${moved}, because its name followed the old identifier (unless ${moved} is already taken).`
+        : `${node.file} keeps its name. The engine reads the identifier out of the file and derives nothing from a feature file's name.`,
   })
   // The engine compares a rule's identifier against its own file name, and this rename can create
   // that mismatch or leave one standing. Asked of the NEW name and the file it is about to live
   // in, so the note appears exactly when it is true -- the version that fired on every rule rename
   // said nothing about this rename, and a warning that is always there is one nobody reads.
   if (node.typeId === RULE_TYPE_ID && node.file !== undefined && node.file !== '') {
-    const mismatch = ruleFileNameNote(newId, node.file)
+    const mismatch = ruleFileNameNote(newId, moved ?? node.file)
     if (mismatch !== null) notes.push({ level: 'warning', message: mismatch })
   }
 
@@ -496,6 +499,21 @@ export function renameFeature(graph: IdiomGraph, request: RenameFeatureRequest):
       request: { method: 'renameFeature', params: { from: node.id, to: newId } },
     },
   }
+}
+
+/** Where the engine moves a declaring file when its identifier changes from `from` to `to`, or
+ * null when it stays -- the same rule as renamedFilePath in cmd/featurelab/lifecycle.go: only a
+ * file whose name (one extension removed) is the old name half moves, keeping its directory and
+ * extension. */
+export function renamedFilePath(file: string, from: string, to: string): string | null {
+  const normalized = file.replace(/\\/g, '/')
+  const stem = ruleFileStem(normalized)
+  if (stem === null || stem !== bareName(from)) return null
+  const name = bareName(to)
+  if (name === stem || name === '.' || name === '..' || /[<>:"/\\|?*]/.test(name)) return null
+  const slash = normalized.lastIndexOf('/')
+  const dir = slash >= 0 ? normalized.slice(0, slash + 1) : ''
+  return dir + name + normalized.slice(slash + 1 + stem.length)
 }
 
 // ---------------------------------------------------------------------------

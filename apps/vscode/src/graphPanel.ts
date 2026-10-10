@@ -873,7 +873,17 @@ export class GraphPanel {
         this.journal.recordBarrier(`Rename ${message.from} to ${message.to}`)
         this.postHistory()
         await this.lifecycle(
-          () => this.controller.renameFeature(this.packRoot, message.from, message.to, this.timeoutMs),
+          async () => {
+            const result = (await this.controller.renameFeature(this.packRoot, message.from, message.to, this.timeoutMs)) as
+              | { file?: string; renamedTo?: string }
+              | undefined
+            // The engine moves a file named after the old identifier. A tab still on the old path
+            // would show a deleted file, so it follows.
+            if (typeof result?.file === 'string' && typeof result.renamedTo === 'string' && result.renamedTo !== '') {
+              log(`Rename of ${message.from} moved ${result.file} to ${result.renamedTo}.`)
+              await followMovedFile(path.join(this.packRoot, result.file), path.join(this.packRoot, result.renamedTo))
+            }
+          },
           message.to,
           'renamed',
         )
@@ -1844,6 +1854,26 @@ export class GraphPanel {
     // holds a progress notification over a panel that is no longer there.
     this.failFirstGraph(new Error('the graph panel was closed before the pack finished loading'))
     for (const d of this.disposables.splice(0)) d.dispose()
+  }
+}
+
+/** Reopens every tab showing `from` on `to`, in the same group, and closes the old tab. A tab with
+ * unsaved changes is left alone: closing it would ask about a buffer whose file is gone, and the
+ * author is the one to decide what happens to those changes. */
+async function followMovedFile(from: string, to: string): Promise<void> {
+  const same = (a: string, b: string): boolean =>
+    process.platform === 'win32' ? path.normalize(a).toLowerCase() === path.normalize(b).toLowerCase() : path.normalize(a) === path.normalize(b)
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (!(tab.input instanceof vscode.TabInputText) || !same(tab.input.uri.fsPath, from) || tab.isDirty) continue
+      try {
+        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(to))
+        await vscode.window.showTextDocument(document, { viewColumn: group.viewColumn, preview: tab.isPreview, preserveFocus: true })
+        await vscode.window.tabGroups.close(tab)
+      } catch (err) {
+        log(`Could not move the tab for ${from} to ${to}: ${describeError(err)}`)
+      }
+    }
   }
 }
 

@@ -201,7 +201,7 @@ func TestRenameFeatureRewritesTheDeclarationAndEveryReference(t *testing.T) {
 		t.Fatalf("the rename was refused: %s", errMsg)
 	}
 
-	declaring := read(t, root, "features/oak.json")
+	declaring := read(t, root, "features/oak_log.json")
 	if !strings.Contains(declaring, `"identifier": "example:oak_log"`) {
 		t.Errorf("the declaring file does not carry the new identifier:\n%s", declaring)
 	}
@@ -242,22 +242,68 @@ func TestRenameFeatureRewritesTheDeclarationAndEveryReference(t *testing.T) {
 	}
 }
 
-// TestRenameFeatureDoesNotRenameTheFile pins the decision, because it is the
-// one a future change is most likely to make quietly: the engine reads the
-// identifier out of the file and derives nothing from the file's name, so the
-// file stays where the author put it and where their editor has it open.
-func TestRenameFeatureDoesNotRenameTheFile(t *testing.T) {
+// TestRenameFeatureMovesAFileNamedAfterIt: a file whose name is the old
+// identifier's name half follows the identifier, so the author is not left
+// renaming it by hand (and, for a rule, reading the engine's mismatch report).
+func TestRenameFeatureMovesAFileNamedAfterIt(t *testing.T) {
 	root := lifecyclePack(t)
 	state := loadedState(t, root)
 
-	if _, errMsg := call(t, state, "renameFeature", map[string]any{"from": "example:oak", "to": "example:oak_log"}); errMsg != "" {
+	result, errMsg := call(t, state, "renameFeature", map[string]any{"from": "example:oak", "to": "example:oak_log"})
+	if errMsg != "" {
 		t.Fatalf("the rename was refused: %s", errMsg)
 	}
-	if _, err := os.Stat(filepath.Join(root, "features", "oak.json")); err != nil {
-		t.Errorf("the declaring file moved: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "features", "oak.json")); err == nil {
+		t.Errorf("the old file is still there")
 	}
-	if _, err := os.Stat(filepath.Join(root, "features", "oak_log.json")); err == nil {
-		t.Errorf("a file was created at the new name; renaming a file is a separate decision the author makes")
+	if got := result["renamedTo"]; got != "features/oak_log.json" {
+		t.Errorf("renamedTo = %v, want features/oak_log.json", got)
+	}
+	files, _ := result["files"].([]any)
+	if fmt.Sprint(files...) == "" || !strings.Contains(fmt.Sprint(files...), "features/oak_log.json") {
+		t.Errorf("files = %v, want the moved file under its new name", files)
+	}
+}
+
+// TestRenameFeatureKeepsAFileNamedOtherwise: a name that is not a copy of the
+// identifier was the author's choice, and stays.
+func TestRenameFeatureKeepsAFileNamedOtherwise(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "features", "my_tree.json"), blockFeature("example:oak", "minecraft:oak_log"))
+	state := loadedState(t, root)
+
+	result, errMsg := call(t, state, "renameFeature", map[string]any{"from": "example:oak", "to": "example:oak_log"})
+	if errMsg != "" {
+		t.Fatalf("the rename was refused: %s", errMsg)
+	}
+	if !strings.Contains(read(t, root, "features/my_tree.json"), `"example:oak_log"`) {
+		t.Errorf("the file was not rewritten in place")
+	}
+	if got, ok := result["renamedTo"]; ok {
+		t.Errorf("renamedTo = %v, want none", got)
+	}
+}
+
+// TestRenameFeatureKeepsTheFileWhenTheTargetIsTaken: the identifiers are the
+// operation, so a taken file name is a note, not a refusal, and nothing is
+// overwritten.
+func TestRenameFeatureKeepsTheFileWhenTheTargetIsTaken(t *testing.T) {
+	root := lifecyclePack(t)
+	writeTestFile(t, filepath.Join(root, "features", "oak_log.json"), "not a feature, but somebody's file")
+	state := loadedState(t, root)
+
+	result, errMsg := call(t, state, "renameFeature", map[string]any{"from": "example:oak", "to": "example:oak_log"})
+	if errMsg != "" {
+		t.Fatalf("the rename was refused: %s", errMsg)
+	}
+	if got := read(t, root, "features/oak_log.json"); got != "not a feature, but somebody's file" {
+		t.Errorf("the file at the target name was overwritten:\n%s", got)
+	}
+	if !strings.Contains(read(t, root, "features/oak.json"), `"example:oak_log"`) {
+		t.Errorf("the declaration was not rewritten in place")
+	}
+	if notes := fmt.Sprint(result["notes"]); !strings.Contains(notes, "already exists") {
+		t.Errorf("a file that could not follow its identifier said nothing: %v", notes)
 	}
 }
 
@@ -386,12 +432,12 @@ func TestRenameFeatureRefusesWhenTheFileChangedUnderneath(t *testing.T) {
 	assertPackUnchanged(t, root, before)
 }
 
-// TestRenameFeatureOfARuleSaysWhatTheEngineWillLog. A feature rule is the one
-// node whose file NAME the engine looks at: it compares the identifier's name
-// half against the file's own name and logs when they differ. The rule still
-// loads and still runs, so this is a note rather than a refusal -- but an
-// author who is not told meets it in the log later.
-func TestRenameFeatureOfARuleSaysWhatTheEngineWillLog(t *testing.T) {
+// TestRenameFeatureOfARuleMovesItsFile. A feature rule is the one node whose
+// file NAME the engine looks at: it compares the identifier's name half
+// against the file's own name and reports every load where they differ. The
+// reported bug: renaming a rule left its file behind, and the author had to
+// rename it by hand.
+func TestRenameFeatureOfARuleMovesItsFile(t *testing.T) {
 	root := lifecyclePack(t)
 	state := loadedState(t, root)
 
@@ -399,12 +445,32 @@ func TestRenameFeatureOfARuleSaysWhatTheEngineWillLog(t *testing.T) {
 	if errMsg != "" {
 		t.Fatalf("renaming a feature rule was refused: %s", errMsg)
 	}
-	if declaring := read(t, root, "feature_rules/patch_rule.json"); !strings.Contains(declaring, `"identifier": "example:meadow_rule"`) {
+	if declaring := read(t, root, "feature_rules/meadow_rule.json"); !strings.Contains(declaring, `"identifier": "example:meadow_rule"`) {
 		t.Errorf("the rule's identifier was not rewritten:\n%s", declaring)
 	}
-	notes, _ := result["notes"].([]any)
-	joined := fmt.Sprint(notes...)
-	if !strings.Contains(joined, "file name") {
+	if _, err := os.Stat(filepath.Join(root, "feature_rules", "patch_rule.json")); err == nil {
+		t.Errorf("the rule's old file is still there")
+	}
+	if notes := fmt.Sprint(result["notes"]); strings.Contains(notes, "file name") {
+		t.Errorf("a rule whose file followed it was warned about the file name: %v", notes)
+	}
+}
+
+// TestRenameFeatureOfARuleSaysWhatTheEngineWillLog: a rule whose file kept a
+// different name still hears about the engine's check.
+func TestRenameFeatureOfARuleSaysWhatTheEngineWillLog(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "feature_rules", "rules.json"), ruleFile)
+	writeTestFile(t, filepath.Join(root, "features", "patch.json"), aggregateOfTwo)
+	writeTestFile(t, filepath.Join(root, "features", "oak.json"), blockFeature("example:oak", "minecraft:oak_log"))
+	writeTestFile(t, filepath.Join(root, "features", "fern.json"), blockFeature("example:fern", "minecraft:fern"))
+	state := loadedState(t, root)
+
+	result, errMsg := call(t, state, "renameFeature", map[string]any{"from": "example:patch_rule", "to": "example:meadow_rule"})
+	if errMsg != "" {
+		t.Fatalf("renaming a feature rule was refused: %s", errMsg)
+	}
+	if notes := fmt.Sprint(result["notes"]); !strings.Contains(notes, "file name") {
 		t.Errorf("renaming a rule said nothing about the file-name check the engine runs: %v", notes)
 	}
 }

@@ -26,6 +26,7 @@ import {
   foldIdentifier,
   lifecycleOffers,
   renameFeature,
+  renamedFilePath,
   type LifecycleOperation,
   type LifecyclePlan,
   type LifecycleRefusal,
@@ -118,37 +119,42 @@ describe('renameFeature', () => {
     expect(p.request).toEqual({ method: 'renameFeature', params: { from: 'example:oak', to: 'example:oak_log' } })
   })
 
-  // The file is not renamed, and no test-passing accident should let that change quietly: the
-  // engine reads the identifier out of the file and derives nothing from the file's name, while
-  // renaming the file invalidates whatever the author has open.
-  it('never plans a file rename, and says the file keeps its name', () => {
+  // The engine moves a file named after the old identifier; the plan says so, and the move is not
+  // one of its operations (the engine decides it against the disk when the rename runs).
+  it('says a file named after the feature is renamed with it', () => {
     const p = plan(renameFeature(samplePack(), { target: 'example:oak', newId: 'example:oak_log' }))
     expect(p.operations.some((op) => op.op === 'createFile' || op.op === 'deleteFile')).toBe(false)
-    expect(p.notes.map((n) => n.message).join(' ')).toContain('features/oak.json still holds it')
+    expect(p.notes.map((n) => n.message).join(' ')).toContain('features/oak.json is renamed to features/oak_log.json')
   })
 
-  // A feature rule is the one node whose FILE NAME the engine looks at: it compares the
-  // identifier's name half against the file's own name and logs when they differ. The rule still
-  // loads and runs, so this is a note rather than a refusal -- but an author who is not told meets
-  // it in the log later.
-  it('warns that a renamed rule will no longer match its file name', () => {
+  // The reported bug: renaming a rule left feature_rules/<old>.json behind, and the engine reports
+  // every load where a rule's identifier and file name differ. The file now follows, so there is
+  // nothing to warn about.
+  it('renames a rule\'s file with it, and does not warn about the file name', () => {
     const p = plan(renameFeature(samplePack(), { target: 'example:patch_rule', newId: 'example:meadow_rule' }))
     expect(sets(p.operations)).toEqual([
       { file: 'feature_rules/patch_rule.json', path: '$.minecraft:feature_rules.description.identifier', value: 'example:meadow_rule' },
     ])
-    expect(p.notes.map((n) => n.message).join(' ')).toContain('file name')
-    // It names the file to rename to, because "these differ" without the answer is a puzzle.
-    expect(p.notes.map((n) => n.message).join(' ')).toContain('feature_rules/meadow_rule.json')
+    const notes = p.notes.map((n) => n.message).join(' ')
+    expect(notes).toContain('feature_rules/patch_rule.json is renamed to feature_rules/meadow_rule.json')
+    expect(notes).not.toContain('file name')
   })
 
-  // The other direction, which the note used to get wrong by firing on every rule rename: a rename
-  // INTO agreement warns about nothing. A warning that is always there is one nobody reads, and
-  // this one would have been attached to the rename that fixes the problem it describes.
-  it('says nothing about the file name when the new name matches the file', () => {
-    const p = plan(renameFeature(samplePack(), { target: 'example:patch_rule', newId: 'example:patch_rule_2' }))
+  // A rule file the author named some other way stays, and the mismatch is still worth saying --
+  // but only when the new name actually differs from the file.
+  it('warns about the file name only for a rule whose file keeps a different name', () => {
+    const graph: IdiomGraph = { nodes: [node('example:lonely_rule', RULE, 'feature_rules/rules.json')], edges: [] }
+    const p = plan(renameFeature(graph, { target: 'example:lonely_rule', newId: 'example:other_rule' }))
     expect(p.notes.map((n) => n.message).join(' ')).toContain('file name')
-    const matching = plan(renameFeature(samplePack(), { target: 'example:patch_rule', newId: 'other:patch_rule' }))
+    const matching = plan(renameFeature(graph, { target: 'example:lonely_rule', newId: 'example:rules' }))
     expect(matching.notes.map((n) => n.message).join(' ')).not.toContain('file name')
+  })
+
+  it('moves only a file whose name is the old name half, keeping directory and extension', () => {
+    expect(renamedFilePath('feature_rules/a.fr.json', 'x:a.fr', 'x:b.fr')).toBe('feature_rules/b.fr.json')
+    expect(renamedFilePath('features/sub/oak.json', 'x:oak', 'y:birch')).toBe('features/sub/birch.json')
+    expect(renamedFilePath('features/my_tree.json', 'x:oak', 'x:birch')).toBeNull()
+    expect(renamedFilePath('features/oak.json', 'x:oak', 'y:oak')).toBeNull()
   })
 
   // The rule's body key is the PLURAL collection key, while its node carries the singular
