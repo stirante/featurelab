@@ -1863,17 +1863,19 @@ export class GraphPanel {
 async function followMovedFile(from: string, to: string): Promise<void> {
   const same = (a: string, b: string): boolean =>
     process.platform === 'win32' ? path.normalize(a).toLowerCase() === path.normalize(b).toLowerCase() : path.normalize(a) === path.normalize(b)
-  for (const group of vscode.window.tabGroups.all) {
-    for (const tab of group.tabs) {
-      if (!(tab.input instanceof vscode.TabInputText) || !same(tab.input.uri.fsPath, from) || tab.isDirty) continue
-      try {
+  // Never fails the rename it follows: the files are already moved, and a tab left on the old
+  // path is a cosmetic leftover, not a reason to tell the author the rename failed.
+  try {
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (!(tab.input instanceof vscode.TabInputText) || !same(tab.input.uri.fsPath, from) || tab.isDirty) continue
         const document = await vscode.workspace.openTextDocument(vscode.Uri.file(to))
         await vscode.window.showTextDocument(document, { viewColumn: group.viewColumn, preview: tab.isPreview, preserveFocus: true })
         await vscode.window.tabGroups.close(tab)
-      } catch (err) {
-        log(`Could not move the tab for ${from} to ${to}: ${describeError(err)}`)
       }
     }
+  } catch (err) {
+    log(`Could not move the tabs for ${from} to ${to}: ${describeError(err)}`)
   }
 }
 
