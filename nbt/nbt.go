@@ -8,15 +8,20 @@
 // package means "checked against real files".
 //
 // This is intentionally NOT a general-purpose NBT library: only the tag
-// types actually observed (or trivially adjacent) are implemented, there is
-// no writer, and there is no gzip/zlib framing support — `.mcstructure`
-// files are raw, uncompressed tag streams (every checked file's first byte is
-// 0x0A, TAG_Compound, not a gzip magic).
+// types actually observed (or trivially adjacent) are implemented, and there
+// is no writer. `.mcstructure` files are raw tag streams (every checked file's
+// first byte is 0x0A, TAG_Compound, not a gzip magic). Version 2 files
+// (Preview 26.50.24) store block_indices layers as IntArrays and may omit the
+// second layer; from Preview 26.60.29 a root `compression: 1` zlib-compresses
+// the `structure` compound into a ByteArray (see inflateStructure).
 package nbt
 
 import (
+	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 )
 
@@ -240,8 +245,9 @@ type ParsedMcStructure struct {
 	// file's block_indices length equalling size.x*size.y*size.z exactly.
 	Layer0 []int32
 	// Layer1 is `structure.block_indices[1]` -- the secondary/waterlogging
-	// layer, same indexing and -1 convention as Layer0. Present in every
-	// checked file even when unused (all -1).
+	// layer, same indexing and -1 convention as Layer0. Always present in
+	// version 1 files; version 2 files omit it when unused, and it is then
+	// filled with -1 here.
 	Layer1 []int32
 }
 
@@ -340,6 +346,73 @@ func toInt32Array(v any, path string, expectedLength int) ([]int32, error) {
 	return out, nil
 }
 
+// blockLayer reads one block_indices layer: an IntArray in version 2 files,
+// a List of Ints in version 1.
+func blockLayer(v any, path string, expectedLength int) ([]int32, error) {
+	if a, ok := v.([]int32); ok {
+		if len(a) != expectedLength {
+			return nil, fmt.Errorf("mcstructure: %s has %d entries, expected %d", path, len(a), expectedLength)
+		}
+		return a, nil
+	}
+	return toInt32Array(v, path, expectedLength)
+}
+
+// inflateStructure decodes a `compression: 1` structure tag: a ByteArray
+// holding the zlib-compressed NBT of the structure compound. The changelog
+// (Preview 26.60.29) does not say whether that NBT is a named root tag or the
+// bare compound payload, nor whether the root wraps it as "structure", so all
+// three shapes are accepted.
+func inflateStructure(v any) (any, error) {
+	raw, ok := v.([]int8)
+	if !ok {
+		return nil, fmt.Errorf("mcstructure: compressed structure must be a ByteArray")
+	}
+	compressed := make([]byte, len(raw))
+	for i, b := range raw {
+		compressed[i] = byte(b)
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return nil, fmt.Errorf("mcstructure: compressed structure: %v", err)
+	}
+	data, err := io.ReadAll(zr)
+	if err != nil {
+		return nil, fmt.Errorf("mcstructure: compressed structure: %v", err)
+	}
+	var structure Compound
+	if len(data) > 0 && TagType(data[0]) == TagCompound {
+		_, structure, err = ReadNbt(data)
+	}
+	if structure == nil {
+		structure, err = readCompoundPayload(data)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mcstructure: compressed structure: %v", err)
+	}
+	if inner, ok := structure["structure"].(Compound); ok && structure["block_indices"] == nil {
+		return inner, nil
+	}
+	return structure, nil
+}
+
+// readCompoundPayload reads a TAG_Compound's payload with no type byte or
+// name in front of it.
+func readCompoundPayload(data []byte) (value Compound, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			value = nil
+			if e, ok := rec.(error); ok {
+				err = e
+			} else {
+				err = fmt.Errorf("nbt: %v", rec)
+			}
+		}
+	}()
+	r := &reader{data: data, order: binary.LittleEndian}
+	return readPayload(r, TagCompound).(Compound), nil
+}
+
 // ParseMcStructure parses a raw `.mcstructure` file's bytes into a
 // ParsedMcStructure. Returns a descriptive error (never silently drops
 // data) on anything not matching the shape every real file in the pack was
@@ -360,7 +433,23 @@ func ParseMcStructure(data []byte) (*ParsedMcStructure, error) {
 	}
 	cellCount := size.X * size.Y * size.Z
 
-	structure, err := asCompound(root["structure"], "structure")
+	structureTag := root["structure"]
+	if tag, ok := root["compression"]; ok {
+		compression, err := asInt(tag, "compression")
+		if err != nil {
+			return nil, err
+		}
+		switch compression {
+		case 0:
+		case 1:
+			if structureTag, err = inflateStructure(structureTag); err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("mcstructure: unknown compression %d (0 is none, 1 is zlib)", compression)
+		}
+	}
+	structure, err := asCompound(structureTag, "structure")
 	if err != nil {
 		return nil, err
 	}
@@ -368,16 +457,25 @@ func ParseMcStructure(data []byte) (*ParsedMcStructure, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(blockIndices) != 2 {
-		return nil, fmt.Errorf("mcstructure: structure.block_indices must have exactly 2 layers, got %d", len(blockIndices))
+	// Version 2 leaves the second layer out when nothing is stored in it.
+	if len(blockIndices) != 1 && len(blockIndices) != 2 {
+		return nil, fmt.Errorf("mcstructure: structure.block_indices must have 1 or 2 layers, got %d", len(blockIndices))
 	}
-	layer0, err := toInt32Array(blockIndices[0], "structure.block_indices[0]", cellCount)
+	layer0, err := blockLayer(blockIndices[0], "structure.block_indices[0]", cellCount)
 	if err != nil {
 		return nil, err
 	}
-	layer1, err := toInt32Array(blockIndices[1], "structure.block_indices[1]", cellCount)
-	if err != nil {
-		return nil, err
+	var layer1 []int32
+	if len(blockIndices) == 2 {
+		layer1, err = blockLayer(blockIndices[1], "structure.block_indices[1]", cellCount)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		layer1 = make([]int32, cellCount)
+		for i := range layer1 {
+			layer1[i] = -1
+		}
 	}
 
 	paletteRoot, err := asCompound(structure["palette"], "structure.palette")
