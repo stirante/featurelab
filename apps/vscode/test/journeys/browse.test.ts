@@ -354,15 +354,15 @@ describe('renaming a node', () => {
       await name.press('Enter')
       await j.waitForRedraw(before)
 
-      // The outcome, on disk. The FILE deliberately keeps its name -- a feature's file name is
-      // not its identifier, and the engine says so in as many words (only a feature RULE is
-      // compared against its file name, and it logs rather than refuses). What has to change is
-      // the declaration and every delegation into it: a rename that left the referrer behind
-      // would leave the pack with a dangling reference the author never made.
+      // The outcome, on disk. The declaration and every delegation into it change: a rename that
+      // left the referrer behind would leave the pack with a dangling reference the author never
+      // made. The file was named after the old identifier, so it moves with it.
+      const movedFile = 'features/polished_gold_block.json'
       await expect
-        .poll(() => j.read(REFERENCED_FILE).includes('wiki:polished_gold_block'), { timeout: 20_000 })
+        .poll(() => j.exists(movedFile) && j.read(movedFile).includes('wiki:polished_gold_block'), { timeout: 20_000 })
         .toBe(true)
-      expect(j.read(REFERENCED_FILE)).not.toContain(REFERENCED)
+      expect(j.exists(REFERENCED_FILE)).toBe(false)
+      expect(j.read(movedFile)).not.toContain(REFERENCED)
       expect(j.read(REFERRER_FILE)).toContain('wiki:polished_gold_block')
       expect(j.read(REFERRER_FILE)).not.toContain(REFERENCED)
 
