@@ -353,7 +353,7 @@ exactly, not approximately.
   `implemented`, because this is a precision gap rather than a missing
   behaviour -- `features/coverage.go`'s entry states it in full.
 - **Jigsaw structures** (`generate --structure`, package `jigsaw/`) are assembled
-  the way the game does it but not yet compared with a world in game.
+  the way the game does it and compared with structures generated in a world.
   Terrain adaptation, biome filters, structure set selection and random pool
   aliases are not modelled; a run warns about each it hits. See
   `docs/site/engine/jigsaw.md`.

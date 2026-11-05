@@ -1,0 +1,14 @@
+{
+  "format_version": "1.26.70",
+  "minecraft:ore_feature": {
+    "description": {
+      "identifier": "difftest:ore_rule_any_block"
+    },
+    "count": 20,
+    "replace_rules": [
+      {
+        "places_block": "minecraft:iron_ore"
+      }
+    ]
+  }
+}

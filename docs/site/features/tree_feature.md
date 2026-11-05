@@ -355,7 +355,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | `mega_canopy` | `leaf_block` | yes | block descriptor | — | Every layer of the cone. |
 | | `canopy_height` | yes | range | — | How many layers the cone has, sampled per tree. |
 | | `base_radius` | no | integer ≥ 0 | `2` | The half-width of the **narrowest** layer, at the very top. Every layer below widens by one from here, so this sets the whole cone. |
-| | `core_width` | no | integer ≥ 1 | the trunk's width | **Must match the trunk's width** when written, and cannot be written with a `trunk_width` range. At a branch tip the trunk is always one block wide, so a crown grown there needs `1`. |
+| | `core_width` | no | integer ≥ 1 | none | **Must match the trunk's width** when written, and cannot be written with a `trunk_width` range. Written, it widens the crown by `core_width / 2`. Left out, the crown is the same size on any trunk width. At a branch tip the trunk is always one block wide, so a crown grown there needs `1`. |
 | | `simplify_canopy` | no | boolean | `false` | Uses a strict circle for each layer instead of a relaxed one. |
 | `mega_pine_canopy` | `leaf_block` | yes | block descriptor | — | Every layer of the cone. |
 | | `canopy_height` | yes | range | — | How many layers, sampled per tree. |

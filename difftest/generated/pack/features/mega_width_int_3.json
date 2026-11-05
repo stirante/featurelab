@@ -1,0 +1,31 @@
+{
+  "format_version": "1.26.70",
+  "minecraft:tree_feature": {
+    "description": {
+      "identifier": "difftest:mega_width_int_3"
+    },
+    "base_block": "minecraft:dirt",
+    "may_grow_on": [
+      "minecraft:grass_block",
+      "minecraft:dirt"
+    ],
+    "may_replace": [
+      "minecraft:air"
+    ],
+    "may_grow_through": [
+      "minecraft:air"
+    ],
+    "mega_trunk": {
+      "trunk_height": {
+        "base": 6
+      },
+      "trunk_width": 3,
+      "trunk_block": "minecraft:emerald_block"
+    },
+    "mega_canopy": {
+      "canopy_height": 2,
+      "base_radius": 1,
+      "leaf_block": "minecraft:gold_block"
+    }
+  }
+}

@@ -785,4 +785,34 @@ func (b *builder) newTypes(fx map[string]string) {
 	b.featureFV("1.26.50", "crevasse_feature", "crevasse_rim", `{"max_length": 12, "min_footprint": 4, "surface_block": "minecraft:gravel"}`)
 	b.test(Test{ID: "crevasse_rim", Type: "minecraft:crevasse_feature", Group: "crevasse",
 		Metrics: []string{"success", "placed", "block:minecraft:gravel", "bbox.dy"}, Note: "a trench lined with gravel"})
+	b.test(Test{ID: "crevasse_rim_over_chests", FeatureID: Namespace + ":crevasse_rim", Type: "minecraft:crevasse_feature", Group: "crevasse",
+		Setup:   []Op{fill(box(-10, -1, -10, 10, -1, 10), "minecraft:chest")},
+		Metrics: []string{"success", "placed", "block:minecraft:gravel", "block:minecraft:chest"}, Note: "the top layer is chests, which the tag protects"})
+
+	stoneCube := []Op{fill(box(-8, 2, -8, 8, 18, 8), "minecraft:stone")}
+	cubeRegion := box(-10, 0, -10, 10, 20, 10)
+	b.featureFV("1.26.70", "ore_feature", "ore_rule_any_block", `{"count": 20, "replace_rules": [{"places_block": "minecraft:iron_ore"}]}`)
+	b.test(Test{ID: "ore_rule_any_block", Type: "minecraft:ore_feature", Group: "ore", Setup: stoneCube, Region: cubeRegion, Place: [3]int{0, 10, 0},
+		Metrics: []string{"success", "placed", "replaced", "block:minecraft:iron_ore", "block:minecraft:stone"}, Note: "a rule without may_replace matches any block"})
+	b.test(Test{ID: "ore_rule_any_block_air", FeatureID: Namespace + ":ore_rule_any_block", Type: "minecraft:ore_feature", Group: "ore", Region: cubeRegion, Place: [3]int{0, 10, 0},
+		Metrics: []string{"success", "placed", "block:minecraft:iron_ore"}, Note: "a rule without may_replace also takes air"})
+	b.feature("ore_feature", "ore_into_chests", `{"count": 20, "replace_rules": [{"places_block": "minecraft:iron_ore", "may_replace": ["minecraft:chest"]}]}`)
+	b.test(Test{ID: "ore_into_chests", Type: "minecraft:ore_feature", Group: "ore", Setup: []Op{fill(box(-8, 2, -8, 8, 18, 8), "minecraft:chest")}, Region: cubeRegion, Place: [3]int{0, 10, 0},
+		Metrics: []string{"success", "placed", "block:minecraft:iron_ore", "block:minecraft:chest"}, Note: "ore ignores not_feature_replaceable"})
+
+	b.test(Test{ID: "geode_keeps_chests", FeatureID: Namespace + ":geode_small_solid", Type: "minecraft:geode_feature", Group: "geode",
+		Setup:  []Op{fill(box(-14, -3, -14, 14, 26, 14), "minecraft:stone"), fill(box(-14, 8, -14, 14, 8, 14), "minecraft:chest")},
+		Region: box(-16, -4, -16, 16, 28, 16), Place: [3]int{0, 8, 0},
+		Metrics: []string{"success", "block:minecraft:chest", "block:minecraft:glass", "block:minecraft:obsidian"}, Note: "a plane of chests through the geode stays"})
+
+	megaTree := func(name, width string) {
+		b.featureFV("1.26.70", "tree_feature", name, `{"base_block": "minecraft:dirt", "may_grow_on": ["minecraft:grass_block", "minecraft:dirt"],
+		  "may_replace": ["minecraft:air"], "may_grow_through": ["minecraft:air"],
+		  "mega_trunk": {"trunk_height": {"base": 6}, `+width+`"trunk_block": "minecraft:emerald_block"},
+		  "mega_canopy": {"canopy_height": 2, "base_radius": 1, "leaf_block": "minecraft:gold_block"}}`)
+		b.test(Test{ID: name, Type: "minecraft:tree_feature", Group: "tree", Region: box(-10, -2, -10, 10, 14, 10),
+			Metrics: []string{"success", "placed", "block:minecraft:emerald_block", "block:minecraft:gold_block", "bbox.dx"}, Note: "mega_trunk " + width})
+	}
+	megaTree("mega_width_int_3", `"trunk_width": 3, `)
+	megaTree("mega_width_range_2_4", `"trunk_width": {"range_min": 2, "range_max": 4}, `)
 }

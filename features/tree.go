@@ -2749,10 +2749,18 @@ func (c *megaCanopy) place(api wgen.BlockWorld, anchor wgen.BlockPos, rnd random
 	// dy runs (1-value)..0 inclusive, radius = -dy + baseRadius (+0):
 	// widest at the bottom (dy=1-value), narrowing by exactly 1 per layer to
 	// the smallest at dy=0 -- a downward-flaring cone (see file header).
+	//
+	// The radius reads the canopy's own core_width field, never the trunk's size.
+	// With no core_width written the term is 0: in game, trunk widths 2, 3 and 4 all
+	// grew the same crown.
+	halfCoreWidth := 0
+	if c.coreWidthParsed {
+		halfCoreWidth = c.coreWidth / 2
+	}
 	for i := 0; i < value; i++ {
 		TickDeadline("stacking canopy layers as tall as its canopy height asks")
 		dy := (1 - value) + i
-		radius := (value - 1 - i) + c.baseRadius + c.coreWidth/2
+		radius := (value - 1 - i) + c.baseRadius + halfCoreWidth
 		center := wgen.BlockPos{X: anchor.X, Y: anchor.Y + dy, Z: anchor.Z}
 		if err := placeRoundedLayer(api, c.pal, center, c.leafID, radius, max(1, c.coreWidth), c.simplifyCanopy, params.mayReplace); err != nil {
 			RaiseMalformedRange("mega_canopy", err.Error())

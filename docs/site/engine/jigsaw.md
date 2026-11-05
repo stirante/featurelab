@@ -21,7 +21,7 @@ featurelab generate --pack <dir> --structure ns:my_structure --seed 1 --size 256
 
 ## What matches the game
 
-Not yet compared with a world in game:
+Compared with two structures generated in a new world on Windows 1.26.70.21. 1904 of 1905 and 2094 of 2207 blocks matched. The kinds of difference we looked at point to terrain (a geode, caves, probably a dungeon and a clay patch), but they were judged by block type, not checked one by one:
 
 - The random stream: `java.util.Random` seeded per chunk, with the start height, rotation, element and shuffle draws in the game's order.
 - Placing children: priorities, shuffled connectors and rotations, whether two jigsaw blocks can attach, overlap spaces, `max_depth`, `max_distance_from_center` and `dimension_padding`.
@@ -45,6 +45,7 @@ Each of these is reported as a warning in the run that hits it, except where not
 
 ## Things worth knowing
 
+- `/place structure` does not give the same result as world generation. It seeds its random from the position you give, so a bench run matches a structure that generated in the world, not one you placed with the command. Placing again at the same spot repeats the same result.
 - `max_depth: 0` places nothing, not even the start piece. The run says so.
 - A template pool declared in two files is a warning, because the game keeps the first one it loads. The game's load order is not known here, so this run may keep the other file.
 - A pool name is registered in lowercase, so a reference spelled with capitals does not find it.

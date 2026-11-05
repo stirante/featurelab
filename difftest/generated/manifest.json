@@ -19231,6 +19231,819 @@
      }
     ]
    }
+  },
+  {
+   "id": "crevasse_rim_over_chests",
+   "type": "minecraft:crevasse_feature",
+   "featureId": "difftest:crevasse_rim",
+   "group": "crevasse",
+   "note": "the top layer is chests, which the tag protects",
+   "source": "catalog",
+   "place": [
+    0,
+    0,
+    0
+   ],
+   "setup": [
+    {
+     "op": "fill",
+     "box": {
+      "min": [
+       -10,
+       -1,
+       -10
+      ],
+      "max": [
+       10,
+       -1,
+       10
+      ]
+     },
+     "block": "minecraft:chest"
+    }
+   ],
+   "region": {
+    "min": [
+     -10,
+     -4,
+     -10
+    ],
+    "max": [
+     10,
+     12,
+     10
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "placed",
+    "block:minecraft:gravel",
+    "block:minecraft:chest"
+   ],
+   "cell": 165,
+   "anchor": [
+    1416,
+    -60,
+    1928
+   ],
+   "game": {
+    "placeAt": [
+     1416,
+     -60,
+     1928
+    ],
+    "dumpBox": {
+     "min": [
+      1406,
+      -64,
+      1918
+     ],
+     "max": [
+      1426,
+      -48,
+      1938
+     ]
+    },
+    "resetBox": {
+     "min": [
+      1402,
+      -64,
+      1914
+     ],
+     "max": [
+      1430,
+      -44,
+      1942
+     ]
+    },
+    "teleport": "tp @s 1416 -20 1928",
+    "reset": [
+     "fill 1402 -60 1914 1430 -44 1942 minecraft:air",
+     "fill 1402 -64 1914 1430 -64 1942 minecraft:bedrock",
+     "fill 1402 -63 1914 1430 -63 1942 minecraft:dirt",
+     "fill 1402 -62 1914 1430 -62 1942 minecraft:dirt",
+     "fill 1402 -61 1914 1430 -61 1942 minecraft:grass_block"
+    ],
+    "setup": [
+     "fill 1406 -61 1918 1426 -61 1938 minecraft:chest"
+    ],
+    "place": "place feature difftest:crevasse_rim 1416 -60 1928",
+    "checks": [
+     {
+      "pos": [
+       1416,
+       -61,
+       1928
+      ],
+      "block": "minecraft:chest"
+     },
+     {
+      "pos": [
+       1406,
+       -61,
+       1918
+      ],
+      "block": "minecraft:chest"
+     },
+     {
+      "pos": [
+       1426,
+       -61,
+       1938
+      ],
+      "block": "minecraft:chest"
+     }
+    ]
+   }
+  },
+  {
+   "id": "ore_rule_any_block",
+   "type": "minecraft:ore_feature",
+   "featureId": "difftest:ore_rule_any_block",
+   "group": "ore",
+   "note": "a rule without may_replace matches any block",
+   "source": "catalog",
+   "place": [
+    0,
+    10,
+    0
+   ],
+   "setup": [
+    {
+     "op": "fill",
+     "box": {
+      "min": [
+       -8,
+       2,
+       -8
+      ],
+      "max": [
+       8,
+       18,
+       8
+      ]
+     },
+     "block": "minecraft:stone"
+    }
+   ],
+   "region": {
+    "min": [
+     -10,
+     0,
+     -10
+    ],
+    "max": [
+     10,
+     20,
+     10
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "placed",
+    "replaced",
+    "block:minecraft:iron_ore",
+    "block:minecraft:stone"
+   ],
+   "cell": 166,
+   "anchor": [
+    1544,
+    -60,
+    1928
+   ],
+   "game": {
+    "placeAt": [
+     1544,
+     -50,
+     1928
+    ],
+    "dumpBox": {
+     "min": [
+      1534,
+      -60,
+      1918
+     ],
+     "max": [
+      1554,
+      -40,
+      1938
+     ]
+    },
+    "resetBox": {
+     "min": [
+      1530,
+      -64,
+      1914
+     ],
+     "max": [
+      1558,
+      -36,
+      1942
+     ]
+    },
+    "teleport": "tp @s 1544 -20 1928",
+    "reset": [
+     "fill 1530 -60 1914 1558 -36 1942 minecraft:air",
+     "fill 1530 -64 1914 1558 -64 1942 minecraft:bedrock",
+     "fill 1530 -63 1914 1558 -63 1942 minecraft:dirt",
+     "fill 1530 -62 1914 1558 -62 1942 minecraft:dirt",
+     "fill 1530 -61 1914 1558 -61 1942 minecraft:grass_block"
+    ],
+    "setup": [
+     "fill 1536 -58 1920 1552 -42 1936 minecraft:stone"
+    ],
+    "place": "place feature difftest:ore_rule_any_block 1544 -50 1928",
+    "checks": [
+     {
+      "pos": [
+       1544,
+       -50,
+       1928
+      ],
+      "block": "minecraft:stone"
+     },
+     {
+      "pos": [
+       1536,
+       -58,
+       1920
+      ],
+      "block": "minecraft:stone"
+     },
+     {
+      "pos": [
+       1552,
+       -42,
+       1936
+      ],
+      "block": "minecraft:stone"
+     }
+    ]
+   }
+  },
+  {
+   "id": "ore_rule_any_block_air",
+   "type": "minecraft:ore_feature",
+   "featureId": "difftest:ore_rule_any_block",
+   "group": "ore",
+   "note": "a rule without may_replace also takes air",
+   "source": "catalog",
+   "place": [
+    0,
+    10,
+    0
+   ],
+   "setup": [],
+   "region": {
+    "min": [
+     -10,
+     0,
+     -10
+    ],
+    "max": [
+     10,
+     20,
+     10
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "placed",
+    "block:minecraft:iron_ore"
+   ],
+   "cell": 167,
+   "anchor": [
+    1672,
+    -60,
+    1928
+   ],
+   "game": {
+    "placeAt": [
+     1672,
+     -50,
+     1928
+    ],
+    "dumpBox": {
+     "min": [
+      1662,
+      -60,
+      1918
+     ],
+     "max": [
+      1682,
+      -40,
+      1938
+     ]
+    },
+    "resetBox": {
+     "min": [
+      1658,
+      -64,
+      1914
+     ],
+     "max": [
+      1686,
+      -36,
+      1942
+     ]
+    },
+    "teleport": "tp @s 1672 -20 1928",
+    "reset": [
+     "fill 1658 -60 1914 1686 -36 1942 minecraft:air",
+     "fill 1658 -64 1914 1686 -64 1942 minecraft:bedrock",
+     "fill 1658 -63 1914 1686 -63 1942 minecraft:dirt",
+     "fill 1658 -62 1914 1686 -62 1942 minecraft:dirt",
+     "fill 1658 -61 1914 1686 -61 1942 minecraft:grass_block"
+    ],
+    "setup": [],
+    "place": "place feature difftest:ore_rule_any_block 1672 -50 1928",
+    "checks": []
+   }
+  },
+  {
+   "id": "ore_into_chests",
+   "type": "minecraft:ore_feature",
+   "featureId": "difftest:ore_into_chests",
+   "group": "ore",
+   "note": "ore ignores not_feature_replaceable",
+   "source": "catalog",
+   "place": [
+    0,
+    10,
+    0
+   ],
+   "setup": [
+    {
+     "op": "fill",
+     "box": {
+      "min": [
+       -8,
+       2,
+       -8
+      ],
+      "max": [
+       8,
+       18,
+       8
+      ]
+     },
+     "block": "minecraft:chest"
+    }
+   ],
+   "region": {
+    "min": [
+     -10,
+     0,
+     -10
+    ],
+    "max": [
+     10,
+     20,
+     10
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "placed",
+    "block:minecraft:iron_ore",
+    "block:minecraft:chest"
+   ],
+   "cell": 168,
+   "anchor": [
+    264,
+    -60,
+    2056
+   ],
+   "game": {
+    "placeAt": [
+     264,
+     -50,
+     2056
+    ],
+    "dumpBox": {
+     "min": [
+      254,
+      -60,
+      2046
+     ],
+     "max": [
+      274,
+      -40,
+      2066
+     ]
+    },
+    "resetBox": {
+     "min": [
+      250,
+      -64,
+      2042
+     ],
+     "max": [
+      278,
+      -36,
+      2070
+     ]
+    },
+    "teleport": "tp @s 264 -20 2056",
+    "reset": [
+     "fill 250 -60 2042 278 -36 2070 minecraft:air",
+     "fill 250 -64 2042 278 -64 2070 minecraft:bedrock",
+     "fill 250 -63 2042 278 -63 2070 minecraft:dirt",
+     "fill 250 -62 2042 278 -62 2070 minecraft:dirt",
+     "fill 250 -61 2042 278 -61 2070 minecraft:grass_block"
+    ],
+    "setup": [
+     "fill 256 -58 2048 272 -42 2064 minecraft:chest"
+    ],
+    "place": "place feature difftest:ore_into_chests 264 -50 2056",
+    "checks": [
+     {
+      "pos": [
+       264,
+       -50,
+       2056
+      ],
+      "block": "minecraft:chest"
+     },
+     {
+      "pos": [
+       256,
+       -58,
+       2048
+      ],
+      "block": "minecraft:chest"
+     },
+     {
+      "pos": [
+       272,
+       -42,
+       2064
+      ],
+      "block": "minecraft:chest"
+     }
+    ]
+   }
+  },
+  {
+   "id": "geode_keeps_chests",
+   "type": "minecraft:geode_feature",
+   "featureId": "difftest:geode_small_solid",
+   "group": "geode",
+   "note": "a plane of chests through the geode stays",
+   "source": "catalog",
+   "place": [
+    0,
+    8,
+    0
+   ],
+   "setup": [
+    {
+     "op": "fill",
+     "box": {
+      "min": [
+       -14,
+       -3,
+       -14
+      ],
+      "max": [
+       14,
+       26,
+       14
+      ]
+     },
+     "block": "minecraft:stone"
+    },
+    {
+     "op": "fill",
+     "box": {
+      "min": [
+       -14,
+       8,
+       -14
+      ],
+      "max": [
+       14,
+       8,
+       14
+      ]
+     },
+     "block": "minecraft:chest"
+    }
+   ],
+   "region": {
+    "min": [
+     -16,
+     -4,
+     -16
+    ],
+    "max": [
+     16,
+     28,
+     16
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "block:minecraft:chest",
+    "block:minecraft:glass",
+    "block:minecraft:obsidian"
+   ],
+   "cell": 169,
+   "anchor": [
+    392,
+    -60,
+    2056
+   ],
+   "game": {
+    "placeAt": [
+     392,
+     -52,
+     2056
+    ],
+    "dumpBox": {
+     "min": [
+      376,
+      -64,
+      2040
+     ],
+     "max": [
+      408,
+      -32,
+      2072
+     ]
+    },
+    "resetBox": {
+     "min": [
+      372,
+      -64,
+      2036
+     ],
+     "max": [
+      412,
+      -28,
+      2076
+     ]
+    },
+    "teleport": "tp @s 392 -20 2056",
+    "reset": [
+     "fill 372 -60 2036 412 -42 2076 minecraft:air",
+     "fill 372 -41 2036 412 -28 2076 minecraft:air",
+     "fill 372 -64 2036 412 -64 2076 minecraft:bedrock",
+     "fill 372 -63 2036 412 -63 2076 minecraft:dirt",
+     "fill 372 -62 2036 412 -62 2076 minecraft:dirt",
+     "fill 372 -61 2036 412 -61 2076 minecraft:grass_block"
+    ],
+    "setup": [
+     "fill 378 -63 2042 406 -34 2070 minecraft:stone",
+     "fill 378 -52 2042 406 -52 2070 minecraft:chest"
+    ],
+    "place": "place feature difftest:geode_small_solid 392 -52 2056",
+    "checks": [
+     {
+      "pos": [
+       392,
+       -61,
+       2056
+      ],
+      "block": "minecraft:stone"
+     },
+     {
+      "pos": [
+       392,
+       -49,
+       2056
+      ],
+      "block": "minecraft:stone"
+     },
+     {
+      "pos": [
+       378,
+       -63,
+       2042
+      ],
+      "block": "minecraft:stone"
+     },
+     {
+      "pos": [
+       406,
+       -34,
+       2070
+      ],
+      "block": "minecraft:stone"
+     },
+     {
+      "pos": [
+       392,
+       -52,
+       2056
+      ],
+      "block": "minecraft:chest"
+     },
+     {
+      "pos": [
+       378,
+       -52,
+       2042
+      ],
+      "block": "minecraft:chest"
+     },
+     {
+      "pos": [
+       406,
+       -52,
+       2070
+      ],
+      "block": "minecraft:chest"
+     }
+    ]
+   }
+  },
+  {
+   "id": "mega_width_int_3",
+   "type": "minecraft:tree_feature",
+   "featureId": "difftest:mega_width_int_3",
+   "group": "tree",
+   "note": "mega_trunk \"trunk_width\": 3, ",
+   "source": "catalog",
+   "place": [
+    0,
+    0,
+    0
+   ],
+   "setup": [],
+   "region": {
+    "min": [
+     -10,
+     -2,
+     -10
+    ],
+    "max": [
+     10,
+     14,
+     10
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "placed",
+    "block:minecraft:emerald_block",
+    "block:minecraft:gold_block",
+    "bbox.dx"
+   ],
+   "cell": 170,
+   "anchor": [
+    520,
+    -60,
+    2056
+   ],
+   "game": {
+    "placeAt": [
+     520,
+     -60,
+     2056
+    ],
+    "dumpBox": {
+     "min": [
+      510,
+      -62,
+      2046
+     ],
+     "max": [
+      530,
+      -46,
+      2066
+     ]
+    },
+    "resetBox": {
+     "min": [
+      506,
+      -64,
+      2042
+     ],
+     "max": [
+      534,
+      -42,
+      2070
+     ]
+    },
+    "teleport": "tp @s 520 -20 2056",
+    "reset": [
+     "fill 506 -60 2042 534 -42 2070 minecraft:air",
+     "fill 506 -64 2042 534 -64 2070 minecraft:bedrock",
+     "fill 506 -63 2042 534 -63 2070 minecraft:dirt",
+     "fill 506 -62 2042 534 -62 2070 minecraft:dirt",
+     "fill 506 -61 2042 534 -61 2070 minecraft:grass_block"
+    ],
+    "setup": [],
+    "place": "place feature difftest:mega_width_int_3 520 -60 2056",
+    "checks": [
+     {
+      "pos": [
+       520,
+       -61,
+       2056
+      ],
+      "block": "minecraft:grass_block"
+     }
+    ]
+   }
+  },
+  {
+   "id": "mega_width_range_2_4",
+   "type": "minecraft:tree_feature",
+   "featureId": "difftest:mega_width_range_2_4",
+   "group": "tree",
+   "note": "mega_trunk \"trunk_width\": {\"range_min\": 2, \"range_max\": 4}, ",
+   "source": "catalog",
+   "place": [
+    0,
+    0,
+    0
+   ],
+   "setup": [],
+   "region": {
+    "min": [
+     -10,
+     -2,
+     -10
+    ],
+    "max": [
+     10,
+     14,
+     10
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "placed",
+    "block:minecraft:emerald_block",
+    "block:minecraft:gold_block",
+    "bbox.dx"
+   ],
+   "cell": 171,
+   "anchor": [
+    648,
+    -60,
+    2056
+   ],
+   "game": {
+    "placeAt": [
+     648,
+     -60,
+     2056
+    ],
+    "dumpBox": {
+     "min": [
+      638,
+      -62,
+      2046
+     ],
+     "max": [
+      658,
+      -46,
+      2066
+     ]
+    },
+    "resetBox": {
+     "min": [
+      634,
+      -64,
+      2042
+     ],
+     "max": [
+      662,
+      -42,
+      2070
+     ]
+    },
+    "teleport": "tp @s 648 -20 2056",
+    "reset": [
+     "fill 634 -60 2042 662 -42 2070 minecraft:air",
+     "fill 634 -64 2042 662 -64 2070 minecraft:bedrock",
+     "fill 634 -63 2042 662 -63 2070 minecraft:dirt",
+     "fill 634 -62 2042 662 -62 2070 minecraft:dirt",
+     "fill 634 -61 2042 662 -61 2070 minecraft:grass_block"
+    ],
+    "setup": [],
+    "place": "place feature difftest:mega_width_range_2_4 648 -60 2056",
+    "checks": [
+     {
+      "pos": [
+       648,
+       -61,
+       2056
+      ],
+      "block": "minecraft:grass_block"
+     }
+    ]
+   }
   }
  ]
 }

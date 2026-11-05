@@ -53,9 +53,12 @@ func TestMegaTrunk_WidthRange_DrawsFirstAndSizesTrunkAndCanopy(t *testing.T) {
 	if got := v.GetBlock(wgen.BlockPos{X: 3, Y: 10, Z: 3}); got != logID {
 		t.Errorf("far corner of the drawn width 4 = %v, want a log", pal.Entry(got))
 	}
-	// base_radius 0 + 4/2 reaches two cells past the anchor. Width 2 or a core_width of 2 reach one.
-	if got := v.GetBlock(wgen.BlockPos{X: -2, Y: 14, Z: 0}); got != leaves {
-		t.Errorf("crown at radius 2 = %v, want leaves: the canopy must follow the drawn width", pal.Entry(got))
+	// The radius ignores the trunk: in game, widths 2, 3 and 4 grew the same crown.
+	if got := v.GetBlock(wgen.BlockPos{X: 0, Y: 14, Z: 0}); got != leaves {
+		t.Errorf("crown at the anchor = %v, want leaves", pal.Entry(got))
+	}
+	if got := v.GetBlock(wgen.BlockPos{X: -1, Y: 14, Z: 0}); got == leaves {
+		t.Error("crown reaches one cell past the anchor at base_radius 0, want it to ignore the drawn width")
 	}
 }
 
