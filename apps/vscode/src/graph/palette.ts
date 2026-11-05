@@ -213,6 +213,12 @@ const TYPE_PRESENTATION: Readonly<Record<string, TypePresentation>> = {
     category: 'place',
     keywords: ['bone', 'skull', 'spine', 'buried'],
   },
+  'minecraft:crevasse_feature': {
+    title: 'Crevasse',
+    summary: 'Carves a winding trench into natural terrain, with an optional surface lining and fill.',
+    category: 'carve',
+    keywords: ['trench', 'carve', 'canyon', 'crack', 'lava', 'fissure'],
+  },
   'minecraft:multi_block_feature': {
     title: 'Multi-block',
     summary: 'Places a multi-block as its complete line of parts or not at all: one cell that fails the replace check rejects the whole placement.',

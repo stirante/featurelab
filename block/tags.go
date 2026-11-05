@@ -525,7 +525,11 @@ func (p *Palette) blockHasTag(canonical, tagName string) bool {
 			}
 		}
 	}
-	if rep, ok := tagRepresentativeBlock[strings.TrimPrefix(tagName, "minecraft:")]; ok {
+	bareName := strings.TrimPrefix(tagName, "minecraft:")
+	if members, ok := vanillaTagMembers[bareName]; ok {
+		return members[canonical]
+	}
+	if rep, ok := tagRepresentativeBlock[bareName]; ok {
 		return canonical == rep
 	}
 	return false
@@ -543,7 +547,11 @@ func (p *Palette) tagKnown(tagName string) bool {
 			return true
 		}
 	}
-	_, ok := tagRepresentativeBlock[strings.TrimPrefix(tagName, "minecraft:")]
+	bareName := strings.TrimPrefix(tagName, "minecraft:")
+	if _, ok := vanillaTagMembers[bareName]; ok {
+		return true
+	}
+	_, ok := tagRepresentativeBlock[bareName]
 	return ok
 }
 

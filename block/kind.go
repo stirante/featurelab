@@ -297,10 +297,9 @@ func IsKnownBlockName(canonical string) bool {
 //
 // EXPLICITLY APPROXIMATE, both uses: this is a small, hand-curated table of
 // "one plausible representative block per vanilla tag name", not real
-// vanilla tag data (this tool has no copy of the game's vanilla tag
-// tables) — e.g. "water" only ever means minecraft:water, never
-// minecraft:flowing_water; "stone" only means minecraft:stone, never
-// granite/diorite/andesite/deepslate/etc. It is deliberately NOT extended
+// vanilla tag data. Membership tests read vanillaTagMembers first, so here the
+// table only answers for a tag that file does not record (such as "ice"), and
+// picks the one block a tag descriptor resolves to. It is deliberately NOT extended
 // into a bigger guess: a vanilla tag this table doesn't cover is diagnosed
 // (UnresolvedTags for Resolve; the unknownTag callback for NewMatchSet),
 // never silently widened.

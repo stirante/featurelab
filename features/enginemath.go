@@ -171,6 +171,7 @@ func EngineCos(radians float32) float32 {
 //	  the ore feature's placement      two sines, one cosine
 //
 //	LIBM (sinf/cosf)
+//	  the crevasse feature's walk      one sine, one cosine per step
 //	  the cave carver's room step      one sinf
 //	  the cave carver's tunnel step
 //	      three sinf (one of them the taper) and two cosf

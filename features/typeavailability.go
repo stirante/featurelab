@@ -41,14 +41,15 @@ var featureSchemaBands = []FormatVersion{
 // FeatureSchemaFloor is the oldest format_version that matches any schema band at all.
 var FeatureSchemaFloor = featureSchemaBands[0]
 
-// typeMinFormatVersion holds the types whose registration is NOT at the floor. 27 of the 29
+// typeMinFormatVersion holds the types whose registration is NOT at the floor. 27 of the 30
 // types the game registers are at feature schema version 2 (= 1.13.0) and are therefore usable at every
 // version a file can legally declare; listing them all here would be 27 rows that say nothing.
-// The two exceptions were both introduced in 1.26.40 and are the reason this gate is
-// observable at all:
+// Two exceptions were introduced in 1.26.40 and are the reason this gate is observable at all;
+// crevasse came in 1.26.70 at the newest band that build has:
 //
 //	minecraft:multi_block_feature             feature schema version 5-ish
 //	minecraft:multipart_block_column_feature  feature schema version 5
+//	minecraft:crevasse_feature                feature schema version 6
 //
 // minecraft:horizontal_tree_decoration_feature — the third type new in game version 1.26.50 —
 // is registered at feature schema version 2, so it is NOT gated: a file declaring "1.13.0" may
@@ -57,6 +58,7 @@ var FeatureSchemaFloor = featureSchemaBands[0]
 var typeMinFormatVersion = map[string]FormatVersion{
 	"minecraft:multi_block_feature":            MustFormatVersion("1.26.40"),
 	"minecraft:multipart_block_column_feature": MustFormatVersion("1.26.40"),
+	"minecraft:crevasse_feature":               MustFormatVersion("1.26.50"),
 }
 
 // MinFormatVersionForType returns the oldest format_version at which this build's schema

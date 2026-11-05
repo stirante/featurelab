@@ -3,8 +3,7 @@ title: Ore feature
 description: minecraft:ore_feature places a whole ellipsoidal vein of blocks in one call, resolved cell by cell through an ordered list of replace rules. Every key in a table, the +8 offset that moves the vein off your origin, and what the air-exposure gate really does — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:ore_feature
 category: content
-game: 1.26.60.22
-alsoHolds: ["1.26.50.24", "1.26.40.26"]
+game: 1.26.70.21
 scope: game
 ---
 
@@ -40,7 +39,7 @@ One file, complete. Nine blobs of diamond ore through stone, discarding half of 
 What each choice buys you:
 
 - **`count: 9`** is nine *blobs* strung along the vein, not nine blocks. Overlapping spheres and cells that match no rule both mean fewer blocks than this number — here, nine blobs come out as ten cells.
-- **`may_replace: ["minecraft:stone"]`** is what makes it a vein rather than a boulder: only stone is converted, so the vein takes the shape of whatever stone it happens to pass through. A rule with no list at all matches **nothing** — see [replace rules](#replace-rules).
+- **`may_replace: ["minecraft:stone"]`** is what makes it a vein rather than a boulder: only stone is converted, so the vein takes the shape of whatever stone it happens to pass through. A rule with no list at all matches **every block, air included** — see [replace rules](#replace-rules).
 - **`discard_chance_on_air_exposure: 0.5`** thins the vein where it would break into a cave or the open. In solid rock it never rejects anything, which is why this example is run underground.
 
 ![A small cluster of diamond ore embedded in the corner of a solid gray stone cutaway block, rendered by featurelab's voxel viewer](../../wiki/images/ore-feature-diamond-vein.png)
@@ -54,7 +53,7 @@ Run against the `underground_stone` preset (solid stone, no caves) with feature 
 ::: tip A vein you cannot see is usually there
 Two ordinary things hide a correct vein. It is **not centred on your origin** — look `+8` along X and Z. And an ore vein fully buried in solid rock is, correctly, invisible from outside it: a cell with solid neighbours on every side has no face to draw, in a preview as in the game. Neither is a failure to fix. Before adding `count`, check the cell list in `featurelab generate`'s result — the blocks are usually all there.
 
-The failure that *is* worth chasing is a vein that places nothing at all, and it has two causes with the same symptom: `replace_rules` left out entirely, or a rule whose `may_replace` list is empty or absent. Both are silent.
+The failure that *is* worth chasing is a vein that places nothing at all, and it has two causes with the same symptom: `replace_rules` left out entirely, or a rule whose `may_replace` names only blocks that do not exist. Both are silent.
 :::
 
 The picture is a **cutaway**, not a plain render: sliced to the vein's own top layer (world Y 29–32) and rendered with the surrounding rock solid rather than ghosted, so the stone reads as material and not as empty space. Both are viewing choices, not a change to what the feature placed — but the narrowed `--size` is not purely a viewing choice, and [what the bench does differently](#what-the-bench-does-differently) says why.
@@ -76,7 +75,7 @@ Three keys on the feature body, two inside each replace rule. "Default" is what 
 | Key | Required | Value | Default | What it does |
 |---|---|---|---|---|
 | `places_block` | yes | a block descriptor | — | The block this rule writes, where its own `may_replace` matched. `replace_rules[].places_block` is the one key in this object the schema insists on. |
-| `may_replace` | no — **but a rule without it never fires** | array of block descriptors | — | Which existing blocks this rule is willing to convert. Unlike a single block feature's `may_replace`, an absent or empty list is **not** "no constraint": it matches nothing. And unlike every other block list on the site, the match is on block *type* always — states you write here are discarded. |
+| `may_replace` | no | array of block descriptors, minimum one entry | absent — every block, air included | Which existing blocks this rule is willing to convert. An empty array is refused when the file loads. And unlike every other block list on the site, the match is on block *type* always — states you write here are discarded. |
 
 ## Common mistakes
 
@@ -84,7 +83,7 @@ Three keys on the feature body, two inside each replace rule. "Default" is what 
 |---|---|---|
 | `"replace_rules": []` to mean "place nothing for now" | Refused at **load** time, with a content-log line of the form *Array too small (0 < 1)*. The whole file is gone. | Leave the key out — that is the spelling that loads and places nothing. |
 | No `replace_rules` at all, by accident | The file loads without complaint and the feature never places a block. Nothing is logged at placement time. And it is not free: the check sits *after* the vein's geometry has been settled, so removing the rules from a file shifts everything placed after it in the same chain. | Give it a rule. If you meant to disable the feature, take it out of whatever calls it. |
-| A rule with no `may_replace`, expecting "no constraint, matches anything" | That shorthand belongs to a [single block feature](./single_block_feature.md#block-matching), not here. The same list-membership test runs either way, so an empty list simply never matches and the rule never fires. | Always give `replace_rules[].may_replace` an explicit list: `["minecraft:stone"]` and similar. |
+| A rule with no `may_replace`, expecting it to leave air alone | Since 1.26.70 such a rule matches every block, and that includes air: the vein fills caves and the open sky inside its shape. Before 1.26.70 the same rule never fired. | Give `replace_rules[].may_replace` an explicit list unless you want a solid blob: `["minecraft:stone"]` and similar. |
 | `{ "name": "minecraft:oak_log", "states": { "pillar_axis": "x" } }` in a rule's `may_replace` | The states are discarded: the comparison here is on block type, always. The entry matches every state of that block. | Write the bare name; if you needed the states to narrow it, this field cannot do that. |
 | Looking for the vein at the origin you asked for | It is offset `+8` on X and Z — a `count: 9` vein placed at `(0, 32, 0)` centres around roughly `(8, 31, 8)`. | Look `+8` away, or place the feature 8 blocks back. See [the `+8` offset](#the-8-offset). |
 | `"count": 30` to get thirty blocks | `count` is blobs. Overlapping spheres are merged and pruned, and cells matching no rule are skipped, so the block total is always lower and is not proportional in any simple way. | Read the placed-cell count out of a run rather than predicting it. |
@@ -172,8 +171,8 @@ Editing your own copy of this file to set `discard_chance_on_air_exposure` to `0
 
 ## Replace rules match by block type, always {#replace-rules}
 
-::: warning An empty or absent `may_replace` on a rule matches nothing
-This is **not** the "no constraint, matches anything" shorthand `may_replace` has on a [single block feature](./single_block_feature.md#block-matching). The game runs the same list-membership test on a rule either way, so a rule with nothing in its list simply never fires. Always give `replace_rules[].may_replace` an explicit list for the block or blocks the vein is meant to cut through.
+::: warning An absent `may_replace` on a rule matches every block
+Since 1.26.70 a rule without the key replaces anything it reaches, air included, and the vein keeps its full shape in open space. Before 1.26.70 the same rule never fired, so an old pack with such a rule starts placing blocks. Writing `"may_replace": []` is refused when the file loads. A list whose every name is unknown matches nothing.
 :::
 
 The other difference from every other block list in the worldgen schema is quieter: **states written into a rule's `may_replace` are discarded**, and the comparison is on the block type alone. A bare `minecraft:dirt` and a `{"name": "minecraft:dirt", "states": {…}}` behave identically here. That is more forgiving than the single block feature's rule, not less — but it means a rule cannot be narrowed to one state, and writing states out to try is silently ineffective rather than an error.
@@ -227,7 +226,7 @@ What the gate rolls cannot do is move the vein. The angle, both endpoints, every
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** and **1.26.40.26** too: this type's JSON surface — every key and default — and its placement are identical in all three.
+Everything above is a statement about Bedrock **1.26.70.21**, a beta build. The keys, the defaults and the placement match **1.26.60.22**, **1.26.50.24** and **1.26.40.26**, with one exception: in those builds a rule without `may_replace` never fired. The new rule was compared with a world in game: 30 placements agreed.
 
 Both JSON examples are committed fixtures and were run end to end, and every count and coordinate on this page was read back out of `featurelab generate`'s result: the diamond vein's 10 cells at `(7–9, 30–32, 7–8)`, the clay vein's eleven cells with the single gravel at `(9, 63, 8)`, and the plains column beneath them. The image was rendered from the diamond vein's own result by the documentation's own [image pipeline](https://github.com/stirante/featurelab/blob/main/docs/wiki/tools/generate-images.mjs), which runs the real engine against [the fixtures](https://github.com/stirante/featurelab/tree/main/docs/wiki/tools/fixtures) with a fixed seed and a deterministic camera, and sliced for visibility as described above.
 

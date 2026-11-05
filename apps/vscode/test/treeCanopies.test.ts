@@ -161,7 +161,8 @@ describe('every spec is well-formed', () => {
     expect(subSpec('canopy', 'min_width').required).toBe(false)
     expect(subSpec('acacia_canopy', 'canopy_size').required).toBe(true)
     expect(subSpec('acacia_canopy', 'simplify_canopy').required).toBe(false)
-    expect(subSpec('mega_canopy', 'core_width').required).toBe(true)
+    expect(subSpec('roofed_canopy', 'core_width').required).toBe(true)
+    expect(subSpec('mega_canopy', 'core_width').required).toBe(false)
     expect(subSpec('mega_canopy', 'base_radius').required).toBe(false)
     expect(subSpec('random_spread_canopy', 'leaf_blocks').required).toBe(true)
     expect(subSpec('poplar_canopy', 'radius').required).toBe(true)
@@ -364,7 +365,6 @@ describe('the variants do not share a sub-schema', () => {
   it('keeps core_width on exactly the three trunk-sized shapes', () => {
     const withCore = TREE_CANOPY_VARIANT_KEYS.filter((k) => keysOf(k).includes('core_width')).sort()
     expect(withCore).toEqual(['mega_canopy', 'mega_pine_canopy', 'roofed_canopy'])
-    for (const variant of withCore) expect(subSpec(variant, 'core_width').required).toBe(true)
   })
 
   it('keeps simplify_canopy off mega_pine_canopy, which has no such key', () => {

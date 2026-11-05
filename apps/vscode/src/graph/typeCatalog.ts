@@ -89,6 +89,7 @@ export const FEATURE_SCHEMA_FLOOR = '1.13.0'
 const TYPE_MIN_FORMAT_VERSION: Readonly<Record<string, string>> = {
   'minecraft:multi_block_feature': '1.26.40',
   'minecraft:multipart_block_column_feature': '1.26.40',
+  'minecraft:crevasse_feature': '1.26.50',
 }
 
 /** Keys that belong to edges rather than to a node's form. Consulted only to explain a key the
@@ -1023,6 +1024,19 @@ const TYPE_SPECS: readonly TypeSpec[] = [
       { key: 'places_block', kind: 'block', required: true, source: 'builder-header' },
       { key: 'allow_adjacent', kind: 'boolean', required: false, default: 'false', source: 'builder-header' },
       { key: 'bark_side_only', kind: 'boolean', required: false, default: 'false', source: 'builder-header' },
+    ],
+  },
+  {
+    typeId: 'minecraft:crevasse_feature',
+    fields: [
+      { key: 'max_length', kind: 'integer', required: false, min: 4, max: 16, default: '16', source: 'builder' },
+      { key: 'max_width', kind: 'integer', required: false, min: 2, max: 8, default: '4', source: 'builder' },
+      { key: 'min_footprint', kind: 'integer', required: false, min: 1, max: 32, default: '10', source: 'builder' },
+      { key: 'twistiness', kind: 'number', required: false, min: 0, max: 16, default: '4.0', source: 'builder' },
+      { key: 'carve_depth', kind: 'range', required: false, min: 4, max: 32, source: 'builder' },
+      { key: 'fill_depth', kind: 'range', required: false, min: 0, max: 32, source: 'builder' },
+      { key: 'surface_block', kind: 'block', required: false, source: 'builder' },
+      { key: 'fill_block', kind: 'block', required: false, source: 'builder' },
     ],
   },
   {

@@ -80,24 +80,36 @@ func TestMatchSet_NegatedTagPredicate_DoesNotCollapseToAirOnly(t *testing.T) {
 }
 
 // TestMatchSet_PositiveTagPredicate_ApproximateVanillaTable documents the
-// curated table's known, explicit limitation for the predicate path: with
-// no real vanilla tag data, `q.any_tag('stone')` can only claim ONE
-// representative block (minecraft:stone) actually carries the "stone" tag,
-// so a real vanilla stone-family block the table doesn't name (granite)
-// does NOT match. This is the documented approximation, not a bug -- see
-// tagRepresentativeBlock's doc comment in kind.go.
-func TestMatchSet_PositiveTagPredicate_ApproximateVanillaTable(t *testing.T) {
+// predicate path reading real members from vanillaTagMembers: every block the
+// file records under "stone" matches, and a block it does not record does not.
+func TestMatchSet_PositiveTagPredicate_VanillaTagMembers(t *testing.T) {
 	p := NewPalette()
 	stoneID := p.Get("minecraft:stone", nil)
 	graniteID := p.Get("minecraft:granite", nil)
+	dirtID := p.Get("minecraft:dirt", nil)
 
 	m := p.NewMatchSet([]Descriptor{{IsTags: true, Tags: "q.any_tag('stone')"}}, nil, nil, nil)
 
 	if !m.Contains(stoneID) {
-		t.Error("expected q.any_tag('stone') to match the table's representative block minecraft:stone")
+		t.Error("expected q.any_tag('stone') to match minecraft:stone")
 	}
-	if m.Contains(graniteID) {
-		t.Error("expected q.any_tag('stone') to NOT match minecraft:granite -- documented approximate-table limitation")
+	if !m.Contains(graniteID) {
+		t.Error("expected q.any_tag('stone') to match minecraft:granite, a recorded member")
+	}
+	if m.Contains(dirtID) {
+		t.Error("expected q.any_tag('stone') to NOT match minecraft:dirt")
+	}
+}
+
+// A tag vanillaTagMembers does not record still falls back to its one representative block.
+func TestMatchSet_PositiveTagPredicate_FallsBackToRepresentative(t *testing.T) {
+	p := NewPalette()
+	m := p.NewMatchSet([]Descriptor{{IsTags: true, Tags: "q.any_tag('ice')"}}, nil, nil, nil)
+	if !m.Contains(p.Get("minecraft:ice", nil)) {
+		t.Error("expected q.any_tag('ice') to match its representative minecraft:ice")
+	}
+	if m.Contains(p.Get("minecraft:packed_ice", nil)) {
+		t.Error("expected q.any_tag('ice') to NOT match minecraft:packed_ice")
 	}
 }
 

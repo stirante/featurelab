@@ -395,7 +395,7 @@ const MEGA_TRUNK_BODY: readonly FieldSpec[] = [
     ],
     source: 'builder',
   },
-  { key: 'trunk_width', kind: 'integer', required: true, min: 1, source: 'builder' },
+  { key: 'trunk_width', kind: 'range', required: true, min: 1, source: 'builder' },
   TRUNK_BLOCK_FIELD,
   {
     key: 'branches',
@@ -1032,7 +1032,7 @@ export const TREE_TRUNK_DOCS: Readonly<Record<string, DocEntry>> = {
   },
   'mega_trunk.trunk_height.intervals': INTERVALS_DOC,
   'mega_trunk.trunk_width': {
-    summary: 'How many blocks across the wide column is.',
+    summary: 'How many blocks across the wide column is. A range is drawn once per tree.',
     detail:
       'A square of this many logs per side. It also decides which logs are on an edge, and only ' +
       'edge logs carry a decoration -- and the topmost layer never does, whatever its width.',

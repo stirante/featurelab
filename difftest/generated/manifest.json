@@ -19141,6 +19141,96 @@
      }
     ]
    }
+  },
+  {
+   "id": "crevasse_rim",
+   "type": "minecraft:crevasse_feature",
+   "featureId": "difftest:crevasse_rim",
+   "group": "crevasse",
+   "note": "a trench lined with gravel",
+   "source": "catalog",
+   "place": [
+    0,
+    0,
+    0
+   ],
+   "setup": [],
+   "region": {
+    "min": [
+     -10,
+     -4,
+     -10
+    ],
+    "max": [
+     10,
+     12,
+     10
+    ]
+   },
+   "repeats": 30,
+   "metrics": [
+    "success",
+    "placed",
+    "block:minecraft:gravel",
+    "bbox.dy"
+   ],
+   "cell": 164,
+   "anchor": [
+    1288,
+    -60,
+    1928
+   ],
+   "game": {
+    "placeAt": [
+     1288,
+     -60,
+     1928
+    ],
+    "dumpBox": {
+     "min": [
+      1278,
+      -64,
+      1918
+     ],
+     "max": [
+      1298,
+      -48,
+      1938
+     ]
+    },
+    "resetBox": {
+     "min": [
+      1274,
+      -64,
+      1914
+     ],
+     "max": [
+      1302,
+      -44,
+      1942
+     ]
+    },
+    "teleport": "tp @s 1288 -20 1928",
+    "reset": [
+     "fill 1274 -60 1914 1302 -44 1942 minecraft:air",
+     "fill 1274 -64 1914 1302 -64 1942 minecraft:bedrock",
+     "fill 1274 -63 1914 1302 -63 1942 minecraft:dirt",
+     "fill 1274 -62 1914 1302 -62 1942 minecraft:dirt",
+     "fill 1274 -61 1914 1302 -61 1942 minecraft:grass_block"
+    ],
+    "setup": [],
+    "place": "place feature difftest:crevasse_rim 1288 -60 1928",
+    "checks": [
+     {
+      "pos": [
+       1288,
+       -61,
+       1928
+      ],
+      "block": "minecraft:grass_block"
+     }
+    ]
+   }
   }
  ]
 }

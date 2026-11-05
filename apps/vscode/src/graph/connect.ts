@@ -272,6 +272,7 @@ const NO_CHILD_TYPES: ReadonlySet<string> = new Set([
   'minecraft:horizontal_tree_decoration_feature',
   'minecraft:multi_block_feature',
   'minecraft:multipart_block_column_feature',
+  'minecraft:crevasse_feature',
 ])
 
 /** Every type id this module has an answer for, so a test can hold it against the engine's own

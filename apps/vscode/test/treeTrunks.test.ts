@@ -313,6 +313,7 @@ describe('range-typed keys, and the one object that is not a range', () => {
       'mangrove_trunk.branches.branch_length',
       'mangrove_trunk.branches.branch_steps',
       'mega_trunk.branches.branch_interval',
+      'mega_trunk.trunk_width',
       'poplar_trunk.amount_of_foliage_support_branches',
       'poplar_trunk.remaining_trunk_height_above_branches',
       'poplar_trunk.trunk_height',

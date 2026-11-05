@@ -1,8 +1,8 @@
 ---
 title: Feature types
 description: Every JSON feature type Minecraft Bedrock 1.26.60.22 accepts, grouped the way wiki.bedrock.dev groups them, with what each one is for and how far the featurelab bench implements it.
-game: 1.26.60.22
-alsoHolds: ["1.26.50.24"]
+game: 1.26.70.21
+alsoHolds: ["1.26.60.22", "1.26.50.24"]
 scope: game
 ---
 
@@ -41,6 +41,7 @@ Place blocks directly; no delegation to another feature.
 | `minecraft:fossil_feature` | [Fossil](./fossil_feature.md) | Buries one of the game's eight prebuilt fossil structures, speckled with an ore block of your choosing. Two required fields and nothing else. |
 | `minecraft:multipart_block_column_feature` | [Multipart block column](./multipart_block_column_feature.md) | Places an ordered column of up to four block roles — base, middle, frustum, tip — along any of the six directions. New in this version. |
 | `minecraft:horizontal_tree_decoration_feature` | [Horizontal tree decoration](./horizontal_tree_decoration_feature.md) | Places one decoration block against a randomly chosen horizontal side of the origin block — leaf litter and flower beds. New in this version. |
+| `minecraft:crevasse_feature` | [Crevasse](./crevasse_feature.md) | Carves a winding trench into natural terrain, with an optional surface lining and fill. New in 1.26.70. |
 | `minecraft:multi_block_feature` | [Multi block](./multi_block_feature.md) | Places a custom multi-block — a block whose `minecraft:multi_block` trait spans 2–4 cells in a line — as its complete set of parts, all or nothing. New in this version. |
 
 ### Proxy features
@@ -94,7 +95,7 @@ Subtract or reshape existing terrain rather than add to it.
 
 ## Version-specific divergences worth knowing up front
 
-- This version has **29** JSON feature types, the same 29 as 1.26.50.24, the previous target. The target before that, 1.26.40.26, had 26: Microsoft's public reference documented `minecraft:horizontal_tree_decoration_feature` and `minecraft:multi_block_feature` before either existed in the game. Both became available in 1.26.50.24, along with `minecraft:multipart_block_column_feature`, which that version's own changelog introduces.
+- This version has **30** JSON feature types: 1.26.70 added `minecraft:crevasse_feature` to the 29 of 1.26.50.24 and 1.26.60.22. The target before those, 1.26.40.26, had 26: Microsoft's public reference documented `minecraft:horizontal_tree_decoration_feature` and `minecraft:multi_block_feature` before either existed in the game. Both became available in 1.26.50.24, along with `minecraft:multipart_block_column_feature`, which that version's own changelog introduces.
 - Between 1.26.40.26 and 1.26.50.24 a field was renamed (`snap_to_surface_feature`'s `vertical_search_range` became `search_range`), an enum default changed meaning (`conditional_list`'s `early_out_scheme` now defaults to `none`), and at least one type's placement changed without its JSON surface changing at all.
 - Microsoft's official reference classifies `minecraft:conditional_list` as internal or deprecated. That has been out of date since 1.26.50.24, whose changelog introduces it as a public feature. It is documented here as a first-class type.
 - `minecraft:nether_cave_carver_feature` is this version's id for what older material calls `minecraft:hell_cave_carver_feature`.

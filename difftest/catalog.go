@@ -781,4 +781,8 @@ func (b *builder) newTypes(fx map[string]string) {
 	b.test(Test{ID: "multi_block_totem_field", Type: "minecraft:multi_block_feature", Group: "multi_block", Region: regionScatter,
 		Setup:   []Op{fill(box(-6, 2, -6, 0, 2, 6), "minecraft:stone")},
 		Metrics: []string{"placed", "block:difftest:totem", "bbox.cx"}, Note: "half the field has a stone slab two blocks up: no room for three parts"})
+
+	b.featureFV("1.26.50", "crevasse_feature", "crevasse_rim", `{"max_length": 12, "min_footprint": 4, "surface_block": "minecraft:gravel"}`)
+	b.test(Test{ID: "crevasse_rim", Type: "minecraft:crevasse_feature", Group: "crevasse",
+		Metrics: []string{"success", "placed", "block:minecraft:gravel", "bbox.dy"}, Note: "a trench lined with gravel"})
 }

@@ -2,8 +2,8 @@
 title: Delegation and composite features
 description: Most of what a pack places, it places through something else. What crosses a delegation boundary and what does not — the origin, the shared random stream, the Molang scope, the world — plus what a delegation loop does, what a delegate hands back, and why most failures are silent. Measured against Minecraft Bedrock 1.26.60.22.
 category: guide
-game: 1.26.60.22
-alsoHolds: ["1.26.50.24"]
+game: 1.26.70.21
+alsoHolds: ["1.26.60.22", "1.26.50.24"]
 scope: game
 ---
 
@@ -143,7 +143,7 @@ The **placement deadline** is the one that covers a single feature's own work. A
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too. What crosses a boundary, and which types substitute the origin describe the game; each per-type row is repeated — with its own measurements — on that type's own page. The two log wordings are quoted exactly as the game emits them, which is the only reason the difference between them is worth a paragraph.
+Everything above is a statement about Bedrock **1.26.70.21**, and holds for **1.26.60.22**, **1.26.50.24** too. What crosses a boundary, and which types substitute the origin describe the game; each per-type row is repeated — with its own measurements — on that type's own page. The two log wordings are quoted exactly as the game emits them, which is the only reason the difference between them is worth a paragraph.
 
 Loops were checked in game, on 1.26.60.22, with the sequence and scatter pair shown under [delegation loops](#delegation-loops): placed under a stone block 19 blocks up, it built a 19-block column and stopped at the stone; with the stone far higher, it ran well past a hundred levels. The bench places the same column.
 

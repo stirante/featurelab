@@ -3,8 +3,8 @@ title: Multipart block column feature
 description: minecraft:multipart_block_column_feature builds one straight column out of four named roles — base, middle, frustum, tip — along any of the six directions. Every key in a table, the three weighted heights side by side in one picture, and the two ways a column places nothing and calls it a success — measured against Minecraft Bedrock 1.26.60.22.
 typeId: minecraft:multipart_block_column_feature
 category: content
-game: 1.26.60.22
-alsoHolds: ["1.26.50.24"]
+game: 1.26.70.21
+alsoHolds: ["1.26.60.22", "1.26.50.24"]
 scope: game
 ---
 
@@ -226,7 +226,7 @@ The worked example, `multipart_dripstone_spike.json`, is committed under [`docs/
 
 ## How this page was checked
 
-Everything above is a statement about Bedrock **1.26.60.22**, and holds for **1.26.50.24** too, the build that introduced the type. It carries no "also holds" badge for 1.26.40.26 because there is nothing to compare against: the type does not exist there, and a file naming it does not load there.
+Everything above is a statement about Bedrock **1.26.70.21**, and holds for **1.26.60.22**, **1.26.50.24** too, the build that introduced the type. It carries no "also holds" badge for 1.26.40.26 because there is nothing to compare against: the type does not exist there, and a file naming it does not load there.
 
 Every number on this page was read back out of a run of the committed fixture pack. The worked example's seven blocks and their role order at seed `7`; the 24 / 29 / 7 split of its three heights over seeds 1 to 60; that `height_range: [2, 7]` produces 2, 3, 4, 5 and 6 over 40 seeds and never 7, while `[4, 4]` and `[4, 5]` both produce 4 every time and a bare `5` produces 5; that `"EaSt"` builds east and `"upward"` builds up; that `may_place_on` is checked below the origin for `up` and above it for `down`, run both ways against a stone block laid on each side; the shortening pair in [its own table](#truncation), run at one seed against ceilings one, two and three cells up; that a `{ "value": 4.9 }` entry places a column of 4; and that a file with no height source places nothing and returns a position two cells behind the origin, while one with both places the weighted height.
 

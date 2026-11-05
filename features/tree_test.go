@@ -2488,9 +2488,15 @@ func TestBuildTreeFeature_MegaCanopyKey_SchemaValidation(t *testing.T) {
 			t.Error("want error, got nil")
 		}
 	})
-	t.Run("core_width required", func(t *testing.T) {
+	t.Run("core_width optional", func(t *testing.T) {
 		body := megaTreeBody(nil)
 		delete(body["mega_canopy"].(map[string]any), "core_width")
+		if _, err := buildTreeFeature(body, ctx); err != nil {
+			t.Errorf("want no error, got %v", err)
+		}
+	})
+	t.Run("core_width must be a number", func(t *testing.T) {
+		body := megaTreeBody(map[string]any{"core_width": "two"})
 		if _, err := buildTreeFeature(body, ctx); err == nil {
 			t.Error("want error, got nil")
 		}
@@ -2898,11 +2904,11 @@ func TestBuildTreeFeature_MegaPineCanopyKey_SchemaValidation(t *testing.T) {
 			t.Error("want error, got nil")
 		}
 	})
-	t.Run("core_width required", func(t *testing.T) {
+	t.Run("core_width optional", func(t *testing.T) {
 		body := megaPineTreeBody(nil)
 		delete(body["mega_pine_canopy"].(map[string]any), "core_width")
-		if _, err := buildTreeFeature(body, ctx); err == nil {
-			t.Error("want error, got nil")
+		if _, err := buildTreeFeature(body, ctx); err != nil {
+			t.Errorf("want no error, got %v", err)
 		}
 	})
 	t.Run("core_width must be 1", func(t *testing.T) {

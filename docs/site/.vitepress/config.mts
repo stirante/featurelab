@@ -27,7 +27,7 @@ const base = process.env.DOCS_BASE ?? '/featurelab/'
 /** The Bedrock version every page is a statement about, exactly as the wiki index pins it.
  * A page's own front matter (`game:`) may pin a different one; this is only the default the
  * version badge falls back to, and the one the site title advertises. */
-const targetGame = '1.26.60.22'
+const targetGame = '1.26.70.21'
 
 /** Old page -> new page. Two uses: VitePress `rewrites` below, and `buildEnd`, which writes a
  * redirect stub at each old route so a deep link to a page that has not migrated yet (or that
@@ -177,6 +177,7 @@ export default defineConfig({
             { text: 'Multipart block column', link: '/features/multipart_block_column_feature' },
             { text: 'Horizontal tree decoration', link: '/features/horizontal_tree_decoration_feature' },
             { text: 'Multi block', link: '/features/multi_block_feature' },
+            { text: 'Crevasse', link: '/features/crevasse_feature' },
           ],
         },
         {
@@ -231,8 +232,8 @@ export default defineConfig({
             { text: 'Overview', link: '/engine/' },
             { text: 'The featurelab command', link: '/engine/cli' },
             { text: 'Coverage and known gaps', link: '/engine/coverage' },
-            { text: 'Block textures in the preview', link: '/engine/block_textures' },
             { text: 'Jigsaw structures', link: '/engine/jigsaw' },
+            { text: 'Block textures in the preview', link: '/engine/block_textures' },
             { text: 'Repository README ↗', link: 'https://github.com/stirante/featurelab#readme' },
           ],
         },

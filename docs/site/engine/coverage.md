@@ -2,8 +2,8 @@
 title: Coverage and known gaps
 description: How far featurelab's checking goes — which feature types the bench implements fully, which partially and what each gap means for a pack, the approximations that cut across every page, and what has and has not been checked against real content.
 scope: bench
-game: 1.26.60.22
-alsoHolds: ["1.26.50.24"]
+game: 1.26.70.21
+alsoHolds: ["1.26.60.22", "1.26.50.24"]
 ---
 
 # Coverage and known gaps
@@ -39,7 +39,7 @@ const gaps = {
 const routeOf = (typeId) => withBase('/features/' + typeId.replace(/^minecraft:/, ''))
 </script>
 
-**This page describes how far the checking goes, not what the game does.** Every other page in this set describes Minecraft Bedrock **1.26.60.22**; this one says which of those claims were reproduced against a running implementation, which are less certain, and where the tool used to write them knowingly does something different from the game. It exists so that the silences elsewhere are legible: a page that does not mention a field is not the same as a page that mentions it and says it was never exercised.
+**This page describes how far the checking goes, not what the game does.** Every other page in this set describes Minecraft Bedrock **1.26.70.21**; this one says which of those claims were reproduced against a running implementation, which are less certain, and where the tool used to write them knowingly does something different from the game. It exists so that the silences elsewhere are legible: a page that does not mention a field is not the same as a page that mentions it and says it was never exercised.
 
 The tool is **featurelab**, a bench that loads a behaviour pack, runs one feature or one feature rule in a controlled volume, and reports the cells it wrote. Everything below is about the distance between that bench and the game.
 

@@ -62,6 +62,7 @@ const orePi = float32(math.Pi)
 type oreReplaceRule struct {
 	targetID      block.ID
 	mayReplaceIDs block.MatchSet
+	anyBlock      bool
 }
 
 // oreSphere is one sphere of the vein: three float32 centre coordinates, then
@@ -290,7 +291,10 @@ func (f *OreFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 
 				// Step 7b: walk replace_rules in order.
 				for _, rule := range f.rules {
-					if !rule.mayReplaceIDs.Contains(worldBlock) {
+					// A rule written without may_replace matches any block, air included
+					// (since 1.26.70).
+					// Before that it matched nothing.
+					if !rule.anyBlock && !rule.mayReplaceIDs.Contains(worldBlock) {
 						continue // not this rule's block
 					}
 					if api.Palette().SameBlock(worldBlock, rule.targetID) {
@@ -429,7 +433,12 @@ func buildOreFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFeat
 		// `{"name": "minecraft:oak_log", "states": {"pillar_axis": "y"}}` here
 		// behaves exactly like the bare name. See block.MatchMode.
 		mayReplaceIDs := ResolveMatchSetMode(mayReplaceList, ctx, p+".may_replace", block.MatchType)
-		rules[i] = oreReplaceRule{targetID: targetID, mayReplaceIDs: mayReplaceIDs}
+		if mayReplaceList != nil && len(mayReplaceList) == 0 {
+			return nil, fmt.Errorf("%s.may_replace is written as an empty array -- the game refuses the file "+
+				"outright for that (its schema requires at least one entry when the key is present). Leave the "+
+				"key out to replace any block", p)
+		}
+		rules[i] = oreReplaceRule{targetID: targetID, mayReplaceIDs: mayReplaceIDs, anyBlock: mayReplaceList == nil}
 	}
 
 	return &OreFeature{

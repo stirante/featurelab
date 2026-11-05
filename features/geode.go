@@ -385,6 +385,7 @@ type geodeDistPoint struct {
 // delegation, so it is always in scope.
 type GeodeFeature struct {
 	identifier string
+	pal        *block.Palette
 
 	filler              block.ID
 	innerLayer          block.ID
@@ -559,7 +560,7 @@ func (f *GeodeFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 			// roundings here too.
 			if crackRollOk && crackLineSum(crackLine, pos, float32(f.crackPointOffset))+float32(float32(pointCount)*noiseVal) >= tC5 && density < tC1 {
 				// crack-carve.
-				if api.SetBlock(pos, block.AirID) {
+				if setBlockSafe(api, f.pal, pos, block.AirID) {
 					placedAny = true
 				}
 				continue
@@ -567,7 +568,7 @@ func (f *GeodeFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 
 			switch {
 			case density >= tC1:
-				if api.SetBlock(pos, f.filler) {
+				if setBlockSafe(api, f.pal, pos, f.filler) {
 					placedAny = true
 				}
 			case density >= tC2:
@@ -577,7 +578,7 @@ func (f *GeodeFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 				if useAlternate {
 					layer0 = f.alternateInnerLayer
 				}
-				if api.SetBlock(pos, layer0) {
+				if setBlockSafe(api, f.pal, pos, layer0) {
 					placedAny = true
 				}
 				if useAlternate || !f.placementsRequireLayer0Alternate {
@@ -587,11 +588,11 @@ func (f *GeodeFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 					}
 				}
 			case density < tC3:
-				if api.SetBlock(pos, f.outerLayer) {
+				if setBlockSafe(api, f.pal, pos, f.outerLayer) {
 					placedAny = true
 				}
 			default:
-				if api.SetBlock(pos, f.middleLayer) {
+				if setBlockSafe(api, f.pal, pos, f.middleLayer) {
 					placedAny = true
 				}
 			}
@@ -685,7 +686,7 @@ func (f *GeodeFeature) Place(ctx *wgen.PlacementContext) *wgen.BlockPos {
 			if !ok {
 				faced = placeID // matches the game's state-write-fails-keep-original fallback
 			}
-			if api.SetBlock(neighbor, faced) {
+			if setBlockSafe(api, f.pal, neighbor, faced) {
 				placedAny = true
 			}
 		}
@@ -999,6 +1000,7 @@ func buildGeodeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFe
 
 	return &GeodeFeature{
 		identifier:                       ctx.Identifier,
+		pal:                              ctx.Palette,
 		filler:                           filler,
 		innerLayer:                       innerLayer,
 		alternateInnerLayer:              alternateInnerLayer,

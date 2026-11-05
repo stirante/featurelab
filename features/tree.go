@@ -1058,6 +1058,30 @@ func parseTreeIntRange(raw any, jsonPath string) (min, max int, err error) {
 	return int(lo), int(hi), nil
 }
 
+// parseShapedTrunkWidth reads trunk_width. Since 1.26.70 mega_trunk's is a range
+// and acacia_trunk's stays a plain number.
+func parseShapedTrunkWidth(trunk map[string]any, trunkKind string) (widthMin, widthMax int, err error) {
+	raw := trunk["trunk_width"]
+	if trunkKind != "mega_trunk" {
+		value, ok := raw.(float64)
+		if !ok || int(value) < 1 {
+			return 0, 0, fmt.Errorf("%s.trunk_width is required and must be a number >= 1", trunkKind)
+		}
+		return int(value), int(value), nil
+	}
+	if raw == nil {
+		return 0, 0, fmt.Errorf("mega_trunk.trunk_width is required and must be a number or a range, at least 1")
+	}
+	widthMin, widthMax, err = parseTreeIntRange(raw, "mega_trunk.trunk_width")
+	if err != nil {
+		return 0, 0, err
+	}
+	if widthMin < 1 {
+		return 0, 0, fmt.Errorf("mega_trunk.trunk_width must be at least 1: the game accepts less, and what a width below 1 grows is not known to this tool")
+	}
+	return widthMin, max(widthMin, widthMax), nil
+}
+
 // passesAllowList is the game's placement allow-list check -- true when ids is empty (no restriction) or existing is one of ids. Used,
 // non-inverted, by both canopies' leaf gate and treeCellAccepts's
 // may_replace fast path.
@@ -1149,6 +1173,54 @@ type canopyPlacer interface {
 type treeCanopyAnchor struct {
 	pos        wgen.BlockPos
 	candidates []wgen.BlockPos
+	// trunkWidth is the width drawn for this tree when it can differ per tree; 0 otherwise.
+	trunkWidth int
+}
+
+// trunkSizedCanopy is a canopy that, with no core_width written, grows around the size its trunk
+// hands it.
+type trunkSizedCanopy interface {
+	forTrunkWidth(width int) canopyPlacer
+}
+
+func (c *megaCanopy) forTrunkWidth(width int) canopyPlacer {
+	if c.coreWidthParsed {
+		return c
+	}
+	sized := *c
+	sized.coreWidth = width
+	return &sized
+}
+
+func (c *megaPineCanopy) forTrunkWidth(width int) canopyPlacer {
+	if c.coreWidthParsed {
+		return c
+	}
+	sized := *c
+	sized.coreWidth = width
+	return &sized
+}
+
+// parseCanopyCoreWidth reads core_width, which is optional on the mega and mega pine canopies
+// Written, it must fit the trunk: the game checks
+// that per tree and otherwise grows around core_width regardless, so a trunk_width range refuses it.
+func parseCanopyCoreWidth(c map[string]any, canopyKey string, trunkWidth, trunkWidthMax int) (width int, parsed bool, err error) {
+	raw, present := c["core_width"]
+	if !present {
+		return trunkWidth, false, nil
+	}
+	value, ok := raw.(float64)
+	if !ok {
+		return 0, false, fmt.Errorf("%s.core_width must be a number", canopyKey)
+	}
+	if trunkWidthMax != trunkWidth {
+		return 0, false, fmt.Errorf("%s.core_width (%d) cannot match a trunk_width range (%d to %d): leave it out and the crown follows the width drawn for each tree",
+			canopyKey, int(value), trunkWidth, trunkWidthMax)
+	}
+	if int(value) != trunkWidth {
+		return 0, false, fmt.Errorf("%s.core_width (%d) must match trunk width (%d)", canopyKey, int(value), trunkWidth)
+	}
+	return int(value), true, nil
 }
 
 // acaciaCanopy is the acacia canopy's placement -- fully deterministic,
@@ -2644,6 +2716,7 @@ type megaCanopy struct {
 	baseRadius                       int  // "base_radius"   (optional int, DEFAULT 2)
 	simplifyCanopy                   bool // "simplify_canopy" (optional bool, DEFAULT false)
 	coreWidth                        int
+	coreWidthParsed                  bool
 	pal                              *block.Palette
 }
 
@@ -2699,6 +2772,7 @@ type megaPineCanopy struct {
 	baseRadius                       int     // "base_radius"   (optional int, DEFAULT 2)
 	radiusStepModifier               float32 // "radius_step_modifier" (optional float, DEFAULT 3.5)
 	coreWidth                        int
+	coreWidthParsed                  bool
 	pal                              *block.Palette
 }
 
@@ -3158,9 +3232,12 @@ func (h intervalHeight) sample(rnd random.RandomSource) int {
 }
 
 type shapedTrunk struct {
-	kind                         string
-	height                       intervalHeight
+	kind   string
+	height intervalHeight
+	// width is the trunk width; on mega_trunk it is the low end of trunk_width's range, which
+	// widthMax closes. placeMegaTrunk draws the real width from the pair.
 	width                        int
+	widthMax                     int
 	leanHeightMin, leanHeightMax int
 	leanStepsMin, leanStepsMax   int
 	leanLengthMin, leanLengthMax int
@@ -3892,7 +3969,11 @@ func (f *TreeFeature) placeCanopies(api wgen.BlockWorld, rnd random.RandomSource
 		return
 	}
 	for _, anchor := range anchors {
-		f.canopy.place(api, anchor.pos, rnd, params, anchor.candidates)
+		canopy := f.canopy
+		if sized, ok := canopy.(trunkSizedCanopy); ok && anchor.trunkWidth > 0 {
+			canopy = sized.forTrunkWidth(anchor.trunkWidth)
+		}
+		canopy.place(api, anchor.pos, rnd, params, anchor.candidates)
 	}
 }
 
@@ -4409,7 +4490,10 @@ func (f *TreeFeature) placeMegaTrunk(ctx *wgen.PlacementContext, trunk *shapedTr
 	if origin, rootsOK = f.applyRoots(ctx, origin, height); !rootsOK {
 		return nil
 	}
-	if height < 1 || !f.prepareShippedTree(ctx, origin, height, trunk.width) {
+	// *** RNG CALL (0 or 1 draw) *** -- trunk_width is drawn before the spawn
+	// preparation. A fixed width draws nothing.
+	width := treeIntRangeValueInclusive(trunk.width, trunk.widthMax, rnd)
+	if height < 1 || !f.prepareShippedTree(ctx, origin, height, width) {
 		return nil
 	}
 
@@ -4443,6 +4527,7 @@ func (f *TreeFeature) placeMegaTrunk(ctx *wgen.PlacementContext, trunk *shapedTr
 	f.placeCanopies(api, rnd, params, []treeCanopyAnchor{{
 		pos:        wgen.BlockPos{X: origin.X, Y: origin.Y + height, Z: origin.Z},
 		candidates: nil,
+		trunkWidth: width,
 	}})
 
 	// Branches, with their own (inline, per-branch) branch_canopy calls. No-op
@@ -4463,9 +4548,9 @@ func (f *TreeFeature) placeMegaTrunk(ctx *wgen.PlacementContext, trunk *shapedTr
 	//    would add up to width^2 surplus decoration rolls per tree -- each a
 	//    real draw whenever trunk_decoration is configured, offsetting the
 	//    stream from the first middle-layer log onwards.
-	for dx := 0; dx < trunk.width; dx++ {
+	for dx := 0; dx < width; dx++ {
 		TickDeadline("filling a trunk layer as wide as its trunk_width asks")
-		for dz := 0; dz < trunk.width; dz++ {
+		for dz := 0; dz < width; dz++ {
 			p := wgen.BlockPos{X: origin.X + dx, Y: origin.Y, Z: origin.Z + dz}
 			if treeCellAccepts(api, p, f.mayReplace) {
 				placeLog(api, p, f.trunkBlock)
@@ -4473,17 +4558,19 @@ func (f *TreeFeature) placeMegaTrunk(ctx *wgen.PlacementContext, trunk *shapedTr
 		}
 	}
 
-	// 2. y = 1 .. height-2: width x width WITH trunk_decoration, mask derived
-	//    from the log's own local (dx,dz). The loop
-	//    exits when ++y reaches height-1, and is skipped entirely when
-	//    height-1 == 1, which this loop's own bound reproduces: at height 2 it
-	//    runs zero times, giving bottom layer plus top cell.
-	for y := 1; y < height-1; y++ {
-		TickDeadline("walking a trunk column as tall as its trunk height asks")
-		for dx := 0; dx < trunk.width; dx++ {
-			TickDeadline("filling a trunk layer as wide as its trunk_width asks")
-			for dz := 0; dz < trunk.width; dz++ {
-				p := wgen.BlockPos{X: origin.X + dx, Y: origin.Y + y, Z: origin.Z + dz}
+	// 2. WITH trunk_decoration, mask derived from the log's own local (dx,dz). Since 1.26.70
+	//    this walks x outermost,
+	//    then y, then z, so decoration rolls come in a different order than the old y, x, z.
+	//    Its corners y+1 and y+height-2 are normalised to min/max, so height 2
+	//    walks y..y+1 and height 1 walks y-1..y+1 instead of nothing.
+	layerA, layerB := origin.Y+1, origin.Y+height-2
+	lowY, highY := min(layerA, layerB), max(layerA, layerB)
+	for dx := 0; dx < width; dx++ {
+		TickDeadline("filling a trunk layer as wide as its trunk_width asks")
+		for y := lowY; y <= highY; y++ {
+			TickDeadline("walking a trunk column as tall as its trunk height asks")
+			for dz := 0; dz < width; dz++ {
+				p := wgen.BlockPos{X: origin.X + dx, Y: y, Z: origin.Z + dz}
 				if !treeCellAccepts(api, p, f.mayReplace) {
 					continue
 				}
@@ -4493,8 +4580,7 @@ func (f *TreeFeature) placeMegaTrunk(ctx *wgen.PlacementContext, trunk *shapedTr
 					// dx == 0, else the +X direction only when dx == width-1. An unguarded
 					// form differs only at trunk_width 1, where dx == 0 and dx == width-1
 					// are the same cell: the game enables ONE direction there, not two.
-					// mega_trunk's own width default is 2, so typical trees never reach it.
-					trunk.decoration.place(api, p, acaciaDecorationMask(dx, dz, trunk.width), rnd)
+					trunk.decoration.place(api, p, acaciaDecorationMask(dx, dz, width), rnd)
 				}
 			}
 		}
@@ -4521,8 +4607,8 @@ func (f *TreeFeature) placeMegaTrunk(ctx *wgen.PlacementContext, trunk *shapedTr
 	// base_cluster -- mega-trunk-specific ground clusters, placed LAST;
 	// see placeBaseClusterGroundwork and baseCluster's doc comments for
 	// the schema and draw sequence.
-	f.placeBaseBlockFootprint(api, origin, trunk.width)
-	placeBaseClusterGroundwork(api, origin, trunk.width, rnd, f.baseCluster, f.baseBlock, f.baseBlockFallback)
+	f.placeBaseBlockFootprint(api, origin, width)
+	placeBaseClusterGroundwork(api, origin, width, rnd, f.baseCluster, f.baseBlock, f.baseBlockFallback)
 
 	result := origin
 	return &result
@@ -5600,11 +5686,11 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 		if err != nil {
 			return nil, err
 		}
-		widthF, ok := trunk["trunk_width"].(float64)
-		if !ok || int(widthF) < 1 {
-			return nil, fmt.Errorf("%s.trunk_width is required and must be a number >= 1", trunkKind)
+		widthMin, widthMax, err := parseShapedTrunkWidth(trunk, trunkKind)
+		if err != nil {
+			return nil, err
 		}
-		shaped = &shapedTrunk{kind: trunkKind, height: height, width: int(widthF)}
+		shaped = &shapedTrunk{kind: trunkKind, height: height, width: widthMin, widthMax: widthMax}
 		if trunkKind == "acacia_trunk" {
 			lean, ok := trunk["trunk_lean"].(map[string]any)
 			if !ok {
@@ -6335,7 +6421,7 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 	// same hardcoded branch size this file's cherry_trunk/acacia_trunk
 	// branches already use), independent of the tree's own trunk_width --
 	// see the branch_canopy use below.
-	buildCanopyByKey := func(canopyBody map[string]any, canopyKey string, trunkWidth int) (canopyPlacer, error) {
+	buildCanopyByKey := func(canopyBody map[string]any, canopyKey string, trunkWidth, trunkWidthMax int) (canopyPlacer, error) {
 		var canopy canopyPlacer
 		switch canopyKey {
 		case "":
@@ -6973,12 +7059,12 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 			// the roof cap's offset above the anchor. See the file header.
 			canopyHeight -= 3
 
-			coreWidthF, ok := c["core_width"].(float64)
-			if !ok {
+			if _, present := c["core_width"]; !present {
 				return nil, fmt.Errorf("roofed_canopy.core_width is required and must be a number")
 			}
-			if int(coreWidthF) != trunkWidth {
-				return nil, fmt.Errorf("roofed_canopy.core_width (%d) must match trunk width (%d)", int(coreWidthF), trunkWidth)
+			coreWidth, _, err := parseCanopyCoreWidth(c, "roofed_canopy", trunkWidth, trunkWidthMax)
+			if err != nil {
+				return nil, err
 			}
 
 			outerRadiusF, ok := c["outer_radius"].(float64)
@@ -7007,7 +7093,7 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 				canopyHeight: canopyHeight,
 				outerRadius:  outerRadius,
 				innerRadius:  innerRadius,
-				coreWidth:    int(coreWidthF),
+				coreWidth:    coreWidth,
 			}
 		case "mangrove_canopy":
 			c, ok := canopyBody["mangrove_canopy"].(map[string]any)
@@ -7149,12 +7235,9 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 				return nil, fmt.Errorf("mega_canopy.base_radius must be >= 0")
 			}
 
-			coreWidthF, ok := c["core_width"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("mega_canopy.core_width is required and must be a number")
-			}
-			if int(coreWidthF) != trunkWidth {
-				return nil, fmt.Errorf("mega_canopy.core_width (%d) must match trunk width (%d)", int(coreWidthF), trunkWidth)
+			coreWidth, coreWidthParsed, err := parseCanopyCoreWidth(c, "mega_canopy", trunkWidth, trunkWidthMax)
+			if err != nil {
+				return nil, err
 			}
 
 			simplifyCanopy := false
@@ -7172,7 +7255,8 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 				canopyHeightMax: heightMax,
 				baseRadius:      baseRadius,
 				simplifyCanopy:  simplifyCanopy,
-				coreWidth:       int(coreWidthF),
+				coreWidth:       coreWidth,
+				coreWidthParsed: coreWidthParsed,
 				pal:             ctx.Palette,
 			}
 		case "mega_pine_canopy":
@@ -7228,12 +7312,9 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 				radiusStepModifier = float32(f)
 			}
 
-			coreWidthF, ok := c["core_width"].(float64)
-			if !ok {
-				return nil, fmt.Errorf("mega_pine_canopy.core_width is required and must be a number")
-			}
-			if int(coreWidthF) != trunkWidth {
-				return nil, fmt.Errorf("mega_pine_canopy.core_width (%d) must match trunk width (%d)", int(coreWidthF), trunkWidth)
+			coreWidth, coreWidthParsed, err := parseCanopyCoreWidth(c, "mega_pine_canopy", trunkWidth, trunkWidthMax)
+			if err != nil {
+				return nil, err
 			}
 
 			canopy = &megaPineCanopy{
@@ -7242,7 +7323,8 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 				canopyHeightMax:    heightMax,
 				baseRadius:         baseRadius,
 				radiusStepModifier: radiusStepModifier,
-				coreWidth:          int(coreWidthF),
+				coreWidth:          coreWidth,
+				coreWidthParsed:    coreWidthParsed,
 				pal:                ctx.Palette,
 			}
 		default:
@@ -7250,7 +7332,11 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 		}
 		return canopy, nil
 	}
-	canopy, err := buildCanopyByKey(canopyBody, canopyKey, trunkWidth)
+	trunkWidthMax := trunkWidth
+	if shaped != nil {
+		trunkWidthMax = max(trunkWidth, shaped.widthMax)
+	}
+	canopy, err := buildCanopyByKey(canopyBody, canopyKey, trunkWidth, trunkWidthMax)
 	if err != nil {
 		return nil, err
 	}
@@ -7259,7 +7345,7 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 	// still fails the load, then dropped -- the game keeps it on the trunk
 	// and never grows it. The tips grow the top-level canopy instead.
 	if cherryBranchCanopy != nil {
-		if _, err := buildCanopyByKey(cherryBranchCanopy, cherryBranchCanopyKey, 1); err != nil {
+		if _, err := buildCanopyByKey(cherryBranchCanopy, cherryBranchCanopyKey, 1, 1); err != nil {
 			return nil, err
 		}
 		if ctx.Warn != nil {
@@ -7281,22 +7367,8 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 		// same hardcoded literal cherry_trunk's own per-tip canopy calls
 		// already use (see cherryTrunk's doc comment), distinct from the
 		// tree's own trunk_width -- vanilla mega_jungle_tree_feature.json
-		// shows this: its branches.branch_canopy.
-		// mega_canopy omits core_width entirely, unlike the top-level
-		// mega_canopy sibling key, which always sets it equal to
-		// trunk_width. buildCanopyByKey's own "mega_canopy" case keeps
-		// core_width UNCONDITIONALLY required (matching the top-level
-		// key's own real schema, still enforced by
-		// TestBuildTreeFeature_MegaCanopyKey_SchemaValidation), so this
-		// synthesizes the field here -- ONLY when the branch canopy itself
-		// omits it -- rather than relaxing the shared dispatch for every
-		// caller.
-		if mc, ok := shaped.branches.canopyBody["mega_canopy"].(map[string]any); ok {
-			if _, present := mc["core_width"]; !present {
-				mc["core_width"] = float64(1)
-			}
-		}
-		shaped.branches.canopy, err = buildCanopyByKey(shaped.branches.canopyBody, shaped.branches.canopyKey, 1)
+		// shows this: its branches.branch_canopy omits core_width.
+		shaped.branches.canopy, err = buildCanopyByKey(shaped.branches.canopyBody, shaped.branches.canopyKey, 1, 1)
 		if err != nil {
 			return nil, err
 		}
@@ -7307,12 +7379,7 @@ func buildTreeFeature(body map[string]any, ctx *BuildContext) (wgen.PlaceableFea
 	// both trunk shapes give their branch canopies a fixed branch size of {1,1},
 	// not the tree's trunk_width.
 	if shaped != nil && shaped.acaciaBranches != nil && shaped.acaciaBranches.canopyBody != nil {
-		if mc, ok := shaped.acaciaBranches.canopyBody["mega_canopy"].(map[string]any); ok {
-			if _, present := mc["core_width"]; !present {
-				mc["core_width"] = float64(1)
-			}
-		}
-		shaped.acaciaBranches.canopy, err = buildCanopyByKey(shaped.acaciaBranches.canopyBody, shaped.acaciaBranches.canopyKey, 1)
+		shaped.acaciaBranches.canopy, err = buildCanopyByKey(shaped.acaciaBranches.canopyBody, shaped.acaciaBranches.canopyKey, 1, 1)
 		if err != nil {
 			return nil, err
 		}

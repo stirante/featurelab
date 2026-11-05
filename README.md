@@ -312,12 +312,13 @@ it does not.
 The point of this tool is to match the real game's placement behaviour
 exactly, not approximately.
 
-- **Target version**: Bedrock **1.26.60.22**. This tool targets
+- **Target version**: Bedrock **1.26.70.21**, a beta build. This tool targets
   that version and only that version — worldgen behaviour moves between
-  releases, so a statement here is a statement about 1.26.60.22, not about
-  Bedrock in general. The previous target, 1.26.50.24, was checked against
-  it and found identical in everything the engine models; the one before
-  that, 1.26.40.26, had 26 feature types against these two's 29. An
+  releases, so a statement here is a statement about 1.26.70.21, not about
+  Bedrock in general. Against the previous target, 1.26.60.22, it adds
+  `minecraft:crevasse_feature`, makes an `ore_feature` rule without
+  `may_replace` match any block, gives `mega_trunk` a `trunk_width` range and
+  a new layer order, and tightens compressed `.mcstructure` files. An
   algorithm can change behind an unchanged set of JSON keys, so a version
   bump is checked for behaviour changes, not only for schema changes.
 - **Gaps are left as gaps.** Behaviour that is not known exactly is not
@@ -351,12 +352,12 @@ exactly, not approximately.
   measured small error for an unmeasured one. The type is still marked
   `implemented`, because this is a precision gap rather than a missing
   behaviour -- `features/coverage.go`'s entry states it in full.
-- **Whatever `features/coverage.go` marks `partial`.** Which types those are,
 - **Jigsaw structures** (`generate --structure`, package `jigsaw/`) are assembled
   the way the game does it but not yet compared with a world in game.
   Terrain adaptation, biome filters, structure set selection and random pool
   aliases are not modelled; a run warns about each it hits. See
   `docs/site/engine/jigsaw.md`.
+- **Whatever `features/coverage.go` marks `partial`.** Which types those are,
   and exactly what is approximated or refused in each, changes as work lands,
   so this README deliberately does not name them: run `featurelab types` or
   read `features/coverage.go` for the live, authoritative answer. Every entry
@@ -461,8 +462,8 @@ cmd/featurelab/     CLI: generate, serve, check, types, textures, blocktable
 pack/               loads a behaviour pack's features/structures/rules/biomes
 session/            build a bench world -> run a feature or rule -> diff -> result
 features/           per-type JSON builders and placement code; coverage.go is the coverage table
-env/                environment presets, material slots
 jigsaw/             worldgen/ loading, jigsaw assembly, processors
+env/                environment presets, material slots
 biomes/             pack biome definitions -> material slots and tags
 random/             the feature RNG -- MT19937
 wgen/               core placement contracts (BlockPos, world access, features) and the

@@ -397,8 +397,8 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
       summary: 'Which existing blocks this rule is willing to convert.',
       detail:
         'Rules are tried in order at each position and the first one whose list matches wins, so a ' +
-        'broad rule listed first hides the narrower ones after it. A rule whose list is absent ' +
-        'matches nothing and places nothing.',
+        'broad rule listed first hides the narrower ones after it. A rule without this key ' +
+        'matches every block, air included. An empty array is refused when the file loads.',
     },
   },
 
@@ -1129,6 +1129,40 @@ const TYPE_FIELD_DOCS: Readonly<Record<string, Readonly<Record<string, DocEntry>
     },
   },
 
+  'minecraft:crevasse_feature': {
+    max_length: {
+      summary: 'How far the trench walks in total, split between its two sides.',
+      detail: 'Each side takes half of it in steps of one block. A column is only recorded where a surface is found.',
+    },
+    max_width: {
+      summary: 'The width of the trench at the origin.',
+      detail: 'It tapers to 40% of this at the far ends of the walk, on both sides.',
+    },
+    min_footprint: {
+      summary: 'The fewest connected columns the trench may have.',
+      detail: 'With fewer, the feature fails and writes nothing, though its random draws are already spent.',
+    },
+    twistiness: {
+      summary: 'How much the walk bends.',
+      detail: 'At 0 the trench runs straight, and the same random draws are taken as at any other value.',
+    },
+    carve_depth: {
+      summary: 'How deep the trench is at the origin, drawn once per placement.',
+      detail: 'It gets shallower toward the ends, and a column also ends at the first block it cannot carve.',
+    },
+    fill_depth: {
+      summary: 'How far below the origin the fill starts.',
+      detail: 'It starts at least one block below the lowest surface. It does nothing without fill_block.',
+    },
+    surface_block: {
+      summary: 'Written on top of each carved column.',
+      detail: 'minecraft:air counts as none. A column that stopped at its top cell because of liquid gets none.',
+    },
+    fill_block: {
+      summary: 'Written instead of air at and below the fill level.',
+      detail: 'minecraft:air counts as none. Soft neighbours are sealed first, so the fill does not leak out.',
+    },
+  },
   'minecraft:multi_block_feature': {
     places_block: {
       summary: 'The starting part of a multi-block structure.',

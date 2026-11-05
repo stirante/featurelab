@@ -42,17 +42,17 @@ func requiresBuilder(s CoverageStatus) bool {
 	}
 }
 
-func TestCoverageHasExactly29Types(t *testing.T) {
+func TestCoverageHasExactly30Types(t *testing.T) {
 	// The game registers every JSON feature type unconditionally, so this count is a property of
 	// the targeted game version. A change here means the target version changed, not that the
 	// table needs relaxing.
 	//
-	// 26 in the previous target, 29 in this one. Note that the number registered and the number
+	// 29 in the previous target, 30 in this one. Note that the number registered and the number
 	// AVAILABLE to a given pack are different questions: each type's schema exists only in the
 	// format_version bands at or above the type's own minimum, so a pack declaring an older
-	// format_version sees 27 of these rather than 29. This assertion is about registration.
-	if got := len(FeatureTypeCoverage); got != 29 {
-		t.Errorf("len(FeatureTypeCoverage) = %d, want 29", got)
+	// format_version sees fewer. This assertion is about registration.
+	if got := len(FeatureTypeCoverage); got != 30 {
+		t.Errorf("len(FeatureTypeCoverage) = %d, want 30", got)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestCoverageSummarisesConsistently(t *testing.T) {
 	// 2026-08-22: structure_template_feature moved Partial -> Implemented. Its own note said it
 	// was Partial "for one reason", the two block predicates it leans on being stand-ins rather
 	// than vanilla data, and block/motion.go closed both.
-	want := Summary{Total: 29, Implemented: 22, Partial: 5, Missing: 0, OutOfScope: 2}
+	want := Summary{Total: 30, Implemented: 23, Partial: 5, Missing: 0, OutOfScope: 2}
 	if s != want {
 		t.Errorf("CoverageSummary() = %+v, want %+v", s, want)
 	}

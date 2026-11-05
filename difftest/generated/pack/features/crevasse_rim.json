@@ -1,0 +1,11 @@
+{
+  "format_version": "1.26.50",
+  "minecraft:crevasse_feature": {
+    "description": {
+      "identifier": "difftest:crevasse_rim"
+    },
+    "max_length": 12,
+    "min_footprint": 4,
+    "surface_block": "minecraft:gravel"
+  }
+}

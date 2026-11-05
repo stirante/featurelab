@@ -269,6 +269,7 @@ const ENGINE_SOURCES: Readonly<Record<string, EngineSource>> = {
     confidence: 'exceptions',
   },
   'minecraft:multi_block_feature': { files: ['features/multi_block.go'], confidence: 'exceptions' },
+  'minecraft:crevasse_feature': { files: ['features/crevasse.go'], confidence: 'exact' },
   'minecraft:multipart_block_column_feature': {
     files: ['features/multipart_block_column.go'],
     confidence: 'exact',
@@ -618,7 +619,7 @@ function compare(typeId: string): Comparison {
  *
  * NOT AN EXEMPTION FROM BEING CHECKED, which is the shape this would be wrong in. It is checked,
  * against its own authority, in featureRuleCatalogue.test.ts -- key set, pass list and all. What
- * it is exempt from is being looked for among the 27 feature builders, where it is not.
+ * it is exempt from is being looked for among the feature builders, where it is not.
  */
 const RULE_TYPE_ID = 'minecraft:feature_rule'
 
@@ -722,7 +723,7 @@ describe('the catalogue covers what the engine registers', () => {
         if (typeId !== undefined) registered.add(typeId)
       }
     }
-    expect(registered.size, 'no RegisterType calls found -- the scan broke, it did not find an empty engine').toBe(27)
+    expect(registered.size, 'no RegisterType calls found -- the scan broke, it did not find an empty engine').toBe(28)
     expect([...registered].sort()).toEqual([...TYPE_IDS].sort())
   })
 

@@ -1,7 +1,8 @@
 // coverage.go is this tool's coverage table: what it implements, and what it
 // does not.
 //
-// The game registers 29 JSON feature types as of 1.26.50.24. That qualifier is deliberate:
+// The game registers 30 JSON feature types as of 1.26.70.21 (29 in 1.26.50.24).
+// That qualifier is deliberate:
 // every count and status below is a statement about ONE game version. 1.26.40.26 registered
 // 26; 1.26.50.24 added `minecraft:horizontal_tree_decoration_feature`,
 // `minecraft:multi_block_feature` and `minecraft:multipart_block_column_feature`. Microsoft's
@@ -116,7 +117,7 @@ type CoverageEntry struct {
 	evidence string
 }
 
-// FeatureTypeCoverage lists every type the game registers -- 29 in 1.26.50.24. Statuses are
+// FeatureTypeCoverage lists every type the game registers -- 30 in 1.26.70.21. Statuses are
 // statements about that version, like everything else here. The count is not repeated in prose
 // anywhere it can drift: len(FeatureTypeCoverage) is the count, and coverage_test.go pins it
 // against the live builder registry in both directions.
@@ -126,6 +127,15 @@ var FeatureTypeCoverage = []CoverageEntry{
 	// Read Status, and CoverageSummary() for the live counts -- there are deliberately no
 	// "implemented"/"partial" section markers, because they duplicate the Status field and go
 	// stale the first time a status moves.
+	{
+		TypeID: "minecraft:crevasse_feature",
+		Status: StatusImplemented,
+		Note: "Carves a winding trench into terrain and can line it with `surface_block` and fill it with " +
+			"`fill_block`. Every key is optional. It only cuts the fixed list of natural blocks the game " +
+			"allows, and fails when the connected part of the trench is smaller than `min_footprint`. " +
+			"Blocks with the not_feature_replaceable tag stay. The vanilla list is from game version " +
+			"1.26.50, so a block added later that carries the tag can still be overwritten here.",
+	},
 	{TypeID: "minecraft:aggregate_feature", Status: StatusImplemented},
 	{TypeID: "minecraft:sequence_feature", Status: StatusImplemented},
 	{

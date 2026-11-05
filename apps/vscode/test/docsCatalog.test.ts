@@ -180,7 +180,8 @@ describe('the coverage numbers', () => {
     // conditions and its distribution, the latter sharing scatter's own axis definitions rather
     // than restating them) and 36 values -- the twelve placement passes, plus the axis
     // distributions and evaluation orders that come with the shared definitions.
-    expect({ fields: FIELDS.length, values: ENUM_VALUES.length }).toEqual({ fields: 494, values: 150 })
+    // 494 -> 502 for minecraft:crevasse_feature's eight keys.
+    expect({ fields: FIELDS.length, values: ENUM_VALUES.length }).toEqual({ fields: 502, values: 150 })
   })
 
   it('carries its own prose for most fields rather than leaning on FieldSpec.doc', () => {

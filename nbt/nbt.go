@@ -363,15 +363,16 @@ func blockLayer(v any, path string, expectedLength int) ([]int32, error) {
 	return toInt32Array(v, path, expectedLength)
 }
 
-// inflateStructure decodes a `compression: 1` structure tag: a ByteArray
-// holding the zlib-compressed NBT of the structure compound. The changelog
-// (Preview 26.60.29) does not say whether that NBT is a named root tag or the
-// bare compound payload, nor whether the root wraps it as "structure", so all
-// three shapes are accepted.
+// inflateStructure decodes a `compression: 1` structure tag: a non-empty
+// ByteArray holding one zlib-compressed named-root NBT compound, which is the
+// structure itself, with nothing after it.
 func inflateStructure(v any) (any, error) {
 	raw, ok := v.([]int8)
 	if !ok {
 		return nil, fmt.Errorf("mcstructure: compressed structure must be a ByteArray")
+	}
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("mcstructure: compressed structure is empty")
 	}
 	compressed := make([]byte, len(raw))
 	for i, b := range raw {
@@ -385,25 +386,18 @@ func inflateStructure(v any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mcstructure: compressed structure: %v", err)
 	}
-	var structure Compound
-	if len(data) > 0 && TagType(data[0]) == TagCompound {
-		_, structure, err = ReadNbt(data)
-	}
-	if structure == nil {
-		structure, err = readCompoundPayload(data)
-	}
+	structure, consumed, err := readRootCompound(data)
 	if err != nil {
-		return nil, fmt.Errorf("mcstructure: compressed structure: %v", err)
+		return nil, fmt.Errorf("mcstructure: compressed structure does not contain a valid NBT compound: %v", err)
 	}
-	if inner, ok := structure["structure"].(Compound); ok && structure["block_indices"] == nil {
-		return inner, nil
+	if consumed != len(data) {
+		return nil, fmt.Errorf("mcstructure: compressed structure has %d bytes after its NBT compound", len(data)-consumed)
 	}
 	return structure, nil
 }
 
-// readCompoundPayload reads a TAG_Compound's payload with no type byte or
-// name in front of it.
-func readCompoundPayload(data []byte) (value Compound, err error) {
+// readRootCompound reads one named root compound and says how many bytes it took.
+func readRootCompound(data []byte) (value Compound, consumed int, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			value = nil
@@ -415,7 +409,13 @@ func readCompoundPayload(data []byte) (value Compound, err error) {
 		}
 	}()
 	r := &reader{data: data, order: binary.LittleEndian}
-	return readPayload(r, TagCompound).(Compound), nil
+	rootType := TagType(r.u8())
+	if rootType != TagCompound {
+		return nil, 0, fmt.Errorf("the root is tag type %d", rootType)
+	}
+	r.str()
+	value = readPayload(r, TagCompound).(Compound)
+	return value, r.offset, nil
 }
 
 // ParseMcStructure parses a raw `.mcstructure` file's bytes into a
