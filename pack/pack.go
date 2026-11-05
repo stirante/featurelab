@@ -20,6 +20,7 @@ import (
 	"github.com/stirante/featurelab/biomes"
 	"github.com/stirante/featurelab/block"
 	"github.com/stirante/featurelab/features"
+	"github.com/stirante/featurelab/jigsaw"
 	"github.com/stirante/featurelab/rules"
 	"github.com/stirante/featurelab/structures"
 )
@@ -84,6 +85,7 @@ type Pack struct {
 	Rules      []rules.SourceFile
 	Biomes     []biomes.SourceFile
 	Blocks     []block.SourceFile
+	Jigsaw     jigsaw.Sources
 
 	Warnings []string
 
@@ -216,6 +218,12 @@ func Load(opts Options) (*Pack, error) {
 	// How many of the resolved directories were actually there -- see
 	// warnNoPackDirs for the one thing this is used to say.
 	found := 0
+
+	if opts.Dir != "" {
+		if err := p.loadJigsaw(opts); err != nil {
+			return nil, err
+		}
+	}
 
 	if featuresDir != "" {
 		files, existed, err := walkText(featuresDir, ".json", kindProgress(opts.OnFileRead, "features"))
@@ -427,6 +435,33 @@ func kindProgress(onFileRead func(kind string), kind string) func() {
 // The quotes are plain delimiters added here, NOT %q: they keep a path with
 // spaces readable as one token without escaping the backslashes that every
 // Windows path is made of.
+// jigsawFolders are the worldgen/ folders the game reads jigsaw structures from. A pack without them has no
+// jigsaw structures, which is normal, so a missing one is not a notice.
+var jigsawFolders = []struct {
+	name string
+	list func(*jigsaw.Sources) *[]jigsaw.SourceFile
+}{
+	{"processors", func(s *jigsaw.Sources) *[]jigsaw.SourceFile { return &s.Processors }},
+	{"template_pools", func(s *jigsaw.Sources) *[]jigsaw.SourceFile { return &s.Pools }},
+	{"structures", func(s *jigsaw.Sources) *[]jigsaw.SourceFile { return &s.Structures }},
+	{"structure_sets", func(s *jigsaw.Sources) *[]jigsaw.SourceFile { return &s.Sets }},
+}
+
+func (p *Pack) loadJigsaw(opts Options) error {
+	for _, folder := range jigsawFolders {
+		dir := filepath.Join(opts.Dir, "worldgen", folder.name)
+		files, _, err := walkText(dir, ".json", kindProgress(opts.OnFileRead, "worldgen"))
+		if err != nil {
+			return fmt.Errorf("pack: reading %s: %w", dir, err)
+		}
+		list := folder.list(&p.Jigsaw)
+		for _, f := range files {
+			*list = append(*list, jigsaw.SourceFile{ID: "worldgen/" + folder.name + "/" + f.id, AbsPath: f.absPath, Text: f.text})
+		}
+	}
+	return nil
+}
+
 // noteMissingDir records one missing directory in BOTH lists at once -- the
 // only way either of them is ever appended to, so Warnings[i] and
 // MissingDirs[i] cannot drift into describing different things.
@@ -554,6 +589,29 @@ func (p *Pack) ReloadFile(absPath string) error {
 			func(id, abs string) structures.SourceFile {
 				return structures.SourceFile{ID: id, AbsPath: abs, Data: raw}
 			})
+	}
+
+	if p.Dir != "" {
+		if rel, ok := relWithin(filepath.Join(p.Dir, "worldgen"), clean); ok && hasExt(rel, ".json") {
+			for _, folder := range jigsawFolders {
+				prefix := folder.name + "/"
+				slashed := toID(rel)
+				if !strings.HasPrefix(slashed, prefix) {
+					continue
+				}
+				matched = true
+				text, present, err := read()
+				if err != nil {
+					return err
+				}
+				list := folder.list(&p.Jigsaw)
+				*list = spliceSorted(*list, 0, "worldgen/"+slashed, clean, present,
+					func(f jigsaw.SourceFile) (string, string) { return f.ID, f.AbsPath },
+					func(id, abs string) jigsaw.SourceFile {
+						return jigsaw.SourceFile{ID: id, AbsPath: abs, Text: string(text)}
+					})
+			}
+		}
 	}
 
 	if rel, ok := relWithin(p.Dirs.Rules, clean); ok && hasExt(rel, ".json") {

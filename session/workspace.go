@@ -15,6 +15,7 @@ import (
 	"github.com/stirante/featurelab/biomes"
 	"github.com/stirante/featurelab/block"
 	"github.com/stirante/featurelab/features"
+	"github.com/stirante/featurelab/jigsaw"
 	"github.com/stirante/featurelab/rules"
 	"github.com/stirante/featurelab/structures"
 )
@@ -99,6 +100,7 @@ type Workspace struct {
 	structureLib *structures.Library
 	ruleLib      *rules.FeatureRuleLibrary
 	biomeLib     *biomes.Library
+	jigsawLib    *jigsaw.Library
 
 	// blockDiagnostics is LoadBlockTags's own per-file report (malformed
 	// JSON, a block file missing description.identifier) -- kept, not
@@ -195,6 +197,7 @@ func (w *Workspace) PackDiagnostics() []Diagnostic {
 	out = append(out, byKind.Features...)
 	out = append(out, byKind.Rules...)
 	out = append(out, byKind.Biomes...)
+	out = append(out, byKind.Jigsaw...)
 	return out
 }
 
@@ -213,6 +216,7 @@ type PackDiagnosticKinds struct {
 	Features   []Diagnostic
 	Rules      []Diagnostic
 	Biomes     []Diagnostic
+	Jigsaw     []Diagnostic
 }
 
 // PackDiagnosticsByKind returns this Workspace's pack-scoped diagnostics
@@ -237,6 +241,9 @@ func (w *Workspace) PackDiagnosticsByKind() PackDiagnosticKinds {
 	if w.biomeLib != nil {
 		out.Biomes = convertBiomeDiagnostics(w.biomeLib.Diagnostics, keepFileID)
 	}
+	if w.jigsawLib != nil {
+		out.Jigsaw = convertJigsawDiagnostics(w.jigsawLib.Diagnostics)
+	}
 	return out
 }
 
@@ -247,9 +254,9 @@ func keepFileID(fileID string) string { return fileID }
 // expensive path (re-parsing every .mcstructure/.json file), paid once
 // here. Use Update afterward to react to changed source files without
 // paying that full cost again for kinds that didn't change.
-func NewWorkspace(featureFiles []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile) *Workspace {
+func NewWorkspace(featureFiles []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile, jigsawFiles ...jigsaw.Sources) *Workspace {
 	w := &Workspace{palette: block.NewPalette()}
-	w.Update(featureFiles, structureFiles, ruleFiles, biomeFiles, blockFiles)
+	w.Update(featureFiles, structureFiles, ruleFiles, biomeFiles, blockFiles, jigsawFiles...)
 	return w
 }
 
@@ -280,7 +287,7 @@ func NewWorkspace(featureFiles []features.SourceFile, structureFiles []structure
 // were captured at BUILD time against whatever blocks/ content existed
 // then, and would go stale (naming a tag as unresolved that a later blocks/
 // edit actually did define, or vice versa) without also rebuilding here.
-func (w *Workspace) Update(featureFiles []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile) {
+func (w *Workspace) Update(featureFiles []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile, jigsawFiles ...jigsaw.Sources) {
 	newStructureFP := reuseFingerprint(structureFiles, w.structureFiles, w.structureFingerprint, fingerprintStructureFiles)
 	newFeatureFP := reuseFingerprint(featureFiles, w.featureFiles, w.featureFingerprint, fingerprintFeatureFiles)
 	newRuleFP := reuseFingerprint(ruleFiles, w.ruleFiles, w.ruleFingerprint, fingerprintRuleFiles)
@@ -334,6 +341,7 @@ func (w *Workspace) Update(featureFiles []features.SourceFile, structureFiles []
 		w.biomeLib = biomes.BuildLibrary(biomeFiles)
 		w.biomeFingerprint = newBiomeFP
 	}
+	w.jigsawLib = buildJigsawLibrary(w.palette, w.structureLib, w.featureLib, jigsawFiles)
 }
 
 // Generate runs one placement against this Workspace's currently-built
@@ -363,7 +371,7 @@ func (w *Workspace) Generate(config Config) (*Result, error) {
 // caller can be handed, and the one-shot path it belongs to has no long-lived process to keep
 // responsive anyway.
 func (w *Workspace) GenerateContext(ctx context.Context, config Config) (*Result, error) {
-	result, err := generate(ctx, config, w.palette, w.featureLib, w.structureLib, w.ruleLib, w.biomeLib, w.pathsFor(config.PackDir))
+	result, err := generate(ctx, config, w.palette, w.featureLib, w.structureLib, w.ruleLib, w.biomeLib, w.jigsawLib, w.pathsFor(config.PackDir))
 	if err != nil {
 		return nil, err
 	}

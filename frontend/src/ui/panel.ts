@@ -350,12 +350,13 @@ function isLongDiagnostic(message: string): boolean {
   return message.length > DIAGNOSTIC_CLAMP_CHARS || /[\r\n]/.test(message)
 }
 
-export type Mode = 'feature' | 'rule'
+export type Mode = 'feature' | 'rule' | 'structure'
 
 interface GenerationConfig {
   mode: Mode
   featureIdentifier: string | null
   ruleIdentifier: string | null
+  structureIdentifier: string | null
   env: string
   sizeX: number
   sizeY: number
@@ -415,6 +416,7 @@ function defaultConfig(): GenerationConfig {
     mode: 'feature',
     featureIdentifier: null,
     ruleIdentifier: null,
+    structureIdentifier: null,
     env: 'plains',
     // Bootstrap-only: the real Environment preset list (environments, see the `environments`
     // array/setEnvironments below) arrives asynchronously from the engine, so these four have
@@ -556,6 +558,7 @@ interface PersistedState {
     mode?: Mode
     featureIdentifier?: string | null
     ruleIdentifier?: string | null
+    structureIdentifier?: string | null
   }
   view: {
     sliceMinY: number | null
@@ -756,15 +759,17 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     mode: persisted?.config?.mode ?? defaultConfig().mode,
     featureIdentifier: persisted?.config?.featureIdentifier ?? null,
     ruleIdentifier: persisted?.config?.ruleIdentifier ?? null,
+    structureIdentifier: persisted?.config?.structureIdentifier ?? null,
   }
   // Defensive typo-guard on what IS restored -- a hand-edited blob (or one from an older shape)
   // should degrade to the default, never leave a non-string where an identifier is expected or
   // a mode no radio matches. An empty identifier is normalised to null because that is what
   // "nothing selected" means everywhere else here: buildGenerateParams gates on it being falsy,
   // and an empty string would otherwise be sent as a feature named "".
-  if (config.mode !== 'feature' && config.mode !== 'rule') config.mode = 'feature'
+  if (config.mode !== 'feature' && config.mode !== 'rule' && config.mode !== 'structure') config.mode = 'feature'
   if (typeof config.featureIdentifier !== 'string' || config.featureIdentifier.length === 0) config.featureIdentifier = null
   if (typeof config.ruleIdentifier !== 'string' || config.ruleIdentifier.length === 0) config.ruleIdentifier = null
+  if (typeof config.structureIdentifier !== 'string' || config.structureIdentifier.length === 0) config.structureIdentifier = null
 
   // Only trust a persisted slice as "the user's own touched choice" when sliceTouched was
   // explicitly saved true -- see PersistedState.view.sliceTouched's own doc comment. A save from
@@ -877,6 +882,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
         mode: config.mode,
         featureIdentifier: config.featureIdentifier,
         ruleIdentifier: config.ruleIdentifier,
+        structureIdentifier: config.structureIdentifier,
       },
       view: {
         // Persist INTENT, not the clamped display artefact -- while untouched these
@@ -934,17 +940,19 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     return out
   }
 
+  function selectedSubject(): string | null {
+    if (config.mode === 'feature') return config.featureIdentifier
+    if (config.mode === 'rule') return config.ruleIdentifier
+    return config.structureIdentifier
+  }
+
   /** Builds the GenerateParamsWire the current config implies, or null if the request would be
-   * invalid (neither a feature nor a rule selected -- wire.BuildConfig requires exactly one).
+   * invalid (no feature, rule or structure selected -- wire.BuildConfig requires exactly one).
    * Every optional field follows one rule: never send a value the user has not actually
    * touched away from "no opinion", even if that value happens to look like a sane default --
    * see this function's own per-field comments for why size/minY are the one exception. */
   function buildGenerateParams(): GenerateParamsWire | null {
-    if (config.mode === 'feature') {
-      if (!config.featureIdentifier) return null
-    } else if (!config.ruleIdentifier) {
-      return null
-    }
+    if (!selectedSubject()) return null
 
     const params: GenerateParamsWire = {
       env: config.env,
@@ -963,7 +971,8 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     // the response echoes back featureSeed so the field can show what was actually used.
     if (config.seed !== null) params.seed = config.seed
     if (config.mode === 'feature') params.feature = config.featureIdentifier!
-    else params.rule = config.ruleIdentifier!
+    else if (config.mode === 'rule') params.rule = config.ruleIdentifier!
+    else params.structure = config.structureIdentifier!
 
     // origin: composed only once the user has touched X or Z -- see originTouched's doc
     // comment for why Y comes from resolvedOriginY rather than a control.
@@ -1520,7 +1529,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   function pickEmptyResultDiagnostic(diagnostics: readonly DecodedDiagnostic[]): DecodedDiagnostic | null {
     const mine = diagnostics.filter(isRunDiagnostic)
     if (mine.length === 0) return null
-    const subject = (config.mode === 'feature' ? config.featureIdentifier : config.ruleIdentifier) ?? ''
+    const subject = selectedSubject() ?? ''
     return mine.find((d) => subject !== '' && (d.identifier === subject || d.chain.includes(subject))) ?? mine.find((d) => d.level === 'error') ?? mine[0] ?? null
   }
 
@@ -1694,13 +1703,14 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   const { section: featureSection, body: featureBody } = section('feature', 'Feature / Rule')
 
   const modeSelectorRow = h('div', 'fl-row')
-  modeSelectorRow.title = 'Preview one feature on its own, or a feature rule with its placement pass and conditions.'
+  modeSelectorRow.title = 'Preview one feature on its own, a feature rule with its placement pass and conditions, or a jigsaw structure from worldgen/structures.'
   modeSelectorRow.append(h('label', 'fl-row-label', 'Preview'))
   const modeGroup = h('div', 'fl-radio-group')
   const modeRadios: Record<Mode, HTMLInputElement> = {} as Record<Mode, HTMLInputElement>
   for (const [value, label] of [
     ['feature', 'Feature'],
     ['rule', 'Rule'],
+    ['structure', 'Structure'],
   ] as const) {
     const optionLabel = h('label', 'fl-radio-option')
     const radio = h('input') as HTMLInputElement
@@ -1736,6 +1746,15 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   const ruleInfoEl = h('div', 'fl-info', '(no rules loaded yet)')
   const ruleRow = row('Rule', ruleSelect, 'The feature rule the next run evaluates; a rule that failed to build is greyed out.')
 
+  const structureSelect = h('select', 'fl-select') as HTMLSelectElement
+  const structureInfoEl = h('div', 'fl-info', '(no jigsaw structures loaded yet)')
+  const structureRow = row('Structure', structureSelect, 'The jigsaw structure the next run assembles. The seed is its world seed; the origin only picks the chunk it starts in.')
+
+  structureSelect.addEventListener('change', () => {
+    config.structureIdentifier = structureSelect.value || null
+    updateStructureInfo()
+    notifyConfigChanged()
+  })
   featureSelect.addEventListener('change', () => {
     config.featureIdentifier = featureSelect.value || null
     updateFeatureInfo()
@@ -1750,10 +1769,24 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   function updateModeVisibility(): void {
     for (const [value, radio] of Object.entries(modeRadios)) radio.checked = config.mode === value
     const isRule = config.mode === 'rule'
-    featureRow.classList.toggle('fl-hidden', isRule)
-    featureInfoEl.classList.toggle('fl-hidden', isRule)
+    const isFeature = config.mode === 'feature'
+    const isStructure = config.mode === 'structure'
+    featureRow.classList.toggle('fl-hidden', !isFeature)
+    featureInfoEl.classList.toggle('fl-hidden', !isFeature)
     ruleRow.classList.toggle('fl-hidden', !isRule)
     ruleInfoEl.classList.toggle('fl-hidden', !isRule)
+    structureRow.classList.toggle('fl-hidden', !isStructure)
+    structureInfoEl.classList.toggle('fl-hidden', !isStructure)
+  }
+
+  function updateStructureInfo(): void {
+    const id = config.structureIdentifier
+    const known = lastResult?.jigsawEntries ?? []
+    if (!id) {
+      structureInfoEl.textContent = known.length > 0 ? '(select a structure)' : '(this pack has no worldgen/structures files)'
+      return
+    }
+    structureInfoEl.textContent = known.includes(id) ? 'jigsaw structure' : `"${id}" not found in worldgen/structures`
   }
 
   function updateFeatureInfo(): void {
@@ -1818,6 +1851,18 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     }
     if ([...ruleSelect.options].some((o) => o.value === prevRule)) ruleSelect.value = prevRule
     else if (ruleSelect.options.length > 0) ruleSelect.selectedIndex = -1
+
+    const prevStructure = config.structureIdentifier ?? ''
+    structureSelect.textContent = ''
+    for (const identifier of lastResult?.jigsawEntries ?? []) {
+      if (filter && !identifier.toLowerCase().includes(filter)) continue
+      const opt = document.createElement('option')
+      opt.value = identifier
+      opt.textContent = identifier
+      structureSelect.append(opt)
+    }
+    if ([...structureSelect.options].some((o) => o.value === prevStructure)) structureSelect.value = prevStructure
+    else if (structureSelect.options.length > 0) structureSelect.selectedIndex = -1
   }
 
   const reloadButton = h('button', 'fl-wide-btn', 'Reload files') as HTMLButtonElement
@@ -1885,6 +1930,8 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
     featureInfoEl,
     ruleRow,
     ruleInfoEl,
+    structureRow,
+    structureInfoEl,
     row('Origin X', originXInput, 'World X of the placement origin, sent once edited; Y is the height the preset resolves.'),
     row('Origin Z', originZInput, 'World Z of the placement origin, sent once edited; Y is the height the preset resolves.'),
     row('Seed', seedRowControl, 'Empty uses the preset default; the same seed reproduces the same run.'),
@@ -2932,6 +2979,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
   updateModeVisibility()
   updateFeatureInfo()
   updateRuleInfo()
+  updateStructureInfo()
   renderEnvironmentOptions()
   renderBiomeOptions()
 
@@ -3088,6 +3136,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       renderListOptions()
       updateFeatureInfo()
       updateRuleInfo()
+      updateStructureInfo()
       // Biome materials/tags prefill can change with a fresh result even when config itself
       // didn't (biomeEntries is per-pack-load data, and the resolved surfaceBuilder for the
       // currently-selected pack biome, if any, could not be shown accurately before this
@@ -3152,10 +3201,11 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       // comment for the bug this fixes (a stale cross-file selection surviving in localStorage).
       config.mode = kind
       if (kind === 'feature') config.featureIdentifier = identifier
+      else if (kind === 'structure') config.structureIdentifier = identifier
       else config.ruleIdentifier = identifier
       updateModeVisibility()
 
-      const select = kind === 'feature' ? featureSelect : ruleSelect
+      const select = kind === 'feature' ? featureSelect : kind === 'rule' ? ruleSelect : structureSelect
       select.value = identifier
       if (select.value !== identifier) {
         // Not in the (possibly still-empty, or genuinely pack-mismatched) options list -- add a
@@ -3171,6 +3221,7 @@ export function createPanel(root: HTMLElement, opts: PanelOptions): PanelHandle 
       }
       updateFeatureInfo()
       updateRuleInfo()
+      updateStructureInfo()
       save()
     },
     setEnvironments(list: EnvironmentOptionWire[]): void {

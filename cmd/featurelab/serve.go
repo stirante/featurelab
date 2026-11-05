@@ -689,9 +689,9 @@ func methodLoadPack(state *serverState, raw json.RawMessage, reporter *progressR
 	// edit-a-feature-file-then-reload loop cheap: only the changed kind
 	// gets rebuilt, "generate" itself never rebuilds anything.
 	if state.workspace == nil {
-		state.workspace = session.NewWorkspace(loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks)
+		state.workspace = session.NewWorkspace(loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks, loaded.Jigsaw)
 	} else {
-		state.workspace.Update(loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks)
+		state.workspace.Update(loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks, loaded.Jigsaw)
 	}
 	// The whole Pack is retained, not just its counts: "reloadFile" splices
 	// one re-read file into these very lists -- see serverState.loaded.
@@ -790,7 +790,7 @@ func methodReloadFile(state *serverState, raw json.RawMessage) (any, error) {
 	if err := state.loaded.ReloadFile(p.Path); err != nil {
 		return nil, err
 	}
-	state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks)
+	state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks, state.loaded.Jigsaw)
 	return packResult(state.loaded, state.workspace), nil
 }
 

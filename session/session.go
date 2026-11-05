@@ -39,6 +39,7 @@ import (
 	"github.com/stirante/featurelab/env"
 	"github.com/stirante/featurelab/features"
 	"github.com/stirante/featurelab/internal/nearest"
+	"github.com/stirante/featurelab/jigsaw"
 	"github.com/stirante/featurelab/profiler"
 	"github.com/stirante/featurelab/random"
 	"github.com/stirante/featurelab/rules"
@@ -73,6 +74,8 @@ const (
 	// ModeRule requests feature-rule distribution placement, run through
 	// the rules package -- see Generate's ModeRule branch.
 	ModeRule Mode = "rule"
+	// ModeStructure assembles and places one jigsaw structure from worldgen/structures.
+	ModeStructure Mode = "structure"
 )
 
 // BiomeOverride is a manual biome-identity override: id and tags travel
@@ -110,6 +113,9 @@ type Config struct {
 	// when Mode == ModeRule -- resolved against the rules.FeatureRuleLibrary
 	// built from Generate's ruleFiles parameter.
 	RuleIdentifier *string
+	// StructureIdentifier selects the jigsaw structure when Mode == ModeStructure. FeatureSeed is
+	// its world seed, and the origin only picks the chunk it starts in.
+	StructureIdentifier *string
 
 	// RepeatCount places the feature/rule this many times, advancing the
 	// RNG, to judge variance.
@@ -413,6 +419,8 @@ type Result struct {
 	// RuleEntries is every loaded feature_rules/*.json entry, always
 	// populated regardless of Mode (mirrors Entries above).
 	RuleEntries []rules.FeatureRuleEntry `json:"ruleEntries"`
+	// JigsawEntries is every loaded jigsaw structure identifier, sorted.
+	JigsawEntries []string `json:"jigsawEntries"`
 	// ActiveRule is the resolved rule for Config.RuleIdentifier when
 	// Mode == ModeRule, nil otherwise.
 	ActiveRule *rules.FeatureRule `json:"activeRule"`
@@ -477,8 +485,8 @@ type Result struct {
 // Always regenerating from a clean environment (rather than undoing a
 // previous placement) keeps every run reproducible from (config, files,
 // structureFiles) alone.
-func Generate(config Config, files []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile) (*Result, error) {
-	return GenerateContext(context.Background(), config, files, structureFiles, ruleFiles, biomeFiles, blockFiles)
+func Generate(config Config, files []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile, jigsawFiles ...jigsaw.Sources) (*Result, error) {
+	return GenerateContext(context.Background(), config, files, structureFiles, ruleFiles, biomeFiles, blockFiles, jigsawFiles...)
 }
 
 // GenerateContext is Generate with a cancellation signal: cancelling ctx abandons the placement
@@ -492,9 +500,9 @@ func Generate(config Config, files []features.SourceFile, structureFiles []struc
 // would be the stale preview this whole tool is built to avoid.
 //
 // Library building (NewWorkspace, below) is NOT covered -- see Workspace.GenerateContext.
-func GenerateContext(ctx context.Context, config Config, files []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile) (*Result, error) {
+func GenerateContext(ctx context.Context, config Config, files []features.SourceFile, structureFiles []structures.SourceFile, ruleFiles []rules.SourceFile, biomeFiles []biomes.SourceFile, blockFiles []block.SourceFile, jigsawFiles ...jigsaw.Sources) (*Result, error) {
 	buildStarted := time.Now()
-	ws := NewWorkspace(files, structureFiles, ruleFiles, biomeFiles, blockFiles)
+	ws := NewWorkspace(files, structureFiles, ruleFiles, biomeFiles, blockFiles, jigsawFiles...)
 	buildDurationMs := float64(time.Since(buildStarted)) / float64(time.Millisecond)
 
 	result, err := ws.GenerateContext(ctx, config)
@@ -532,7 +540,7 @@ func GenerateContext(ctx context.Context, config Config, files []features.Source
 // and delegation cadence and therefore cost nothing per iteration. Adding a ctx.Err() call to a
 // per-cell loop here would buy responsiveness that is already there and pay for it in the one
 // place this project measures.
-func generate(ctx context.Context, config Config, palette *block.Palette, lib *features.Library, structureLib *structures.Library, ruleLib *rules.FeatureRuleLibrary, biomeLib *biomes.Library, paths packPaths) (*Result, error) {
+func generate(ctx context.Context, config Config, palette *block.Palette, lib *features.Library, structureLib *structures.Library, ruleLib *rules.FeatureRuleLibrary, biomeLib *biomes.Library, jigsawLib *jigsaw.Library, paths packPaths) (*Result, error) {
 	started := time.Now()
 
 	if err := ctx.Err(); err != nil {
@@ -648,6 +656,9 @@ func generate(ctx context.Context, config Config, palette *block.Palette, lib *f
 			}
 			return "(placement)"
 		}
+		if config.Mode == ModeStructure && config.StructureIdentifier != nil {
+			return *config.StructureIdentifier
+		}
 		if config.FeatureIdentifier != nil && *config.FeatureIdentifier != "" {
 			return *config.FeatureIdentifier
 		}
@@ -687,6 +698,20 @@ func generate(ctx context.Context, config Config, palette *block.Palette, lib *f
 	var feature wgen.PlaceableFeature
 	if config.Mode == ModeFeature && config.FeatureIdentifier != nil && *config.FeatureIdentifier != "" {
 		feature = lib.Resolve(*config.FeatureIdentifier)
+	}
+	if config.Mode == ModeStructure && config.StructureIdentifier != nil && *config.StructureIdentifier != "" {
+		if structure := jigsawLib.Resolve(*config.StructureIdentifier); structure != nil {
+			minY, maxY := jigsawDimensionHeight(config.Environment)
+			feature = &jigsaw.Feature{
+				Structure: structure, Library: jigsawLib, Templates: structureLib, Features: lib,
+				WorldSeed: int64(config.FeatureSeed), MinY: minY, MaxY: maxY,
+			}
+		} else {
+			placementFailures = append(placementFailures, Diagnostic{
+				Level: "error", FileID: *config.StructureIdentifier, Scope: ScopeRun, Count: 1,
+				Message: fmt.Sprintf("no jigsaw structure %q: worldgen/structures has %s", *config.StructureIdentifier, describeJigsawStructures(jigsawLib)),
+			})
+		}
 	}
 	var activeRule *rules.FeatureRule
 	if config.Mode == ModeRule && config.RuleIdentifier != nil && *config.RuleIdentifier != "" {
@@ -1139,6 +1164,7 @@ func generate(ctx context.Context, config Config, palette *block.Palette, lib *f
 		Diagnostics:         diagnostics,
 		Entries:             lib.Entries,
 		RuleEntries:         ruleLib.Entries,
+		JigsawEntries:       jigsawLib.Identifiers(),
 		ActiveRule:          activeRule,
 		UnresolvedTags:      unresolvedTags,
 		BiomeEntries:        biomeLib.Entries,

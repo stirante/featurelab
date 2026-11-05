@@ -423,12 +423,14 @@ import "github.com/stirante/featurelab/session"
 //     Diagnostic naming the slot and the offending value (env.InternMaterialSlots's warn
 //     callback, wired to session.Result.Diagnostics).
 type GenerateParams struct {
-	Feature string  `json:"feature,omitempty"`
-	Rule    string  `json:"rule,omitempty"`
-	Env     string  `json:"env,omitempty"`
-	Seed    *uint32 `json:"seed,omitempty"`
-	Origin  string  `json:"origin,omitempty"` // "x,y,z"
-	Size    string  `json:"size,omitempty"`   // "XxYxZ"
+	Feature string `json:"feature,omitempty"`
+	Rule    string `json:"rule,omitempty"`
+	// Structure names a jigsaw structure from worldgen/structures. Seed is its world seed.
+	Structure string  `json:"structure,omitempty"`
+	Env       string  `json:"env,omitempty"`
+	Seed      *uint32 `json:"seed,omitempty"`
+	Origin    string  `json:"origin,omitempty"` // "x,y,z"
+	Size      string  `json:"size,omitempty"`   // "XxYxZ"
 	// MinY overrides the preset's default world-floor Y. nil means preset default.
 	MinY *int `json:"minY,omitempty"`
 	// BiomeID selects a loaded pack biome by identifier (materials + biome-identity source 2).

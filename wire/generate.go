@@ -21,7 +21,7 @@ func RunGenerate(loaded *pack.Pack, params GenerateParams) (*GenerateOutput, err
 	if err != nil {
 		return nil, err
 	}
-	result, err := session.Generate(cfg, loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks)
+	result, err := session.Generate(cfg, loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks, loaded.Jigsaw)
 	if err != nil {
 		return nil, err
 	}
@@ -84,6 +84,7 @@ func wrapGenerateOutput(cfg session.Config, result *session.Result, params Gener
 		// Generate constructs it), so clearing it affects nothing but this response.
 		result.Entries = nil
 		result.RuleEntries = nil
+		result.JigsawEntries = nil
 		result.BiomeEntries = nil
 	}
 	return &GenerateOutput{

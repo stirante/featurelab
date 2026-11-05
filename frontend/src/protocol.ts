@@ -298,6 +298,8 @@ export interface GenerateResultWire {
   /** Every loaded feature_rules/*.json entry -- see RuleEntryWire's doc comment. Populated
    * regardless of request mode. */
   ruleEntries?: RuleEntryWire[]
+  /** Every loaded jigsaw structure identifier, sorted. Populated regardless of request mode. */
+  jigsawEntries?: string[]
   /** One block id per cell -- see CellArrayWire for the three shapes this can arrive in. */
   blocks: CellArrayWire
   baseline: CellArrayWire
@@ -427,6 +429,9 @@ export interface DecodedResult {
   /** Every loaded feature_rules/*.json entry -- [] when the wire response predates this field.
    * Populates panel.ts's Rule picker. */
   ruleEntries: RuleEntryWire[]
+  /** Every loaded jigsaw structure identifier -- [] when the wire response predates this field.
+   * Populates panel.ts's Structure picker. */
+  jigsawEntries: string[]
   /** Every loaded biomes/*.json entry -- [] when the wire response predates this field.
    * Populates panel.ts's Pack biome picker. */
   biomeEntries: BiomeEntryWire[]
@@ -579,6 +584,8 @@ export interface MaterialsWire {
 export interface GenerateParamsWire {
   feature?: string
   rule?: string
+  /** A jigsaw structure from worldgen/structures. `seed` is its world seed. */
+  structure?: string
   env?: string
   seed?: number
   /** "x,y,z", all three required together when present -- see wire.ParseOrigin. */
@@ -604,8 +611,8 @@ export interface GenerateParamsWire {
    * ENGINE_DEFAULT_PLACEMENT_TIME_LIMIT_MS below -- see that constant's own doc comment for the
    * extension-side request-timeout coupling raising this implies. */
   placementTimeLimitMs?: number
-  /** Asks the engine to leave `entries`, `ruleEntries` and `biomeEntries` out of the response
-   * (they come back null). Those three describe the loaded PACK, not the run, and they dominate
+  /** Asks the engine to leave `entries`, `ruleEntries`, `jigsawEntries` and `biomeEntries` out of the response
+   * (they come back null). Those describe the loaded PACK, not the run, and they dominate
    * a repeated preview -- on a real pack `entries` alone is over half a response. A host driving
    * many generates against one loaded pack fetches them once and sets this on everything after;
    * whoever sets it is responsible for putting the cached arrays back before anything that reads
@@ -800,6 +807,7 @@ export function decodeGenerateResult(raw: unknown): DecodedResult {
     origin: result.origin ?? { x: 0, y: 0, z: 0 },
     entries: result.entries ?? [],
     ruleEntries: result.ruleEntries ?? [],
+    jigsawEntries: result.jigsawEntries ?? [],
     biomeEntries: result.biomeEntries ?? [],
     environmentBiome: result.environmentBiome ?? null,
     overflowBlocks,

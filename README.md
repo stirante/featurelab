@@ -352,6 +352,11 @@ exactly, not approximately.
   `implemented`, because this is a precision gap rather than a missing
   behaviour -- `features/coverage.go`'s entry states it in full.
 - **Whatever `features/coverage.go` marks `partial`.** Which types those are,
+- **Jigsaw structures** (`generate --structure`, package `jigsaw/`) are assembled
+  the way the game does it but not yet compared with a world in game.
+  Terrain adaptation, biome filters, structure set selection and random pool
+  aliases are not modelled; a run warns about each it hits. See
+  `docs/site/engine/jigsaw.md`.
   and exactly what is approximated or refused in each, changes as work lands,
   so this README deliberately does not name them: run `featurelab types` or
   read `features/coverage.go` for the live, authoritative answer. Every entry
@@ -457,6 +462,7 @@ pack/               loads a behaviour pack's features/structures/rules/biomes
 session/            build a bench world -> run a feature or rule -> diff -> result
 features/           per-type JSON builders and placement code; coverage.go is the coverage table
 env/                environment presets, material slots
+jigsaw/             worldgen/ loading, jigsaw assembly, processors
 biomes/             pack biome definitions -> material slots and tags
 random/             the feature RNG -- MT19937
 wgen/               core placement contracts (BlockPos, world access, features) and the

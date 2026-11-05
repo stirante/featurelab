@@ -41,6 +41,7 @@ Three things about it are worth knowing before you parse it:
 - **The per-cell arrays are run-length encoded** as value / run-length pairs, because a bench volume is mostly untouched environment. The same run at `--size 96x384x96` covers 3,538,944 cells: 7.08 MB as a dense array, **44.9 KB** encoded, in 9,145 runs. A denser pack encodes less well — the ratio is a property of the volume, not a constant.
 - **The three block counts are not one number.** `blocksPlaced` is air → non-air, `blocksCarved` is non-air → air, `blocksReplaced` is one non-air block for another. A carving feature reports `blocksPlaced: 0` and has done a great deal; the run above carves 3,229 cells and places none.
 - **An `error` diagnostic makes the process exit non-zero**, the same gate `check` uses. `--feature` naming something the pack does not define is an error diagnostic, so a script cannot mistake a typo'd id for a feature that placed nothing.
+- **`--structure ns:id` runs a jigsaw structure** instead of a feature or rule, with `--seed` as its world seed. See [Jigsaw structures](/engine/jigsaw).
 
 `--env` picks the landform, `--seed` the feature seed, `--origin` and `--size` the volume, `--repeat` how many times to place. `--grow` re-runs at a larger size when writes landed outside the volume — a genuinely different run, not a wider view of the first. The surrounding model — where a seed comes from and why renaming something moves it — is [RNG and determinism](../features/rng_and_determinism.md).
 

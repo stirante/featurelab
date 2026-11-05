@@ -404,7 +404,7 @@ func (a *App) ensureWorkspaceLocked() (*session.Workspace, error) {
 		return nil, fmt.Errorf("no pack loaded -- open a pack directory first")
 	}
 	if a.workspace == nil {
-		a.workspace = session.NewWorkspace(a.loaded.Features, a.loaded.Structures, a.loaded.Rules, a.loaded.Biomes, a.loaded.Blocks)
+		a.workspace = session.NewWorkspace(a.loaded.Features, a.loaded.Structures, a.loaded.Rules, a.loaded.Biomes, a.loaded.Blocks, a.loaded.Jigsaw)
 	}
 	return a.workspace, nil
 }
@@ -473,7 +473,7 @@ func (a *App) handlePackChanged(change PackChange) {
 	}
 	a.loaded = loaded
 	if a.workspace != nil {
-		a.workspace.Update(loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks)
+		a.workspace.Update(loaded.Features, loaded.Structures, loaded.Rules, loaded.Biomes, loaded.Blocks, loaded.Jigsaw)
 	}
 	a.mu.Unlock()
 	a.emit(PackChangedEvent)
@@ -520,7 +520,7 @@ func (a *App) reloadChangedLocked(change PackChange) bool {
 	}
 	a.loaded = &next
 	if a.workspace != nil {
-		a.workspace.Update(next.Features, next.Structures, next.Rules, next.Biomes, next.Blocks)
+		a.workspace.Update(next.Features, next.Structures, next.Rules, next.Biomes, next.Blocks, next.Jigsaw)
 	}
 	return true
 }

@@ -792,7 +792,7 @@ func reloadWholePack(state *serverState) error {
 		return fmt.Errorf("re-reading the pack: %v", err)
 	}
 	state.loaded = reloaded
-	state.workspace.Update(reloaded.Features, reloaded.Structures, reloaded.Rules, reloaded.Biomes, reloaded.Blocks)
+	state.workspace.Update(reloaded.Features, reloaded.Structures, reloaded.Rules, reloaded.Biomes, reloaded.Blocks, reloaded.Jigsaw)
 	return nil
 }
 

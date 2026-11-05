@@ -55,6 +55,9 @@ type ResolvedStructure struct {
 	// specifically) but resolved here so it's available without a second
 	// pass over the palette if that changes.
 	Layer1 []int32
+	// BlockEntities is the block entity data per cell, same index as Layer0. Jigsaw blocks keep
+	// their name, target and pool here.
+	BlockEntities map[int]nbt.Compound
 }
 
 // IResolver resolves a structure_name to its parsed/interned data.
@@ -183,7 +186,7 @@ func BuildLibrary(files []SourceFile, palette *block.Palette) *Library {
 				diags = append(diags, Diagnostic{Level: "error", FileID: f.ID, Message: fmt.Sprintf("structure name %q is declared in more than one file", name)})
 				continue
 			}
-			byName[name] = &ResolvedStructure{Size: parsed.Size, PaletteIDs: paletteIDs, Layer0: parsed.Layer0, Layer1: parsed.Layer1}
+			byName[name] = &ResolvedStructure{Size: parsed.Size, PaletteIDs: paletteIDs, Layer0: parsed.Layer0, Layer1: parsed.Layer1, BlockEntities: parsed.BlockEntities}
 
 		case strings.HasSuffix(lowerID, ".nbt"):
 			parsed, err := nbt.ParseLegacyStructure(f.Data)

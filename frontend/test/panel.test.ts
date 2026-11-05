@@ -138,6 +138,7 @@ function makeResult(overrides: Partial<DecodedResult> = {}): DecodedResult {
     origin: { x: 0, y: 17, z: 0 },
     entries: [],
     ruleEntries: [],
+    jigsawEntries: [],
     biomeEntries: [],
     environmentBiome: null,
     overflowBlocks: [],
@@ -377,6 +378,62 @@ describe('createPanel: seedOpenedDocument -- the opened document wins over persi
     expect(growStickyCheckboxOf(root).checked).toBe(true)
     expect(heatmapCheckbox.checked).toBe(true)
     expect(envSection.classList.contains('fl-collapsed')).toBe(true)
+  })
+})
+
+describe('createPanel: Structure mode', () => {
+  function structureRow(root: HTMLElement): HTMLElement {
+    return [...root.querySelectorAll('.fl-row')].find((r) => r.querySelector('.fl-row-label')?.textContent === 'Structure') as HTMLElement
+  }
+
+  it('sends the chosen structure and nothing else, and sends nothing before a choice', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const panel = createPanel(root, { viewer: makeViewerStub() })
+    panel.setResult(makeResult({ jigsawEntries: ['wiki:castle', 'wiki:village'] }))
+    panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
+
+    const radio = root.querySelector('input[type=radio][name=fl-preview-mode][value=structure]') as HTMLInputElement
+    radio.checked = true
+    radio.dispatchEvent(new Event('change'))
+    expect(panel.getGenerateParams()).toBeNull()
+    expect(structureRow(root).classList.contains('fl-hidden')).toBe(false)
+
+    const select = structureRow(root).querySelector('select') as HTMLSelectElement
+    expect([...select.options].map((o) => o.value)).toEqual(['wiki:castle', 'wiki:village'])
+    select.value = 'wiki:village'
+    select.dispatchEvent(new Event('change'))
+
+    const params = panel.getGenerateParams()!
+    expect(params.structure).toBe('wiki:village')
+    expect(params.feature).toBeUndefined()
+    expect(params.rule).toBeUndefined()
+  })
+
+  it('restores the structure, and a structure gone from the pack says so', () => {
+    const root1 = document.createElement('div')
+    document.body.append(root1)
+    createPanel(root1, { viewer: makeViewerStub() }).seedOpenedDocument('structure', 'wiki:gone')
+
+    const root2 = document.createElement('div')
+    document.body.append(root2)
+    const panel2 = createPanel(root2, { viewer: makeViewerStub() })
+    expect(panel2.getGenerateParams()?.structure).toBe('wiki:gone')
+
+    panel2.setResult(makeResult({ jigsawEntries: ['wiki:castle'] }))
+    expect(root2.textContent).toContain('"wiki:gone" not found in worldgen/structures')
+  })
+
+  it('says when a pack has no jigsaw structures', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const panel = createPanel(root, { viewer: makeViewerStub() })
+    panel.seedOpenedDocument('feature', 'wiki:poplar_tree')
+    panel.setResult(makeResult({ jigsawEntries: [] }))
+    const radio = root.querySelector('input[type=radio][name=fl-preview-mode][value=structure]') as HTMLInputElement
+    radio.checked = true
+    radio.dispatchEvent(new Event('change'))
+    expect(root.textContent).toContain('this pack has no worldgen/structures files')
   })
 })
 

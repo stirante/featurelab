@@ -553,6 +553,27 @@ func assertNoUppercaseLeadingKeys(t *testing.T, path string, v any) {
 	}
 }
 
+func TestBuildConfig_SubjectsAreExclusive(t *testing.T) {
+	for _, p := range []GenerateParams{
+		{Feature: "a:b", Rule: "a:b"},
+		{Feature: "a:b", Structure: "a:b"},
+		{Rule: "a:b", Structure: "a:b"},
+	} {
+		p.Env = "plains"
+		_, err := BuildConfig(p)
+		if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+			t.Errorf("%+v: error %v, want the exclusive error", p, err)
+		}
+	}
+	cfg, err := BuildConfig(GenerateParams{Structure: "a:b", Env: "plains"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != session.ModeStructure || cfg.StructureIdentifier == nil || *cfg.StructureIdentifier != "a:b" {
+		t.Errorf("mode %q, identifier %v", cfg.Mode, cfg.StructureIdentifier)
+	}
+}
+
 func TestBuildConfig_BiomeID(t *testing.T) {
 	cfg, err := BuildConfig(GenerateParams{Feature: "test:x", Env: "plains", BiomeID: "wiki:testbiome"})
 	if err != nil {

@@ -107,7 +107,7 @@ func methodApplyEdits(state *serverState, raw json.RawMessage) (any, error) {
 	if err := state.loaded.ReloadFile(full); err != nil {
 		return nil, err
 	}
-	state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks)
+	state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks, state.loaded.Jigsaw)
 	return map[string]any{"file": p.File, "changed": true}, nil
 }
 
@@ -242,7 +242,7 @@ func methodCreateFiles(state *serverState, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("createFiles: re-reading the pack: %v", err)
 	}
 	state.loaded = reloaded
-	state.workspace.Update(reloaded.Features, reloaded.Structures, reloaded.Rules, reloaded.Biomes, reloaded.Blocks)
+	state.workspace.Update(reloaded.Features, reloaded.Structures, reloaded.Rules, reloaded.Biomes, reloaded.Blocks, reloaded.Jigsaw)
 	return map[string]any{"created": written}, nil
 }
 
@@ -356,7 +356,7 @@ func methodRegenerate(state *serverState, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("regenerate: re-reading the pack: %v", err)
 	}
 	state.loaded = reloaded
-	state.workspace.Update(reloaded.Features, reloaded.Structures, reloaded.Rules, reloaded.Biomes, reloaded.Blocks)
+	state.workspace.Update(reloaded.Features, reloaded.Structures, reloaded.Rules, reloaded.Biomes, reloaded.Blocks, reloaded.Jigsaw)
 	return map[string]any{"written": len(writes), "removed": removed}, nil
 }
 

@@ -232,6 +232,7 @@ export default defineConfig({
             { text: 'The featurelab command', link: '/engine/cli' },
             { text: 'Coverage and known gaps', link: '/engine/coverage' },
             { text: 'Block textures in the preview', link: '/engine/block_textures' },
+            { text: 'Jigsaw structures', link: '/engine/jigsaw' },
             { text: 'Repository README ↗', link: 'https://github.com/stirante/featurelab#readme' },
           ],
         },

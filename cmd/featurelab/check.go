@@ -8,6 +8,7 @@ import (
 	"github.com/stirante/featurelab/biomes"
 	"github.com/stirante/featurelab/block"
 	"github.com/stirante/featurelab/features"
+	"github.com/stirante/featurelab/jigsaw"
 	"github.com/stirante/featurelab/pack"
 	"github.com/stirante/featurelab/rules"
 	"github.com/stirante/featurelab/session"
@@ -136,6 +137,11 @@ func checkPackGraphContext(ctx context.Context, loaded *pack.Pack, graph *wire.G
 	if ctx.Err() != nil {
 		return nil, false
 	}
+	jigsawLib := jigsaw.BuildLibrary(loaded.Jigsaw, palette)
+	for _, d := range append(jigsawLib.Diagnostics, jigsawLib.Check(structureLib, featureLib)...) {
+		out = append(out, Diagnostic{Level: d.Level, FileID: d.FileID, Scope: session.ScopePack, Message: d.Message})
+	}
+
 	graphDiags, ok := delegationDiagnostics(ctx, loaded, graph)
 	if !ok {
 		return nil, false

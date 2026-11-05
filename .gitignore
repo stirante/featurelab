@@ -1,5 +1,8 @@
 ﻿*.bak
 
+# Local notes
+/.wgdiff/
+
 # Go build output, and the copy apps/vscode/scripts/build-binary.mjs drops into
 # apps/vscode/bin/ for packaging -- never commit a built featurelab binary anywhere.
 bin/

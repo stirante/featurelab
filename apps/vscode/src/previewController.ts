@@ -20,6 +20,7 @@ export type GenerateParams = GenerateParamsWire
 interface PackCatalogs {
   entries: unknown
   ruleEntries: unknown
+  jigsawEntries: unknown
   biomeEntries: unknown
 }
 
@@ -401,13 +402,13 @@ export class PreviewController {
     if (typeof response !== 'object' || response === null) return response
     const record = response as Record<string, unknown>
     if (cached) {
-      for (const key of ['entries', 'ruleEntries', 'biomeEntries'] as const) {
+      for (const key of ['entries', 'ruleEntries', 'jigsawEntries', 'biomeEntries'] as const) {
         if (record[key] === null || record[key] === undefined) record[key] = cached[key]
       }
       return response
     }
     if ('entries' in record) {
-      this.catalogs = { entries: record.entries, ruleEntries: record.ruleEntries, biomeEntries: record.biomeEntries }
+      this.catalogs = { entries: record.entries, ruleEntries: record.ruleEntries, jigsawEntries: record.jigsawEntries, biomeEntries: record.biomeEntries }
     }
     return response
   }

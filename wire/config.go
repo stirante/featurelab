@@ -13,11 +13,17 @@ import (
 // (env)'s own defaults for everything not explicitly overridden -- mirrors how the CLI flags/
 // serve params/desktop app params are all documented as "default: preset default".
 func BuildConfig(p GenerateParams) (session.Config, error) {
-	if p.Feature != "" && p.Rule != "" {
-		return session.Config{}, fmt.Errorf("feature and rule are mutually exclusive -- pick one")
+	subjects := 0
+	for _, subject := range []string{p.Feature, p.Rule, p.Structure} {
+		if subject != "" {
+			subjects++
+		}
 	}
-	if p.Feature == "" && p.Rule == "" {
-		return session.Config{}, fmt.Errorf("one of feature or rule is required")
+	if subjects > 1 {
+		return session.Config{}, fmt.Errorf("feature, rule and structure are mutually exclusive -- pick one")
+	}
+	if subjects == 0 {
+		return session.Config{}, fmt.Errorf("one of feature, rule or structure is required")
 	}
 
 	envID := env.EnvironmentID(p.Env)
@@ -37,6 +43,10 @@ func BuildConfig(p GenerateParams) (session.Config, error) {
 		cfg.Mode = session.ModeFeature
 		id := p.Feature
 		cfg.FeatureIdentifier = &id
+	} else if p.Structure != "" {
+		cfg.Mode = session.ModeStructure
+		id := p.Structure
+		cfg.StructureIdentifier = &id
 	} else {
 		cfg.Mode = session.ModeRule
 		id := p.Rule

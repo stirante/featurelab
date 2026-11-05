@@ -254,7 +254,7 @@ export function freshPreviewParams(
   if (typeof was !== 'string' || was.length === 0 || currentIdentifier === null || was === currentIdentifier) {
     return { params, grown }
   }
-  const { feature: _feature, rule: _rule, ...bench } = params as GenerateParamsWire & { rule?: string }
+  const { feature: _feature, rule: _rule, structure: _structure, ...bench } = params as GenerateParamsWire & { rule?: string }
   return { params: bench as GenerateParamsWire, grown }
 }
 

@@ -97,7 +97,7 @@ func methodAnnotate(state *serverState, raw json.RawMessage) (any, error) {
 	if err := state.loaded.ReloadFile(full); err != nil {
 		return nil, err
 	}
-	state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks)
+	state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks, state.loaded.Jigsaw)
 	return map[string]any{"file": p.File, "changed": true}, nil
 }
 
@@ -213,7 +213,7 @@ func methodAnnotateBatch(state *serverState, raw json.RawMessage) (any, error) {
 		changed++
 	}
 	if changed > 0 {
-		state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks)
+		state.workspace.Update(state.loaded.Features, state.loaded.Structures, state.loaded.Rules, state.loaded.Biomes, state.loaded.Blocks, state.loaded.Jigsaw)
 	}
 	return map[string]any{"files": files, "changed": changed}, nil
 }

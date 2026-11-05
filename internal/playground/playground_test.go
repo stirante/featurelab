@@ -204,7 +204,7 @@ func TestGenerate_Errors(t *testing.T) {
 	files := fixtureFeatures(t, pumpkinPatch...)
 	cases := map[string]struct{ params, want string }{
 		"params not JSON":     {`{"feature":`, "malformed params"},
-		"no feature":          {`{}`, "one of feature or rule is required"},
+		"no feature":          {`{}`, "one of feature, rule or structure is required"},
 		"unknown environment": {`{"feature":"wiki:pumpkin_patch","env":"moon"}`, "unknown environment"},
 		"bad size":            {`{"feature":"wiki:pumpkin_patch","size":"big"}`, "size"},
 	}

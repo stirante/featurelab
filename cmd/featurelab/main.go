@@ -89,6 +89,7 @@ func cmdGenerate(args []string) int {
 	pf.register(fs)
 	feature := fs.String("feature", "", "feature identifier to place")
 	rule := fs.String("rule", "", "feature rule identifier to place")
+	structure := fs.String("structure", "", "jigsaw structure identifier to assemble and place (--seed is its world seed)")
 	envName := fs.String("env", "plains", "environment preset id")
 	var seedFlag uint
 	fs.UintVar(&seedFlag, "seed", 0, "feature seed (default: preset default)")
@@ -130,7 +131,7 @@ func cmdGenerate(args []string) int {
 	printPackNotices(os.Stderr, loaded)
 
 	params := wire.GenerateParams{
-		Feature: *feature, Rule: *rule, Env: *envName, Origin: *origin, Size: *size,
+		Feature: *feature, Rule: *rule, Structure: *structure, Env: *envName, Origin: *origin, Size: *size,
 		BiomeID: *biomeID, Repeat: *repeat, Profile: *profile,
 	}
 	if *biomeTags != "" {

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strconv"
 )
 
 // TagType is one NBT tag's type byte.
@@ -249,6 +250,10 @@ type ParsedMcStructure struct {
 	// version 1 files; version 2 files omit it when unused, and it is then
 	// filled with -1 here.
 	Layer1 []int32
+	// BlockEntities is `structure.palette.default.block_position_data[i].block_entity_data`,
+	// keyed by the same linear cell index as Layer0. A cell without block entity data has no
+	// entry. Jigsaw blocks keep their name, target and pool here.
+	BlockEntities map[int]Compound
 }
 
 func asCompound(v any, path string) (Compound, error) {
@@ -418,6 +423,9 @@ func readCompoundPayload(data []byte) (value Compound, err error) {
 // data) on anything not matching the shape every real file in the pack was
 // found to have.
 func ParseMcStructure(data []byte) (*ParsedMcStructure, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("mcstructure: the file is empty")
+	}
 	_, root, err := ReadNbt(data)
 	if err != nil {
 		return nil, err
@@ -519,11 +527,50 @@ func ParseMcStructure(data []byte) (*ParsedMcStructure, error) {
 		palette[i] = BlockState{Name: name, States: states}
 	}
 
+	blockEntities, err := blockEntitiesOf(defaultPalette, cellCount)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ParsedMcStructure{
 		Size:                 size,
 		StructureWorldOrigin: structureWorldOrigin,
 		Palette:              palette,
 		Layer0:               layer0,
 		Layer1:               layer1,
+		BlockEntities:        blockEntities,
 	}, nil
+}
+
+func blockEntitiesOf(defaultPalette Compound, cellCount int) (map[int]Compound, error) {
+	const path = "structure.palette.default.block_position_data"
+	tag, ok := defaultPalette["block_position_data"]
+	if !ok {
+		return nil, nil
+	}
+	positions, err := asCompound(tag, path)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int]Compound)
+	for key, value := range positions {
+		cell, err := strconv.Atoi(key)
+		if err != nil || cell < 0 || cell >= cellCount {
+			return nil, fmt.Errorf("mcstructure: %s has the key %q, which is not a cell index below %d", path, key, cellCount)
+		}
+		entry, err := asCompound(value, path+"."+key)
+		if err != nil {
+			return nil, err
+		}
+		dataTag, ok := entry["block_entity_data"]
+		if !ok {
+			continue
+		}
+		data, err := asCompound(dataTag, path+"."+key+".block_entity_data")
+		if err != nil {
+			return nil, err
+		}
+		out[cell] = data
+	}
+	return out, nil
 }
