@@ -222,6 +222,7 @@ export default defineConfig({
             { text: 'Delegation and composite features', link: '/features/feature_delegation' },
             { text: 'RNG and determinism', link: '/features/rng_and_determinism' },
             { text: 'Molang in world generation', link: '/features/molang' },
+            { text: 'Jigsaw structures', link: '/engine/jigsaw' },
           ],
         },
       ],

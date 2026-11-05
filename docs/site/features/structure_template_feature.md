@@ -263,6 +263,7 @@ The fixtures behind this page are committed in two packs. Under [`docs/wiki/tool
 
 ## See also
 
+- [Jigsaw structures](../engine/jigsaw.md) — several pieces assembled from pools, instead of one file placed as a feature.
 - [Single block feature](./single_block_feature.md) — the simplest Content feature, and the one to reach for when the shape you want is one block rather than a file.
 - [Ore feature](./ore_feature.md) — the other self-contained Content feature that writes more than one block per call, contrasted with this type's fixed, pre-authored shape.
 - [Snap to surface feature](./snap_to_surface_feature.md) — what to wrap a structure in when the origin is in the air. `adjustment_radius` will not do it.

@@ -66,7 +66,7 @@ The sidebar has eight sections. The first four decide what the *next* run does; 
 
 | Section | What it is for |
 |---|---|
-| **Feature / Rule** | Which feature to place, where, and how many times. A rule preview runs the rule's own distribution across the chunks it would decorate, the way the game applies it — see [feature rules](../features/feature_rules.md). |
+| **Feature / Rule** | Which feature, rule or [jigsaw structure](../engine/jigsaw.md) to place, where, and how many times. A rule preview runs the rule's own distribution across the chunks it would decorate, the way the game applies it — see [feature rules](../features/feature_rules.md). |
 | **Environment** | The world to place into: ten terrain presets, from `plains` to `nether` to an empty `void`, and the size of the volume. |
 | **Materials** | What the terrain is made of, so a feature that only attaches to one block can be tested without editing the pack. The three sea slots are inert under a preset that builds no sea, and say so. |
 | **Biome** | A pack biome to run under, or a hand-written tag list, for features gated on biome tags. |
@@ -117,6 +117,7 @@ Requirements: VS Code 1.85 or newer. Nothing else.
 - [When the preview shows nothing](./preview_shows_nothing.md) — every message an empty run can give you, findable by the sentence you are reading.
 - [The `featurelab` command](../engine/cli.md) — the engine the extension drives, and the protocol the settings above are built on.
 - [The desktop app](./desktop.md) — the same viewer without an editor around it, and the three places that changes something.
+- [Jigsaw structures](../engine/jigsaw.md) — what the **Structure** mode runs and what it leaves out.
 - [Coverage and known gaps](../engine/coverage.md) — how far the preview's agreement with the game goes.
 - [Feature types](../features/index.md) — one page per type id, which is where the `?` pane's text is also from.
 - [The extension on the Marketplace ↗](https://github.com/stirante/featurelab/blob/main/apps/vscode/README.md) — the listing, with screenshots of everything above.

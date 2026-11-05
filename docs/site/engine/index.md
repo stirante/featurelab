@@ -18,6 +18,7 @@ The wire format has no page of its own yet; `wire`'s package documentation is th
 |---|---|---|
 | [The `featurelab` command](./cli.md) | `generate`, `check`, `serve`, `types`, `textures`, `blocktable`; the run-length-encoded result; cancellation | On this site |
 | [Coverage and known gaps](./coverage.md) | Which types the bench implements fully, which partially and what each gap means for a pack; the bench-wide approximations that cut across every page; what has and has not been checked against real content | On this site |
+| [Jigsaw structures](./jigsaw.md) | The `worldgen/` folders, a complete example, every field the bench reads, and what differs from the game | On this site |
 | [Block textures in the preview](./block_textures.md) | Where Mojang's textures come from and what the first run asks; how a pack's own blocks are resolved through its resource pack; what is drawn accurately and what is approximated | On this site |
 | The wire format | The JSON `generate` and `serve` emit, which is the whole contract between the engine and every viewer | `wire`'s package documentation ↗ (not yet a page) |
 
