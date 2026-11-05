@@ -6,6 +6,34 @@ All notable changes to the Feature Lab extension. This project follows
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-05
+
+### Added
+
+- **Jigsaw structures.** The preview can assemble a structure from a pack's `worldgen/` folders:
+  pick **Structure**, or run `featurelab generate --structure`. `check` validates the four folders.
+  Compared with two structures generated in a world on 1.26.70.21: 1904 of 1905 and 2094 of 2207
+  blocks matched, and the differences looked at point to terrain. Terrain adaptation, biome filters
+  and structure set selection are not modelled, and `/place structure` seeds differently from world
+  generation, so a run matches a generated structure, not a placed one.
+- **`minecraft:crevasse_feature`**, new in 1.26.70, in the engine, the graph editor and the
+  documentation.
+
+### Changed
+
+- **The engine and the documentation target Bedrock 1.26.70.21.**
+- **`ore_feature`**: a replace rule without `may_replace` now matches any block, air included.
+- **`mega_trunk`**: `trunk_width` can be a range, and `core_width` is optional on `mega_canopy` and
+  `mega_pine_canopy`. The crown does not grow with the trunk width unless `core_width` is written.
+- **Vanilla block tags** come from a generated table, so `q.any_tag('stone')` matches every recorded
+  member, granite included. A tag the table does not record still means one representative block.
+
+### Fixed
+
+- **`geode_feature` and `crevasse_feature` leave blocks tagged `not_feature_replaceable` alone**, such
+  as chests and bedrock. Every other feature overwrites them, as in the game.
+- **Compressed `.mcstructure` files load**, the zlib variant 1.26.70 can read.
+
 ## [0.3.0] — 2026-10-04
 
 ### Added
