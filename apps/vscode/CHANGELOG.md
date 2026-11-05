@@ -6,6 +6,13 @@ All notable changes to the Feature Lab extension. This project follows
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-11-05
+
+### Fixed
+
+- **The `core_width` help on `mega_canopy` was wrong.** It said a crown follows the trunk when the
+  key is left out. The crown is the same size on any trunk width.
+
 ## [0.4.0] — 2026-11-05
 
 ### Added

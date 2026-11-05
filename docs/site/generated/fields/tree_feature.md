@@ -892,9 +892,9 @@ Each entry adds a draw between 0 and that entry's own value, so `[3, 3]` adds no
 
 #### `mega_trunk.trunk_width` {#mega_trunk-trunk_width}
 
-<p class="fl-facts">required · integer · range [1, −]</p>
+<p class="fl-facts">required · range · range [1, −]</p>
 
-**How many blocks across the wide column is.**
+**How many blocks across the wide column is. A range is drawn once per tree.**
 
 A square of this many logs per side. It also decides which logs are on an edge, and only edge logs carry a decoration -- and the topmost layer never does, whatever its width.
 
@@ -1587,11 +1587,11 @@ Every layer below widens by one from here, so this sets the whole cone's width, 
 
 #### `mega_canopy.core_width` {#mega_canopy-core_width}
 
-<p class="fl-facts">required · integer</p>
+<p class="fl-facts">optional · integer · absent: none</p>
 
-**The width of the trunk this crown is built around. Must match it.**
+**Widens the crown by half this value. Left out, the crown is the same on any trunk width.**
 
-Not a free setting: the feature is refused when it disagrees with the trunk's own width. At a branch tip the trunk is always one block wide, so a crown grown there needs 1.
+Not a free setting: when written, the feature is refused if it disagrees with the trunk's own width, and it cannot be written with a trunk_width range. At a branch tip the trunk is always one block wide, so a crown grown there can only have 1.
 
 #### `mega_canopy.simplify_canopy` {#mega_canopy-simplify_canopy}
 
@@ -1647,11 +1647,11 @@ It scales the distance below the top before that distance is rounded down to who
 
 #### `mega_pine_canopy.core_width` {#mega_pine_canopy-core_width}
 
-<p class="fl-facts">required · integer</p>
+<p class="fl-facts">optional · integer · absent: none</p>
 
-**The width of the trunk this crown is built around. Must match it.**
+**The width of the trunk this crown is built around. It can be left out.**
 
-The feature is refused when it disagrees with the trunk's own width.
+When written, the feature is refused if it disagrees with the trunk's own width, and it cannot be written with a trunk_width range.
 
 ::::
 

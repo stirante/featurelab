@@ -1,12 +1,17 @@
 {
   "summary": {
-    "total": 29,
-    "implemented": 22,
+    "total": 30,
+    "implemented": 23,
     "partial": 5,
     "missing": 0,
     "outOfScope": 2
   },
   "types": [
+    {
+      "typeId": "minecraft:crevasse_feature",
+      "status": "implemented",
+      "note": "Carves a winding trench into terrain and can line it with `surface_block` and fill it with `fill_block`. Every key is optional. It only cuts the fixed list of natural blocks the game allows, and fails when the connected part of the trench is smaller than `min_footprint`. Blocks with the not_feature_replaceable tag stay. The vanilla list is from game version 1.26.50, so a block added later that carries the tag can still be overwritten here."
+    },
     {
       "typeId": "minecraft:aggregate_feature",
       "status": "implemented",

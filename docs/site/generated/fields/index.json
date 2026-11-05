@@ -99,6 +99,10 @@
     "slug": "horizontal_tree_decoration_feature",
     "fields": 3
   },
+  "minecraft:crevasse_feature": {
+    "slug": "crevasse_feature",
+    "fields": 8
+  },
   "minecraft:multi_block_feature": {
     "slug": "multi_block_feature",
     "fields": 4

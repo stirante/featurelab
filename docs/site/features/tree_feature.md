@@ -361,7 +361,7 @@ Which sides are eligible differs by shape. `trunk`, `mangrove_trunk` and `poplar
 | | `canopy_height` | yes | range | — | How many layers, sampled per tree. |
 | | `base_radius` | no | integer ≥ 0 | `2` | The half-width of the topmost layer. |
 | | `radius_step_modifier` | no | number | `3.5` | How fast the cone widens going down. Larger means a wider, blunter cone. |
-| | `core_width` | no | integer ≥ 1 | the trunk's width | **Must match the trunk's width** when written, and cannot be written with a `trunk_width` range. |
+| | `core_width` | no | integer ≥ 1 | none | **Must match the trunk's width** when written, and cannot be written with a `trunk_width` range. |
 | `mangrove_canopy` | `canopy_height` | yes | range | — | How far up and down a scattered leaf may land, sampled once for the whole crown. |
 | | `canopy_radius` | yes | range | — | How far sideways it may land. |
 | | `leaf_placement_attempts` | yes | integer ≥ 0 | — | How many leaves are attempted **around each trunk log**. Attempts, not leaves — which is why this canopy needs a trunk that fills the anchor list. |

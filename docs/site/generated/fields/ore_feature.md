@@ -38,4 +38,4 @@ Written only where the position already holds one of the rule's own may_replace 
 
 **Which existing blocks this rule is willing to convert.**
 
-Rules are tried in order at each position and the first one whose list matches wins, so a broad rule listed first hides the narrower ones after it. A rule whose list is absent matches nothing and places nothing.
+Rules are tried in order at each position and the first one whose list matches wins, so a broad rule listed first hides the narrower ones after it. A rule without this key matches every block, air included. An empty array is refused when the file loads.

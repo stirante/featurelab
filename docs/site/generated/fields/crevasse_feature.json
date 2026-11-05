@@ -1,0 +1,38 @@
+{
+  "typeId": "minecraft:crevasse_feature",
+  "slug": "crevasse_feature",
+  "anchors": [
+    {
+      "path": "max_length",
+      "anchor": "max_length"
+    },
+    {
+      "path": "max_width",
+      "anchor": "max_width"
+    },
+    {
+      "path": "min_footprint",
+      "anchor": "min_footprint"
+    },
+    {
+      "path": "twistiness",
+      "anchor": "twistiness"
+    },
+    {
+      "path": "carve_depth",
+      "anchor": "carve_depth"
+    },
+    {
+      "path": "fill_depth",
+      "anchor": "fill_depth"
+    },
+    {
+      "path": "surface_block",
+      "anchor": "surface_block"
+    },
+    {
+      "path": "fill_block",
+      "anchor": "fill_block"
+    }
+  ]
+}

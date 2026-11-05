@@ -68,7 +68,7 @@ function leafPlacementAttemptsField(): FieldSpec {
  * attached to, and the feature is refused when it does not. Only the roofed canopy requires it. */
 function coreWidthField(required = false): FieldSpec {
   if (required) return { key: 'core_width', kind: 'integer', required, source: 'builder' }
-  return { key: 'core_width', kind: 'integer', required, default: "the trunk's width", source: 'builder' }
+  return { key: 'core_width', kind: 'integer', required, default: 'none', source: 'builder' }
 }
 
 /** The attachable-decoration object, as `mangrove_canopy.canopy_decoration` spells it.
@@ -622,7 +622,7 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
     detail: 'Every layer below widens by one from here, so this sets the whole cone\'s width, not just the tip\'s.',
   },
   'mega_canopy.core_width': {
-    summary: 'The width of the trunk this crown is built around. Leave it out to follow the trunk.',
+    summary: 'Widens the crown by half this value. Left out, the crown is the same on any trunk width.',
     detail:
       'Not a free setting: when written, the feature is refused if it disagrees with the trunk\'s own ' +
       'width, and it cannot be written with a trunk_width range. At a branch tip the trunk is always ' +
@@ -657,7 +657,7 @@ export const TREE_CANOPY_DOCS: Readonly<Record<string, DocEntry>> = {
       'flare.',
   },
   'mega_pine_canopy.core_width': {
-    summary: 'The width of the trunk this crown is built around. Leave it out to follow the trunk.',
+    summary: 'The width of the trunk this crown is built around. It can be left out.',
     detail:
       'When written, the feature is refused if it disagrees with the trunk\'s own width, and it cannot ' +
       'be written with a trunk_width range.',
