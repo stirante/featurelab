@@ -26,7 +26,7 @@ type Config struct {
 	// TerrainTexturePath is scripts/vanilla-extract/rp/terrain_texture.json.
 	TerrainTexturePath string
 	// BlocksDir is block/vanilla/blocks: the already-generated per-block
-	// catalogue this generator reads only for its list of 1238 block IDs
+	// catalogue this generator reads only for its list of 1463 block IDs
 	// (each file's minecraft:block.description.identifier). It does not
 	// read or depend on those files' resource_pack field -- this
 	// generator resolves rp_blocks.json texture keys itself, including
@@ -129,7 +129,7 @@ type BlockColor struct {
 }
 
 // Misses records, explicitly, everything this generator could not resolve
-// -- required reading alongside Blocks, since most of the 1238 vanilla
+// -- required reading alongside Blocks, since most of the 1463 vanilla
 // blocks have no resource-pack entry at all (rp_blocks.json only covers
 // 340 legacy names) and that is expected, not a bug to hide.
 type Misses struct {

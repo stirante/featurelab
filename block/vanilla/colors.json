@@ -177,8 +177,26 @@
     "minecraft:birch_wall_sign": {
       "color": "#c0af79"
     },
+    "minecraft:black_concrete_double_slab": {
+      "color": "#080a0f"
+    },
+    "minecraft:black_concrete_slab": {
+      "color": "#080a0f"
+    },
+    "minecraft:black_concrete_stairs": {
+      "color": "#080a0f"
+    },
     "minecraft:black_glazed_terracotta": {
       "color": "#431e20"
+    },
+    "minecraft:black_wool_double_slab": {
+      "color": "#141519"
+    },
+    "minecraft:black_wool_slab": {
+      "color": "#141519"
+    },
+    "minecraft:black_wool_stairs": {
+      "color": "#141519"
     },
     "minecraft:blast_furnace": {
       "faces": {
@@ -198,11 +216,29 @@
         "west": "greyscale texture with no overlay_color and no usable carried_textures fallback; colour is a literal, untinted pixel average and may not match the tinted in-game appearance"
       }
     },
+    "minecraft:blue_concrete_double_slab": {
+      "color": "#2c2e8f"
+    },
+    "minecraft:blue_concrete_slab": {
+      "color": "#2c2e8f"
+    },
+    "minecraft:blue_concrete_stairs": {
+      "color": "#2c2e8f"
+    },
     "minecraft:blue_glazed_terracotta": {
       "color": "#2f408b"
     },
     "minecraft:blue_ice": {
       "color": "#74a7fd"
+    },
+    "minecraft:blue_wool_double_slab": {
+      "color": "#35399d"
+    },
+    "minecraft:blue_wool_slab": {
+      "color": "#35399d"
+    },
+    "minecraft:blue_wool_stairs": {
+      "color": "#35399d"
     },
     "minecraft:bone_block": {
       "faces": {
@@ -234,6 +270,15 @@
     "minecraft:brick_stairs": {
       "color": "#966153"
     },
+    "minecraft:brown_concrete_double_slab": {
+      "color": "#603b1f"
+    },
+    "minecraft:brown_concrete_slab": {
+      "color": "#603b1f"
+    },
+    "minecraft:brown_concrete_stairs": {
+      "color": "#603b1f"
+    },
     "minecraft:brown_glazed_terracotta": {
       "color": "#776a55"
     },
@@ -249,6 +294,15 @@
         "up": "#c9aa78",
         "west": "#c9aa78"
       }
+    },
+    "minecraft:brown_wool_double_slab": {
+      "color": "#724728"
+    },
+    "minecraft:brown_wool_slab": {
+      "color": "#724728"
+    },
+    "minecraft:brown_wool_stairs": {
+      "color": "#724728"
     },
     "minecraft:bubble_column": {
       "faces": {
@@ -425,8 +479,26 @@
         "west": "#80663f"
       }
     },
+    "minecraft:cyan_concrete_double_slab": {
+      "color": "#157788"
+    },
+    "minecraft:cyan_concrete_slab": {
+      "color": "#157788"
+    },
+    "minecraft:cyan_concrete_stairs": {
+      "color": "#157788"
+    },
     "minecraft:cyan_glazed_terracotta": {
       "color": "#34767d"
+    },
+    "minecraft:cyan_wool_double_slab": {
+      "color": "#158991"
+    },
+    "minecraft:cyan_wool_slab": {
+      "color": "#158991"
+    },
+    "minecraft:cyan_wool_stairs": {
+      "color": "#158991"
     },
     "minecraft:dark_oak_button": {
       "color": "#422b14"
@@ -745,11 +817,47 @@
     "minecraft:gravel": {
       "color": "#837f7e"
     },
+    "minecraft:gray_concrete_double_slab": {
+      "color": "#36393d"
+    },
+    "minecraft:gray_concrete_slab": {
+      "color": "#36393d"
+    },
+    "minecraft:gray_concrete_stairs": {
+      "color": "#36393d"
+    },
     "minecraft:gray_glazed_terracotta": {
       "color": "#535a5d"
     },
+    "minecraft:gray_wool_double_slab": {
+      "color": "#3e4447"
+    },
+    "minecraft:gray_wool_slab": {
+      "color": "#3e4447"
+    },
+    "minecraft:gray_wool_stairs": {
+      "color": "#3e4447"
+    },
+    "minecraft:green_concrete_double_slab": {
+      "color": "#495b24"
+    },
+    "minecraft:green_concrete_slab": {
+      "color": "#495b24"
+    },
+    "minecraft:green_concrete_stairs": {
+      "color": "#495b24"
+    },
     "minecraft:green_glazed_terracotta": {
       "color": "#758e43"
+    },
+    "minecraft:green_wool_double_slab": {
+      "color": "#546d1b"
+    },
+    "minecraft:green_wool_slab": {
+      "color": "#546d1b"
+    },
+    "minecraft:green_wool_stairs": {
+      "color": "#546d1b"
     },
     "minecraft:grindstone": {
       "faces": {
@@ -962,14 +1070,68 @@
         "east": "greyscale texture with no overlay_color and no usable carried_textures fallback; colour is a literal, untinted pixel average and may not match the tinted in-game appearance"
       }
     },
+    "minecraft:light_blue_concrete_double_slab": {
+      "color": "#2389c6"
+    },
+    "minecraft:light_blue_concrete_slab": {
+      "color": "#2389c6"
+    },
+    "minecraft:light_blue_concrete_stairs": {
+      "color": "#2389c6"
+    },
     "minecraft:light_blue_glazed_terracotta": {
       "color": "#5ea4d0"
+    },
+    "minecraft:light_blue_wool_double_slab": {
+      "color": "#3aafd9"
+    },
+    "minecraft:light_blue_wool_slab": {
+      "color": "#3aafd9"
+    },
+    "minecraft:light_blue_wool_stairs": {
+      "color": "#3aafd9"
+    },
+    "minecraft:light_gray_concrete_double_slab": {
+      "color": "#7d7d73"
+    },
+    "minecraft:light_gray_concrete_slab": {
+      "color": "#7d7d73"
+    },
+    "minecraft:light_gray_concrete_stairs": {
+      "color": "#7d7d73"
+    },
+    "minecraft:light_gray_wool_double_slab": {
+      "color": "#8e8e86"
+    },
+    "minecraft:light_gray_wool_slab": {
+      "color": "#8e8e86"
+    },
+    "minecraft:light_gray_wool_stairs": {
+      "color": "#8e8e86"
     },
     "minecraft:light_weighted_pressure_plate": {
       "color": "#f6d03d"
     },
+    "minecraft:lime_concrete_double_slab": {
+      "color": "#5ea818"
+    },
+    "minecraft:lime_concrete_slab": {
+      "color": "#5ea818"
+    },
+    "minecraft:lime_concrete_stairs": {
+      "color": "#5ea818"
+    },
     "minecraft:lime_glazed_terracotta": {
       "color": "#a2c537"
+    },
+    "minecraft:lime_wool_double_slab": {
+      "color": "#70b919"
+    },
+    "minecraft:lime_wool_slab": {
+      "color": "#70b919"
+    },
+    "minecraft:lime_wool_stairs": {
+      "color": "#70b919"
     },
     "minecraft:lit_blast_furnace": {
       "faces": {
@@ -1041,8 +1203,26 @@
         "west": "#916548"
       }
     },
+    "minecraft:magenta_concrete_double_slab": {
+      "color": "#a9309f"
+    },
+    "minecraft:magenta_concrete_slab": {
+      "color": "#a9309f"
+    },
+    "minecraft:magenta_concrete_stairs": {
+      "color": "#a9309f"
+    },
     "minecraft:magenta_glazed_terracotta": {
       "color": "#d064bf"
+    },
+    "minecraft:magenta_wool_double_slab": {
+      "color": "#bd44b3"
+    },
+    "minecraft:magenta_wool_slab": {
+      "color": "#bd44b3"
+    },
+    "minecraft:magenta_wool_stairs": {
+      "color": "#bd44b3"
     },
     "minecraft:magma": {
       "color": "#8e3f1f"
@@ -1146,14 +1326,50 @@
     "minecraft:obsidian": {
       "color": "#0f0a18"
     },
+    "minecraft:orange_concrete_double_slab": {
+      "color": "#e06100"
+    },
+    "minecraft:orange_concrete_slab": {
+      "color": "#e06100"
+    },
+    "minecraft:orange_concrete_stairs": {
+      "color": "#e06100"
+    },
     "minecraft:orange_glazed_terracotta": {
       "color": "#9a935b"
+    },
+    "minecraft:orange_wool_double_slab": {
+      "color": "#f07613"
+    },
+    "minecraft:orange_wool_slab": {
+      "color": "#f07613"
+    },
+    "minecraft:orange_wool_stairs": {
+      "color": "#f07613"
     },
     "minecraft:packed_ice": {
       "color": "#8db4fa"
     },
+    "minecraft:pink_concrete_double_slab": {
+      "color": "#d5658e"
+    },
+    "minecraft:pink_concrete_slab": {
+      "color": "#d5658e"
+    },
+    "minecraft:pink_concrete_stairs": {
+      "color": "#d5658e"
+    },
     "minecraft:pink_glazed_terracotta": {
       "color": "#eb9ab5"
+    },
+    "minecraft:pink_wool_double_slab": {
+      "color": "#ed8dac"
+    },
+    "minecraft:pink_wool_slab": {
+      "color": "#ed8dac"
+    },
+    "minecraft:pink_wool_stairs": {
+      "color": "#ed8dac"
     },
     "minecraft:piston": {
       "faces": {
@@ -1241,8 +1457,26 @@
         "color": "greyscale texture with no overlay_color and no usable carried_textures fallback; colour is a literal, untinted pixel average and may not match the tinted in-game appearance"
       }
     },
+    "minecraft:purple_concrete_double_slab": {
+      "color": "#641f9c"
+    },
+    "minecraft:purple_concrete_slab": {
+      "color": "#641f9c"
+    },
+    "minecraft:purple_concrete_stairs": {
+      "color": "#641f9c"
+    },
     "minecraft:purple_glazed_terracotta": {
       "color": "#6d3098"
+    },
+    "minecraft:purple_wool_double_slab": {
+      "color": "#792aac"
+    },
+    "minecraft:purple_wool_slab": {
+      "color": "#792aac"
+    },
+    "minecraft:purple_wool_stairs": {
+      "color": "#792aac"
     },
     "minecraft:purpur_block": {
       "faces": {
@@ -1277,6 +1511,15 @@
         "side": "#7d6f58",
         "up": "#827359"
       }
+    },
+    "minecraft:red_concrete_double_slab": {
+      "color": "#8e2020"
+    },
+    "minecraft:red_concrete_slab": {
+      "color": "#8e2020"
+    },
+    "minecraft:red_concrete_stairs": {
+      "color": "#8e2020"
     },
     "minecraft:red_glazed_terracotta": {
       "color": "#b53b35"
@@ -1313,6 +1556,15 @@
         "side": "#ba631d",
         "up": "#b5611f"
       }
+    },
+    "minecraft:red_wool_double_slab": {
+      "color": "#a02722"
+    },
+    "minecraft:red_wool_slab": {
+      "color": "#a02722"
+    },
+    "minecraft:red_wool_stairs": {
+      "color": "#a02722"
     },
     "minecraft:redstone_block": {
       "color": "#af1805"
@@ -1728,8 +1980,26 @@
     "minecraft:wheat": {
       "color": "#087f0f"
     },
+    "minecraft:white_concrete_double_slab": {
+      "color": "#cfd5d6"
+    },
+    "minecraft:white_concrete_slab": {
+      "color": "#cfd5d6"
+    },
+    "minecraft:white_concrete_stairs": {
+      "color": "#cfd5d6"
+    },
     "minecraft:white_glazed_terracotta": {
       "color": "#bcd4ca"
+    },
+    "minecraft:white_wool_double_slab": {
+      "color": "#e9ecec"
+    },
+    "minecraft:white_wool_slab": {
+      "color": "#e9ecec"
+    },
+    "minecraft:white_wool_stairs": {
+      "color": "#e9ecec"
     },
     "minecraft:wither_rose": {
       "color": "#292c17"
@@ -1747,8 +2017,26 @@
     "minecraft:wooden_pressure_plate": {
       "color": "#a2824e"
     },
+    "minecraft:yellow_concrete_double_slab": {
+      "color": "#f0af15"
+    },
+    "minecraft:yellow_concrete_slab": {
+      "color": "#f0af15"
+    },
+    "minecraft:yellow_concrete_stairs": {
+      "color": "#f0af15"
+    },
     "minecraft:yellow_glazed_terracotta": {
       "color": "#eac058"
+    },
+    "minecraft:yellow_wool_double_slab": {
+      "color": "#f8c527"
+    },
+    "minecraft:yellow_wool_slab": {
+      "color": "#f8c527"
+    },
+    "minecraft:yellow_wool_stairs": {
+      "color": "#f8c527"
     }
   },
   "misses": {
@@ -2088,6 +2376,10 @@
       {
         "id": "minecraft:brick_wall",
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:brittle_ice",
+        "reason": "no [.png .tga] and no .texture_set.json found for textures/blocks/brittle_ice_0 (looked under D:/dev/bedrock/reference/bedrock-samples/resource_pack)"
       },
       {
         "id": "minecraft:brown_candle",
@@ -2934,6 +3226,478 @@
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
       },
       {
+        "id": "minecraft:element_1",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_10",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_100",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_101",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_102",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_103",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_104",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_105",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_106",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_107",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_108",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_109",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_11",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_110",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_111",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_112",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_113",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_114",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_115",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_116",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_117",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_118",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_12",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_13",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_14",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_15",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_16",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_17",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_18",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_19",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_2",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_20",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_21",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_22",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_23",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_24",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_25",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_26",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_27",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_28",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_29",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_3",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_30",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_31",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_32",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_33",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_34",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_35",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_36",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_37",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_38",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_39",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_4",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_40",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_41",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_42",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_43",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_44",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_45",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_46",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_47",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_48",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_49",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_5",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_50",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_51",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_52",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_53",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_54",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_55",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_56",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_57",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_58",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_59",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_6",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_60",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_61",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_62",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_63",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_64",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_65",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_66",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_67",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_68",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_69",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_7",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_70",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_71",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_72",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_73",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_74",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_75",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_76",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_77",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_78",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_79",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_8",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_80",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_81",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_82",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_83",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_84",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_85",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_86",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_87",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_88",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_89",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_9",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_90",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_91",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_92",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_93",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_94",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_95",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_96",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_97",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_98",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:element_99",
+        "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
         "id": "minecraft:element_constructor",
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
       },
@@ -3324,6 +4088,14 @@
       {
         "id": "minecraft:horn_coral_wall_fan",
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:ice_crystal",
+        "reason": "rp_blocks.json entry \"ice_crystal\" has no usable \"textures\" field"
+      },
+      {
+        "id": "minecraft:icicle",
+        "reason": "rp_blocks.json entry \"icicle\" has no usable \"textures\" field"
       },
       {
         "id": "minecraft:infested_chiseled_stone_bricks",
@@ -3994,6 +4766,30 @@
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
       },
       {
+        "id": "minecraft:packed_ice_bricks",
+        "reason": "rp_blocks.json entry \"packed_ice_bricks\" has no usable \"textures\" field"
+      },
+      {
+        "id": "minecraft:packed_ice_bricks_chiseled",
+        "reason": "rp_blocks.json entry \"packed_ice_bricks_chiseled\" has no usable \"textures\" field"
+      },
+      {
+        "id": "minecraft:packed_ice_bricks_double_slab",
+        "reason": "no [.png .tga] and no .texture_set.json found for textures/blocks/packed_ice_bricks (looked under D:/dev/bedrock/reference/bedrock-samples/resource_pack)"
+      },
+      {
+        "id": "minecraft:packed_ice_bricks_slab",
+        "reason": "no [.png .tga] and no .texture_set.json found for textures/blocks/packed_ice_bricks (looked under D:/dev/bedrock/reference/bedrock-samples/resource_pack)"
+      },
+      {
+        "id": "minecraft:packed_ice_bricks_stairs",
+        "reason": "no [.png .tga] and no .texture_set.json found for textures/blocks/packed_ice_bricks (looked under D:/dev/bedrock/reference/bedrock-samples/resource_pack)"
+      },
+      {
+        "id": "minecraft:packed_ice_bricks_wall",
+        "reason": "no [.png .tga] and no .texture_set.json found for textures/blocks/packed_ice_bricks (looked under D:/dev/bedrock/reference/bedrock-samples/resource_pack)"
+      },
+      {
         "id": "minecraft:packed_mud",
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
       },
@@ -4502,6 +5298,10 @@
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
       },
       {
+        "id": "minecraft:red_shrub",
+        "reason": "rp_blocks.json entry \"red_shrub\" has no usable \"textures\" field"
+      },
+      {
         "id": "minecraft:red_shulker_box",
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
       },
@@ -4600,6 +5400,10 @@
       {
         "id": "minecraft:sea_lantern",
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
+      },
+      {
+        "id": "minecraft:shelf_mushroom",
+        "reason": "rp_blocks.json entry \"shelf_mushroom\" has no usable \"textures\" field"
       },
       {
         "id": "minecraft:short_dry_grass",
@@ -5490,6 +6294,17 @@
         "reason": "no rp_blocks.json entry: not present directly, and not a target of any known alias in block.GeneratedAliases()"
       }
     ],
-    "unavailable_textures": []
+    "unavailable_textures": [
+      {
+        "texture_key": "brittle_ice",
+        "path": "textures/blocks/brittle_ice_0",
+        "reason": "no [.png .tga] and no .texture_set.json found for textures/blocks/brittle_ice_0 (looked under D:/dev/bedrock/reference/bedrock-samples/resource_pack)"
+      },
+      {
+        "texture_key": "packed_ice_bricks",
+        "path": "textures/blocks/packed_ice_bricks",
+        "reason": "no [.png .tga] and no .texture_set.json found for textures/blocks/packed_ice_bricks (looked under D:/dev/bedrock/reference/bedrock-samples/resource_pack)"
+      }
+    ]
   }
 }

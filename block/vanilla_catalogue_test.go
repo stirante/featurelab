@@ -21,7 +21,7 @@ func uncatalogued(files []SourceFile) []SourceFile {
 
 // TestVanillaCatalogue_MatchesParse is the proof the table is allowed to
 // exist: loading the vanilla catalogue through it leaves a palette in exactly
-// the state parsing all 1238 files does, index by index and block by block.
+// the state parsing all 1463 files does, index by index and block by block.
 // A pack file stacked on top, overriding one vanilla block and adding one of
 // its own, is included so the later-file-wins ordering is covered too.
 func TestVanillaCatalogue_MatchesParse(t *testing.T) {

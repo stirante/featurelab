@@ -91,3 +91,29 @@ func TestTakeUnknownNames_AnUnknownNameStillResolvesToARealID(t *testing.T) {
 		t.Errorf("NameOf = %q, want the name as written", got)
 	}
 }
+
+// TestKnowsBlockName_BlocksAddedForGame12670 covers the catalogue's newest rows,
+// which take their name, motion class and states from separate tables.
+func TestKnowsBlockName_BlocksAddedForGame12670(t *testing.T) {
+	p := NewPalette()
+	for _, name := range []string{"minecraft:red_concrete_slab", "minecraft:lime_wool_stairs", "minecraft:element_79", "minecraft:packed_ice_bricks_wall"} {
+		if !p.KnowsBlockName(name) {
+			t.Errorf("KnowsBlockName(%q) = false", name)
+		}
+		if !VanillaBlockKnown(name) {
+			t.Errorf("VanillaBlockKnown(%q) = false", name)
+		}
+	}
+	if IsMotionBlocking("minecraft:red_concrete_slab", nil) {
+		t.Error("a single concrete slab must not block motion")
+	}
+	if !IsMotionBlocking("minecraft:red_concrete_double_slab", nil) {
+		t.Error("a double concrete slab must block motion")
+	}
+	if _, ok := LookupVanillaState("minecraft:fire", "minecraft:connection_up"); !ok {
+		t.Error("fire must declare minecraft:connection_up")
+	}
+	if p.KnowsBlockName("minecraft:air_but_misspelt") {
+		t.Error("a misspelt name must stay unknown")
+	}
+}

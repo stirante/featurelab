@@ -40,7 +40,7 @@
 // per-block "count" is therefore the authority and the per-block "values" must
 // be derivable from it (Generate refuses the input otherwise, see
 // checkDerivable). That is what lets the output store one value list per state
-// NAME rather than one per (block, state) pair -- 157 lists instead of 1601.
+// NAME rather than one per (block, state) pair -- 163 lists instead of 1796.
 package genvanillastates
 
 import (

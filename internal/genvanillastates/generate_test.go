@@ -58,7 +58,7 @@ func generate(t *testing.T, body string) (Summary, string) {
 // TestGenerate_Deterministic is this generator's determinism guarantee, the
 // same one genvanillablocks makes: two runs over identical input produce
 // byte-identical output. The table is checked in, so a re-run that reordered
-// even one map entry would show up as unreviewable churn across 1259 lines.
+// even one map entry would show up as unreviewable churn across 1484 lines.
 func TestGenerate_Deterministic(t *testing.T) {
 	summaryA, textA := generate(t, sampleRegistry)
 	summaryB, textB := generate(t, sampleRegistry)

@@ -8,7 +8,7 @@ import (
 // vanilla_catalogue.go lets the generated vanilla block catalogue skip being
 // parsed.
 //
-// Every pack load stacks the 1238 vanilla block files under the pack's own
+// Every pack load stacks the 1463 vanilla block files under the pack's own
 // blocks/ (see DefaultBlocks), and LoadBlockTags decoded every one of them as
 // JSON to learn, in every case, the same thing: this file declares block X,
 // with no tags, no placement filter, no traits and nothing about its looks. On

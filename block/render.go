@@ -254,7 +254,7 @@ type RenderNote struct {
 // Only blocks that DECLARE at least one of the three components get an
 // entry. That keeps the index to a pack's own textured blocks: the
 // generated vanilla catalogue block.DefaultBlocks() stacks underneath every
-// pack load and declares an empty components bag for all 1238 of its
+// pack load and declares an empty components bag for all 1463 of its
 // blocks, so it contributes nothing here -- vanilla appearance comes from
 // the vanilla atlas, not from this index.
 type blockRenderData struct {
@@ -270,7 +270,7 @@ type blockRenderData struct {
 // ok is false when the block declares none of the three components at all
 // -- "component absent -> nothing to say", the same default shape
 // LoadBlockTags' other indexes use, and the reason the vanilla catalogue
-// does not fill this index with 1238 empty entries.
+// does not fill this index with 1463 empty entries.
 func parseBlockRender(canonical, fileID string, blockBody map[string]any) (br BlockRender, notes []RenderNote, ok bool) {
 	components, _ := blockBody["components"].(map[string]any)
 	description, _ := blockBody["description"].(map[string]any)

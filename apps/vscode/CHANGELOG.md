@@ -6,6 +6,14 @@ All notable changes to the Feature Lab extension. This project follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The vanilla block catalogue now matches game 1.26.70.** It gains the 225 blocks it was missing:
+  concrete and wool slabs and stairs, the element blocks, packed ice bricks, icicles, ice crystals,
+  brittle ice, the red shrub and the shelf mushroom. `featurelab check` no longer warns that
+  `minecraft:red_concrete_slab` is not a block. Chorus plants, fire, repeaters, redstone wire and
+  scaffolding also declare the states the game lists for them.
+
 ## [0.4.1] — 2026-11-05
 
 ### Fixed

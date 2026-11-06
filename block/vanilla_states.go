@@ -36,8 +36,8 @@ package block
 // The defaults have no counterpart in that file. A def below is the value a
 // freshly-placed block of that type carries for that state -- the value the
 // game gives it when a pack writes the block's name and says nothing about
-// its states. Most are the first value of the state's own domain; twenty-seven
-// of them, over twenty-six block types, are not, and those are the interesting
+// its states. Most are the first value of the state's own domain; twenty-nine
+// of them, over twenty-eight block types, are not, and those are the interesting
 // ones (a chest faces north, not south;
 // a dripstone hangs; suspicious sand is placed hanging; glow lichen starts on
 // all six faces).
